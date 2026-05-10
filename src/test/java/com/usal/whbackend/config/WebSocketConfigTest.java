@@ -14,22 +14,23 @@ import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry
 
 class WebSocketConfigTest {
 
-    @Test
-    void registerWebSocketHandlers_registersAllEndpoints() {
-        WebSocketConfig config = new WebSocketConfig(
-                new OrderWebSocketHandler(),
-                new UserOrderWebSocketHandler(),
-                new VehicleWebSocketHandler(),
-                new StockAlertWebSocketHandler());
+  @Test
+  void registerWebSocketHandlers_registersAllEndpoints() {
+    WebSocketConfig config =
+        new WebSocketConfig(
+            new OrderWebSocketHandler(),
+            new UserOrderWebSocketHandler(),
+            new VehicleWebSocketHandler(),
+            new StockAlertWebSocketHandler());
 
-        WebSocketHandlerRegistry registry = mock(WebSocketHandlerRegistry.class);
-        WebSocketHandlerRegistration registration = mock(WebSocketHandlerRegistration.class);
-        when(registry.addHandler(any(), anyString())).thenReturn(registration);
-        when(registration.setAllowedOrigins(anyString())).thenReturn(registration);
+    WebSocketHandlerRegistry registry = mock(WebSocketHandlerRegistry.class);
+    WebSocketHandlerRegistration registration = mock(WebSocketHandlerRegistration.class);
+    when(registry.addHandler(any(), anyString())).thenReturn(registration);
+    when(registration.setAllowedOrigins(anyString())).thenReturn(registration);
 
-        config.registerWebSocketHandlers(registry);
+    config.registerWebSocketHandlers(registry);
 
-        verify(registry, times(4)).addHandler(any(), anyString());
-        verify(registration, times(4)).setAllowedOrigins("*");
-    }
+    verify(registry, times(4)).addHandler(any(), anyString());
+    verify(registration, times(4)).setAllowedOrigins("*");
+  }
 }

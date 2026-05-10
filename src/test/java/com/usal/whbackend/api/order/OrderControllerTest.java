@@ -17,29 +17,31 @@ import org.springframework.test.web.servlet.MockMvc;
 @Import(SecurityConfig.class)
 class OrderControllerTest {
 
-    @Autowired MockMvc mockMvc;
-    @MockitoBean OrderService orderService;
+  @Autowired MockMvc mockMvc;
+  @MockitoBean OrderService orderService;
 
-    @Test
-    void getOrders_returns200() throws Exception {
-        mockMvc.perform(get("/orders")).andExpect(status().isOk());
-    }
+  @Test
+  void getOrders_returns200() throws Exception {
+    mockMvc.perform(get("/orders")).andExpect(status().isOk());
+  }
 
-    @Test
-    void getOrder_returns200() throws Exception {
-        mockMvc.perform(get("/orders/test-id")).andExpect(status().isOk());
-    }
+  @Test
+  void getOrder_returns200() throws Exception {
+    mockMvc.perform(get("/orders/test-id")).andExpect(status().isOk());
+  }
 
-    @Test
-    void createOrder_returns200() throws Exception {
-        mockMvc.perform(post("/orders")
-                        .contentType("application/json")
-                        .content("{\"items\":[],\"destinationArea\":\"AREA-A\"}"))
-                .andExpect(status().isOk());
-    }
+  @Test
+  void createOrder_returns200() throws Exception {
+    mockMvc
+        .perform(
+            post("/orders")
+                .contentType("application/json")
+                .content("{\"items\":[],\"destinationArea\":\"AREA-A\"}"))
+        .andExpect(status().isOk());
+  }
 
-    @Test
-    void cancelOrder_returns200() throws Exception {
-        mockMvc.perform(post("/orders/test-id/cancel")).andExpect(status().isOk());
-    }
+  @Test
+  void cancelOrder_returns200() throws Exception {
+    mockMvc.perform(post("/orders/test-id/cancel")).andExpect(status().isOk());
+  }
 }

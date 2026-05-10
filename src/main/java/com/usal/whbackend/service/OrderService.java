@@ -9,25 +9,25 @@ import org.springframework.stereotype.Service;
 @Service
 public class OrderService {
 
-    private final OrderRepository orderRepository;
+  private final OrderRepository orderRepository;
 
-    public OrderService(OrderRepository orderRepository) {
-        this.orderRepository = orderRepository;
-    }
+  public OrderService(OrderRepository orderRepository) {
+    this.orderRepository = orderRepository;
+  }
 
-    public List<Order> getOrders(String status, String from, String to, String vehicleId) {
-        throw new UnsupportedOperationException("not implemented");
-    }
+  public List<Order> getOrders(String status, String from, String to, String vehicleId) {
+    throw new UnsupportedOperationException("not implemented");
+  }
 
-    public Order getOrder(String id) {
-        throw new UnsupportedOperationException("not implemented");
-    }
+  public Order getOrder(String id) {
+    throw new UnsupportedOperationException("not implemented");
+  }
 
-    public Order createOrder(CreateOrderRequest request, String userId) {
-        throw new UnsupportedOperationException("not implemented");
-    }
+  public Order createOrder(CreateOrderRequest request, String userId) {
+    throw new UnsupportedOperationException("not implemented");
+  }
 
-    public Order cancelOrder(String id, String reason) {
-        throw new UnsupportedOperationException("not implemented");
-    }
+  public Order cancelOrder(String id, String reason) {
+    throw new UnsupportedOperationException("not implemented");
+  }
 }

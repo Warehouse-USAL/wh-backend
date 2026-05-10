@@ -17,24 +17,24 @@ import org.springframework.test.web.servlet.MockMvc;
 @Import(SecurityConfig.class)
 class VehicleControllerTest {
 
-    @Autowired MockMvc mockMvc;
-    @MockitoBean VehicleService vehicleService;
+  @Autowired MockMvc mockMvc;
+  @MockitoBean VehicleService vehicleService;
 
-    @Test
-    void getVehicles_returns200() throws Exception {
-        mockMvc.perform(get("/vehicles")).andExpect(status().isOk());
-    }
+  @Test
+  void getVehicles_returns200() throws Exception {
+    mockMvc.perform(get("/vehicles")).andExpect(status().isOk());
+  }
 
-    @Test
-    void getVehicle_returns200() throws Exception {
-        mockMvc.perform(get("/vehicles/test-id")).andExpect(status().isOk());
-    }
+  @Test
+  void getVehicle_returns200() throws Exception {
+    mockMvc.perform(get("/vehicles/test-id")).andExpect(status().isOk());
+  }
 
-    @Test
-    void registerVehicle_returns200() throws Exception {
-        mockMvc.perform(post("/vehicles")
-                        .contentType("application/json")
-                        .content("{\"name\":\"Rover-01\"}"))
-                .andExpect(status().isOk());
-    }
+  @Test
+  void registerVehicle_returns200() throws Exception {
+    mockMvc
+        .perform(
+            post("/vehicles").contentType("application/json").content("{\"name\":\"Rover-01\"}"))
+        .andExpect(status().isOk());
+  }
 }

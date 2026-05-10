@@ -13,12 +13,13 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class AuthServiceTest {
 
-    @Mock UserRepository userRepository;
-    @InjectMocks AuthService authService;
+  @Mock UserRepository userRepository;
+  @InjectMocks AuthService authService;
 
-    @Test
-    void login_throwsUnsupported() {
-        assertThrows(UnsupportedOperationException.class,
-                () -> authService.login(new LoginRequest("user@example.com", "pass")));
-    }
+  @Test
+  void login_throwsUnsupported() {
+    assertThrows(
+        UnsupportedOperationException.class,
+        () -> authService.login(new LoginRequest("user@example.com", "pass")));
+  }
 }

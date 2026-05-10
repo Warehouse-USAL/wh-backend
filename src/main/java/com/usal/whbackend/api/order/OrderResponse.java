@@ -15,5 +15,10 @@ public record OrderResponse(
         Instant startedAt,
         Instant completedAt,
         String cancelReason) {
+
+    public OrderResponse {
+        items = items == null ? null : List.copyOf(items);
+    }
+
     public record OrderItemResponse(String productId, String sku, int quantity) {}
 }

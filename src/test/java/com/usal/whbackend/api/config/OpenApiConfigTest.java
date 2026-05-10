@@ -8,12 +8,12 @@ import org.junit.jupiter.api.Test;
 
 class OpenApiConfigTest {
 
-    @Test
-    void smartWarehouseOpenAPI_isConfigured() {
-        OpenAPI api = new OpenApiConfig().smartWarehouseOpenAPI();
+  @Test
+  void smartWarehouseOpenAPI_isConfigured() {
+    OpenAPI api = new OpenApiConfig().smartWarehouseOpenAPI();
 
-        assertNotNull(api);
-        assertEquals("SmartWarehouse API", api.getInfo().getTitle());
-        assertEquals("v1.0", api.getInfo().getVersion());
-    }
+    assertNotNull(api);
+    assertEquals("SmartWarehouse API", api.getInfo().getTitle());
+    assertEquals("v1.0", api.getInfo().getVersion());
+  }
 }

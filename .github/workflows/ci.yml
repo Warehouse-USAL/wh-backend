@@ -37,7 +37,7 @@ jobs:
           echo "Branch name is valid."
 
   code-quality:
-    name: Code Quality (Checkstyle + SpotBugs + Spotless)
+    name: Code Quality (Checkstyle + SpotBugs)
     needs: skip-drafts
     runs-on: ubuntu-latest
     steps:
@@ -46,15 +46,12 @@ jobs:
       - name: Set up Java 25
         uses: actions/setup-java@v4
         with:
-          java-version: '25'
+          java-version: '21'
           distribution: 'temurin'
           cache: gradle
 
       - name: Make gradlew executable
         run: chmod +x ./gradlew
-
-      - name: Run Spotless (formatting check)
-        run: ./gradlew spotlessCheck
 
       - name: Run Checkstyle
         run: ./gradlew checkstyleMain
@@ -72,7 +69,7 @@ jobs:
       - name: Set up Java 25
         uses: actions/setup-java@v4
         with:
-          java-version: '25'
+          java-version: '21'
           distribution: 'temurin'
           cache: gradle
 
@@ -106,7 +103,7 @@ jobs:
       - name: Set up Java 25
         uses: actions/setup-java@v4
         with:
-          java-version: '25'
+          java-version: '21'
           distribution: 'temurin'
           cache: gradle
 

@@ -13,24 +13,23 @@ import org.mockito.junit.jupiter.MockitoExtension;
 @ExtendWith(MockitoExtension.class)
 class VehicleServiceTest {
 
-    @Mock VehicleRepository vehicleRepository;
-    @InjectMocks VehicleService vehicleService;
+  @Mock VehicleRepository vehicleRepository;
+  @InjectMocks VehicleService vehicleService;
 
-    @Test
-    void getVehicles_throwsUnsupported() {
-        assertThrows(UnsupportedOperationException.class,
-                () -> vehicleService.getVehicles());
-    }
+  @Test
+  void getVehicles_throwsUnsupported() {
+    assertThrows(UnsupportedOperationException.class, () -> vehicleService.getVehicles());
+  }
 
-    @Test
-    void getVehicle_throwsUnsupported() {
-        assertThrows(UnsupportedOperationException.class,
-                () -> vehicleService.getVehicle("id-1"));
-    }
+  @Test
+  void getVehicle_throwsUnsupported() {
+    assertThrows(UnsupportedOperationException.class, () -> vehicleService.getVehicle("id-1"));
+  }
 
-    @Test
-    void registerVehicle_throwsUnsupported() {
-        assertThrows(UnsupportedOperationException.class,
-                () -> vehicleService.registerVehicle(new RegisterVehicleRequest("Rover-01")));
-    }
+  @Test
+  void registerVehicle_throwsUnsupported() {
+    assertThrows(
+        UnsupportedOperationException.class,
+        () -> vehicleService.registerVehicle(new RegisterVehicleRequest("Rover-01")));
+  }
 }

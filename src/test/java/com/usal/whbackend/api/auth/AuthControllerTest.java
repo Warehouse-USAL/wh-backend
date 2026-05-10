@@ -16,14 +16,16 @@ import org.springframework.test.web.servlet.MockMvc;
 @Import(SecurityConfig.class)
 class AuthControllerTest {
 
-    @Autowired MockMvc mockMvc;
-    @MockitoBean AuthService authService;
+  @Autowired MockMvc mockMvc;
+  @MockitoBean AuthService authService;
 
-    @Test
-    void login_returns501() throws Exception {
-        mockMvc.perform(post("/auth/login")
-                        .contentType("application/json")
-                        .content("{\"email\":\"a@b.com\",\"password\":\"pass\"}"))
-                .andExpect(status().isNotImplemented());
-    }
+  @Test
+  void login_returns501() throws Exception {
+    mockMvc
+        .perform(
+            post("/auth/login")
+                .contentType("application/json")
+                .content("{\"email\":\"a@b.com\",\"password\":\"pass\"}"))
+        .andExpect(status().isNotImplemented());
+  }
 }

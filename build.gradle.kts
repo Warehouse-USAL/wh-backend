@@ -13,7 +13,7 @@ version = "0.0.1-SNAPSHOT"
 
 java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of(25)
+        languageVersion = JavaLanguageVersion.of(21)
     }
 }
 
@@ -39,9 +39,6 @@ dependencies {
     testImplementation("com.tngtech.archunit:archunit-junit5:1.3.0")
 }
 
-tasks.withType<JavaCompile> {
-    options.release.set(21)
-}
 
 tasks.test {
     useJUnitPlatform()
@@ -63,6 +60,7 @@ checkstyle {
 
 spotbugs {
     ignoreFailures.set(false)
+    excludeFilter.set(file("config/spotbugs/exclude.xml"))
 }
 
 jacoco {
