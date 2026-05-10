@@ -4,11 +4,11 @@ services:
     ports:
       - "8080:8080"
     environment:
-      SPRING_DATA_MONGODB_URI: mongodb://mongodb:27017/smartwarehouse
+      SPRING_MONGODB_URI: mongodb://mongodb:27017/smartwarehouse
       REDPANDA_BOOTSTRAP_SERVERS: redpanda:9092
       JWT_SECRET: dev-secret-change-in-prod-min-32-chars
       JWT_EXPIRATION_MS: 86400000
-      SPRING_PROFILES_ACTIVE: dev
+      SPRING_PROFILES_ACTIVE: dev,docker
     depends_on:
       mongodb:
         condition: service_healthy
@@ -23,7 +23,7 @@ services:
     ports:
       - "27017:27017"
     volumes:
-      - mongodb-data:/data/db
+      - ./data/mongodb:/data/db
     networks:
       - wh-network
     healthcheck:
@@ -69,7 +69,7 @@ services:
       - "19092:19092"
       - "9644:9644"
     volumes:
-      - redpanda-data:/var/lib/redpanda/data
+      - ./data/redpanda:/var/lib/redpanda/data
     networks:
       - wh-network
     healthcheck:
@@ -96,10 +96,6 @@ services:
     profiles:
       - dev
     restart: unless-stopped
-
-volumes:
-  mongodb-data:
-  redpanda-data:
 
 networks:
   wh-network:

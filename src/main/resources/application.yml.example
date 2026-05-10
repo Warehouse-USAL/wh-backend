@@ -4,11 +4,10 @@ server:
 spring:
   application:
     name: wh-backend
-  data:
-    mongodb:
-      uri: ${SPRING_DATA_MONGODB_URI:mongodb://localhost:27017/smartwarehouse}
+  mongodb:
+    uri: mongodb://localhost:27017/smartwarehouse
   kafka:
-    bootstrap-servers: ${REDPANDA_BOOTSTRAP_SERVERS:localhost:9092}
+    bootstrap-servers: localhost:9092
 
 jwt:
   secret: ${JWT_SECRET:dev-secret-change-in-prod-min-32-chars}

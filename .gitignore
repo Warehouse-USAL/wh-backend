@@ -55,6 +55,10 @@ logs/
 !*.example.yaml
 !docker-compose*.yml
 !docker-compose*.yaml
+!application-docker.yml
+
+# ─── Local data (bind-mounted Docker volumes) ─────────────────────────────────
+data/
 
 # ─── Superpowers internal docs ────────────────────────────────────────────────
 docs/superpowers/

@@ -1,7 +1,12 @@
-.PHONY: help up-dev run up-prod up-infra down build test test-coverage lint format pr-checks logs clean
+.PHONY: help up-dev run up-prod up-infra down build test test-coverage lint format format-fix pr-checks logs clean
 
-# Default target
 .DEFAULT_GOAL := help
+
+GRADLE = docker run --rm \
+	-v "$(PWD)":/app \
+	-v wh-gradle-cache:/root/.gradle \
+	-w /app \
+	eclipse-temurin:25-jdk-alpine ./gradlew
 
 help: ## Show available commands
 	@echo ""
@@ -13,7 +18,7 @@ help: ## Show available commands
 # ─── Docker targets ───────────────────────────────────────────────────────────
 
 up-dev: ## Start all services in dev mode (app + MongoDB + Redpanda + UI tools)
-	docker compose --profile dev up --build -d
+	docker compose --profile dev up --build
 	@echo ""
 	@echo "Services started:"
 	@echo "  Backend:          http://localhost:8080"
@@ -35,7 +40,7 @@ up-infra: ## Start only MongoDB and Redpanda (for local Gradle development)
 	@echo "  MongoDB:  localhost:27017"
 	@echo "  Redpanda: localhost:19092"
 	@echo ""
-	@echo "Run the app with: ./gradlew bootRun"
+	@echo "Run the app with: make build && make run"
 
 down: ## Stop and remove all containers
 	docker compose --profile dev down
@@ -43,19 +48,19 @@ down: ## Stop and remove all containers
 # ─── Build targets ────────────────────────────────────────────────────────────
 
 build: ## Build the application JAR
-	./gradlew bootJar
+	$(GRADLE) bootJar
 	@echo "JAR built at build/libs/"
 
 clean: ## Clean build artifacts
-	./gradlew clean
+	$(GRADLE) clean
 
 # ─── Test targets ─────────────────────────────────────────────────────────────
 
 test: ## Run all tests
-	./gradlew test
+	$(GRADLE) test
 
 test-coverage: ## Run tests and generate JaCoCo coverage report
-	./gradlew test jacocoTestReport
+	$(GRADLE) test jacocoTestReport
 	@echo ""
 	@echo "Coverage report: build/reports/jacoco/test/html/index.html"
 	@open build/reports/jacoco/test/html/index.html 2>/dev/null || true
@@ -63,19 +68,19 @@ test-coverage: ## Run tests and generate JaCoCo coverage report
 # ─── Quality targets ──────────────────────────────────────────────────────────
 
 lint: ## Run Checkstyle and SpotBugs
-	./gradlew checkstyleMain spotbugsMain
+	$(GRADLE) checkstyleMain spotbugsMain
 
 format: ## Check code formatting (Google Java Format via Spotless)
-	./gradlew spotlessCheck
+	$(GRADLE) spotlessCheck
 
 format-fix: ## Apply Google Java Format to all source files
-	./gradlew spotlessApply
+	$(GRADLE) spotlessApply
 
 # ─── CI gate ──────────────────────────────────────────────────────────────────
 
 pr-checks: ## Run all checks required before opening a PR (format + lint + test + build)
 	@echo "Running pre-PR checks..."
-	./gradlew spotlessCheck checkstyleMain spotbugsMain test bootJar
+	$(GRADLE) spotlessCheck checkstyleMain spotbugsMain test bootJar
 	@echo ""
 	@echo "All checks passed. Ready to open a PR."
 
