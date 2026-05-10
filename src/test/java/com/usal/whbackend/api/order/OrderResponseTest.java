@@ -1,12 +1,11 @@
 package com.usal.whbackend.api.order;
 
-import com.usal.whbackend.domain.OrderStatus;
-import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.*;
 
+import com.usal.whbackend.domain.OrderStatus;
 import java.time.Instant;
 import java.util.List;
-
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.Test;
 
 class OrderResponseTest {
 

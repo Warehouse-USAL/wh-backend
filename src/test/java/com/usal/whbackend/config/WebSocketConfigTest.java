@@ -1,5 +1,9 @@
 package com.usal.whbackend.config;
 
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.*;
+
 import com.usal.whbackend.api.websocket.OrderWebSocketHandler;
 import com.usal.whbackend.api.websocket.StockAlertWebSocketHandler;
 import com.usal.whbackend.api.websocket.UserOrderWebSocketHandler;
@@ -7,10 +11,6 @@ import com.usal.whbackend.api.websocket.VehicleWebSocketHandler;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistration;
 import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry;
-
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.*;
 
 class WebSocketConfigTest {
 

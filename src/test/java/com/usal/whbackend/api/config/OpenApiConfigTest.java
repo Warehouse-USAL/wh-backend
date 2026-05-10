@@ -1,10 +1,10 @@
 package com.usal.whbackend.api.config;
 
-import io.swagger.v3.oas.models.OpenAPI;
-import org.junit.jupiter.api.Test;
-
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+
+import io.swagger.v3.oas.models.OpenAPI;
+import org.junit.jupiter.api.Test;
 
 class OpenApiConfigTest {
 

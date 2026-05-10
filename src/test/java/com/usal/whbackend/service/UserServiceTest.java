@@ -1,5 +1,7 @@
 package com.usal.whbackend.service;
 
+import static org.junit.jupiter.api.Assertions.assertThrows;
+
 import com.usal.whbackend.api.user.CreateUserRequest;
 import com.usal.whbackend.api.user.UpdateUserRequest;
 import com.usal.whbackend.repository.UserRepository;
@@ -8,8 +10,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-
-import static org.junit.jupiter.api.Assertions.assertThrows;
 
 @ExtendWith(MockitoExtension.class)
 class UserServiceTest {
