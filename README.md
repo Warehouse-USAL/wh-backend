@@ -2,6 +2,8 @@
 
 Backend service for the SmartWarehouse autonomous warehouse system. Built with Spring Boot 4, MongoDB, and Redpanda (Kafka-compatible). Exposes a REST API, WebSocket channels for real-time events, and integrates with autonomous vehicle controllers.
 
+> **Status:** scaffolding complete — service stubs ready for implementation.
+
 ## Stack
 
 | Layer | Technology |
