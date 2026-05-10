@@ -1,0 +1,55 @@
+# ─── Build ────────────────────────────────────────────────────────────────────
+.gradle/
+build/
+out/
+target/
+!gradle/wrapper/gradle-wrapper.jar
+
+# ─── IDE ──────────────────────────────────────────────────────────────────────
+.idea/
+*.iml
+*.iws
+*.ipr
+.classpath
+.project
+.settings/
+.factorypath
+*.code-workspace
+.vscode/
+
+# ─── OS ───────────────────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ─── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+logs/
+
+# ─── Environment & secrets ────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+
+# ─── Config / properties (ignore actuals, keep examples) ──────────────────────
+*.properties
+*.yml
+*.yaml
+!*.example.properties
+!*.example.yml
+!*.example.yaml
+!docker-compose*.yml
+!docker-compose*.yaml
+
+# ─── Superpowers internal docs ────────────────────────────────────────────────
+docs/superpowers/
+
+# ─── Java ─────────────────────────────────────────────────────────────────────
+*.class
+*.jar
+*.war
+*.ear
+hs_err_pid*
+
+# ─── Test reports & coverage ──────────────────────────────────────────────────
+test-results/
+coverage/
