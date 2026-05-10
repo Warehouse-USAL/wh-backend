@@ -1,0 +1,23 @@
+services:
+  backend:
+    image: ghcr.io/warehouse-usal/wh-backend:latest
+    environment:
+      SPRING_DATA_MONGODB_URI: ${SPRING_DATA_MONGODB_URI}
+      REDPANDA_BOOTSTRAP_SERVERS: ${REDPANDA_BOOTSTRAP_SERVERS}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:86400000}
+      SPRING_PROFILES_ACTIVE: prod
+    restart: always
+
+  mongodb:
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+    restart: always
+
+  redpanda:
+    restart: always
+
+networks:
+  wh-network:
+    driver: bridge

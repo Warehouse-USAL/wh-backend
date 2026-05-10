@@ -1,0 +1,5 @@
+spring:
+  mongodb:
+    uri: mongodb://mongodb:27017/smartwarehouse
+  kafka:
+    bootstrap-servers: redpanda:9092
