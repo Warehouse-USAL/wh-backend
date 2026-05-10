@@ -1,6 +1,7 @@
 package com.usal.whbackend.domain;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
@@ -27,8 +28,8 @@ public class Order {
     public void setStatus(OrderStatus status) { this.status = status; }
     public String getRequestedByUserId() { return requestedByUserId; }
     public void setRequestedByUserId(String requestedByUserId) { this.requestedByUserId = requestedByUserId; }
-    public List<OrderItem> getItems() { return items; }
-    public void setItems(List<OrderItem> items) { this.items = items; }
+    public List<OrderItem> getItems() { return items == null ? null : new ArrayList<>(items); }
+    public void setItems(List<OrderItem> items) { this.items = items == null ? null : new ArrayList<>(items); }
     public String getDestinationArea() { return destinationArea; }
     public void setDestinationArea(String destinationArea) { this.destinationArea = destinationArea; }
     public String getAssignedVehicleId() { return assignedVehicleId; }

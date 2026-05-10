@@ -1,0 +1,50 @@
+name: Backport
+
+on:
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
+
+jobs:
+  backport:
+    name: Backport ${{ inputs.version }} to develop
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: master
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Create backport branch
+        id: branch
+        run: |
+          DATE=$(date +%Y-%m-%d)
+          BACKPORT_BRANCH="backport/${DATE}-${{ inputs.version }}"
+          git checkout -b "$BACKPORT_BRANCH"
+          git push origin "$BACKPORT_BRANCH"
+          echo "branch=$BACKPORT_BRANCH" >> $GITHUB_OUTPUT
+
+      - name: Open PR to develop
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ steps.branch.outputs.branch }}
+          base: develop
+          title: "chore: backport ${{ inputs.version }} to develop"
+          body: |
+            Automated backport of release ${{ inputs.version }} to `develop`.
+
+            This PR was created automatically after the stable release was published.
+            Merge it to keep `develop` in sync with `master`.
+          labels: backport,automated
