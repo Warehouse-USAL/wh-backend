@@ -1,0 +1,102 @@
+services:
+  backend:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_MONGODB_URI: mongodb://mongodb:27017/smartwarehouse
+      REDPANDA_BOOTSTRAP_SERVERS: redpanda:9092
+      JWT_SECRET: dev-secret-change-in-prod-min-32-chars
+      JWT_EXPIRATION_MS: 86400000
+      SPRING_PROFILES_ACTIVE: dev,docker
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+    networks:
+      - wh-network
+    restart: unless-stopped
+
+  mongodb:
+    image: mongo:7
+    ports:
+      - "27017:27017"
+    volumes:
+      - ./data/mongodb:/data/db
+    networks:
+      - wh-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  mongo-express:
+    image: mongo-express:latest
+    ports:
+      - "8081:8081"
+    environment:
+      ME_CONFIG_MONGODB_SERVER: mongodb
+      ME_CONFIG_MONGODB_PORT: 27017
+      ME_CONFIG_BASICAUTH: false
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - wh-network
+    profiles:
+      - dev
+    restart: unless-stopped
+
+  redpanda:
+    image: redpandadata/redpanda:latest
+    command:
+      - redpanda start
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr internal://redpanda:9092,external://localhost:19092
+      - --pandaproxy-addr internal://0.0.0.0:8082,external://0.0.0.0:18082
+      - --advertise-pandaproxy-addr internal://redpanda:8082,external://localhost:18082
+      - --schema-registry-addr internal://0.0.0.0:8081,external://0.0.0.0:18081
+      - --rpc-addr redpanda:33145
+      - --advertise-rpc-addr redpanda:33145
+      - --mode dev-container
+      - --smp 1
+      - --default-log-level=info
+    ports:
+      - "19092:19092"
+      - "9644:9644"
+    volumes:
+      - ./data/redpanda:/var/lib/redpanda/data
+    networks:
+      - wh-network
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true' || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    restart: unless-stopped
+
+  redpanda-console:
+    image: redpandadata/console:latest
+    ports:
+      - "8082:8080"
+    environment:
+      CONFIG_FILEPATH: /tmp/config.yml
+    entrypoint: /bin/sh
+    command: -c 'printf "kafka:\n  brokers:\n    - redpanda:9092\n" > /tmp/config.yml && /app/console'
+    depends_on:
+      redpanda:
+        condition: service_healthy
+    networks:
+      - wh-network
+    profiles:
+      - dev
+    restart: unless-stopped
+
+networks:
+  wh-network:
+    driver: bridge
