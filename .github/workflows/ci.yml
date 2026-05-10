@@ -1,0 +1,123 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - develop
+      - master
+    types: [opened, synchronize, reopened, ready_for_review]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  skip-drafts:
+    name: Skip draft PRs
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    steps:
+      - name: Not a draft
+        run: echo "PR is ready for review — proceeding with CI"
+
+  validate-branch:
+    name: Validate branch model
+    needs: skip-drafts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check branch naming convention
+        run: |
+          BRANCH="${{ github.head_ref }}"
+          echo "Branch: $BRANCH"
+          if ! echo "$BRANCH" | grep -qE '^(feature|fix|enhancement|refactor|hotfix|beta|backport|dependabot)/'; then
+            echo "ERROR: Branch '$BRANCH' does not match naming conventions."
+            echo "Expected prefix: feature/, fix/, enhancement/, refactor/, hotfix/, beta/, backport/, dependabot/"
+            exit 1
+          fi
+          echo "Branch name is valid."
+
+  code-quality:
+    name: Code Quality (Checkstyle + SpotBugs + Spotless)
+    needs: skip-drafts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Run Spotless (formatting check)
+        run: ./gradlew spotlessCheck
+
+      - name: Run Checkstyle
+        run: ./gradlew checkstyleMain
+
+      - name: Run SpotBugs
+        run: ./gradlew spotbugsMain
+
+  test-coverage:
+    name: Test & Coverage
+    needs: skip-drafts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Run tests with coverage
+        run: ./gradlew test jacocoTestReport jacocoTestCoverageVerification
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: build/reports/jacoco/test/html/
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results
+          path: build/reports/tests/test/
+
+  build:
+    name: Build JAR
+    needs: [code-quality, test-coverage]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 25
+        uses: actions/setup-java@v4
+        with:
+          java-version: '25'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Build JAR
+        run: ./gradlew bootJar
+
+      - name: Upload JAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: wh-backend-jar
+          path: build/libs/*.jar

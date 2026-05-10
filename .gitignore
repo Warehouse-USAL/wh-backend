@@ -56,6 +56,7 @@ logs/
 !docker-compose*.yml
 !docker-compose*.yaml
 !application-docker.yml
+!.github/**
 
 # ─── Local data (bind-mounted Docker volumes) ─────────────────────────────────
 data/
