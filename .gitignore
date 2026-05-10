@@ -48,6 +48,7 @@ logs/
 
 # ─── Config / properties (ignore actuals, keep examples) ──────────────────────
 *.properties
+!gradle/wrapper/gradle-wrapper.properties
 *.yml
 *.yaml
 !*.example.properties
