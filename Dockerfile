@@ -1,4 +1,4 @@
-FROM eclipse-temurin:25-jdk AS build
+FROM eclipse-temurin:21-jdk AS build
 
 WORKDIR /app
 
@@ -16,7 +16,7 @@ COPY src/ src/
 RUN ./gradlew bootJar --no-daemon -x test
 
 # --- Runtime image ---
-FROM eclipse-temurin:25-jre AS runtime
+FROM eclipse-temurin:21-jre AS runtime
 
 RUN groupadd -r appgroup && useradd -r -g appgroup appuser
 WORKDIR /app
