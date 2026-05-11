@@ -28,7 +28,6 @@ public class OrderService {
     public List<Order> getOrders(String status, String from, String to, String vehicleId) {
         List<Order> orders;
 
-        // Filtro principal: status o vehicleId
         if (status != null) {
             orders = orderRepository.findByStatus(OrderStatus.valueOf(status.toUpperCase()));
         } else if (vehicleId != null) {
@@ -64,44 +63,52 @@ public class OrderService {
 
     public Order getOrder(String id) {
         return orderRepository.findById(id)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Orden no encontrada"));
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "ORDER_NOT_FOUND"));
     }
 
     public Order createOrder(CreateOrderRequest request, String userId) {
+        // Validación: destinationArea es obligatorio (RFC sección 3.3)
+        if (request.destinationArea() == null || request.destinationArea().isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST, "DESTINATION_AREA_REQUIRED");
+        }
+
         List<OrderItem> items = new ArrayList<>();
 
-        // Validar cada producto e item de la orden
         for (CreateOrderRequest.OrderItemRequest itemRequest : request.items()) {
+
+            // Validación: quantity debe ser mayor a cero
+            if (itemRequest.quantity() <= 0) {
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST, "INVALID_QUANTITY");
+            }
 
             Product product = productRepository.findById(itemRequest.productId())
                     .orElseThrow(() -> new ResponseStatusException(
-                            HttpStatus.BAD_REQUEST, "Producto no encontrado: " + itemRequest.productId()));
+                            HttpStatus.BAD_REQUEST, "PRODUCT_NOT_FOUND"));
 
             if (!product.isActive()) {
                 throw new ResponseStatusException(
-                        HttpStatus.BAD_REQUEST, "Producto inactivo: " + product.getSku());
+                        HttpStatus.BAD_REQUEST, "PRODUCT_INACTIVE");
             }
 
             if (itemRequest.quantity() > product.getMaxQuantityPerOrder()) {
                 throw new ResponseStatusException(
-                        HttpStatus.BAD_REQUEST,
-                        "Cantidad supera el máximo permitido por orden para: " + product.getSku());
+                        HttpStatus.BAD_REQUEST, "QUANTITY_EXCEEDS_LIMIT");
             }
 
             if (product.getAvailableStock() < itemRequest.quantity()) {
                 throw new ResponseStatusException(
-                        HttpStatus.BAD_REQUEST, "Stock insuficiente para: " + product.getSku());
+                        HttpStatus.BAD_REQUEST, "INSUFFICIENT_STOCK");
             }
 
-            // Reservar stock: descontar de disponible y sumar a reservado
-            product.setAvailableStock(product.getAvailableStock() - itemRequest.quantity());
-            product.setReservedStock(product.getReservedStock() + itemRequest.quantity());
-            productRepository.save(product);
+            // Reservar stock con operación atómica $inc (RFC sección 7)
+            productRepository.updateStock(product.getId(), -itemRequest.quantity(), itemRequest.quantity());
 
             items.add(new OrderItem(product.getId(), product.getSku(), itemRequest.quantity()));
         }
 
-        // Crear la orden con estado PENDING
         Order order = new Order();
         order.setStatus(OrderStatus.PENDING);
         order.setRequestedByUserId(userId);
@@ -118,23 +125,19 @@ public class OrderService {
 
     public Order cancelOrder(String id, String reason) {
         Order order = orderRepository.findById(id)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Orden no encontrada"));
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.NOT_FOUND, "ORDER_NOT_FOUND"));
 
         if (order.getStatus() == OrderStatus.COMPLETED
                 || order.getStatus() == OrderStatus.CANCELLED) {
             throw new ResponseStatusException(
-                    HttpStatus.CONFLICT, "La orden no puede cancelarse en su estado actual");
+                    HttpStatus.CONFLICT, "ORDER_NOT_CANCELLABLE");
         }
 
-        // Devolver el stock reservado a disponible
+        // Devolver stock reservado con operación atómica $inc (RFC sección 7)
         if (order.getItems() != null) {
             for (OrderItem item : order.getItems()) {
-                productRepository.findById(item.getProductId()).ifPresent(product -> {
-                    product.setAvailableStock(product.getAvailableStock() + item.getQuantity());
-                    product.setReservedStock(
-                            Math.max(0, product.getReservedStock() - item.getQuantity()));
-                    productRepository.save(product);
-                });
+                productRepository.updateStock(item.getProductId(), item.getQuantity(), -item.getQuantity());
             }
         }
 

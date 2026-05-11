@@ -1,9 +1,8 @@
 package com.usal.whbackend.api.order;
 
-import com.usal.whbackend.api.order.OrderResponse.OrderItemResponse;
-import com.usal.whbackend.domain.Order;
 import com.usal.whbackend.service.OrderService;
 import java.util.List;
+import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,56 +24,37 @@ public class OrderController {
     }
 
     @GetMapping
-    public ResponseEntity<List<OrderResponse>> getOrders(
+    public ResponseEntity<Map<String, List<OrderResponse>>> getOrders(
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String from,
             @RequestParam(required = false) String to,
             @RequestParam(required = false) String vehicleId) {
-        List<OrderResponse> response = orderService.getOrders(status, from, to, vehicleId)
+        List<OrderResponse> orders = orderService.getOrders(status, from, to, vehicleId)
                 .stream()
-                .map(this::toResponse)
+                .map(OrderResponse::from)
                 .toList();
-        return ResponseEntity.ok(response);
+        return ResponseEntity.ok(Map.of("orders", orders));
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<OrderResponse> getOrder(@PathVariable String id) {
-        return ResponseEntity.ok(toResponse(orderService.getOrder(id)));
+    public ResponseEntity<Map<String, OrderResponse>> getOrder(@PathVariable String id) {
+        return ResponseEntity.ok(Map.of("order", OrderResponse.from(orderService.getOrder(id))));
     }
 
     @PostMapping
-    public ResponseEntity<OrderResponse> createOrder(@RequestBody CreateOrderRequest request) {
+    public ResponseEntity<Map<String, OrderResponse>> createOrder(
+            @RequestBody CreateOrderRequest request) {
         // TODO: extraer userId del JWT cuando se implemente autenticación (issue #16)
         String userId = "anonymous";
-        Order order = orderService.createOrder(request, userId);
-        return ResponseEntity.status(HttpStatus.CREATED).body(toResponse(order));
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(Map.of("order", OrderResponse.from(orderService.createOrder(request, userId))));
     }
 
     @PostMapping("/{id}/cancel")
-    public ResponseEntity<OrderResponse> cancelOrder(
+    public ResponseEntity<Map<String, OrderResponse>> cancelOrder(
             @PathVariable String id,
             @RequestParam(required = false) String reason) {
-        return ResponseEntity.ok(toResponse(orderService.cancelOrder(id, reason)));
-    }
-
-    private OrderResponse toResponse(Order order) {
-        List<OrderItemResponse> items = order.getItems() == null
-                ? List.of()
-                : order.getItems().stream()
-                        .map(item -> new OrderItemResponse(
-                                item.getProductId(), item.getSku(), item.getQuantity()))
-                        .toList();
-
-        return new OrderResponse(
-                order.getId(),
-                order.getStatus(),
-                order.getRequestedByUserId(),
-                items,
-                order.getDestinationArea(),
-                order.getAssignedVehicleId(),
-                order.getCreatedAt(),
-                order.getStartedAt(),
-                order.getCompletedAt(),
-                order.getCancelReason());
+        return ResponseEntity.ok(
+                Map.of("order", OrderResponse.from(orderService.cancelOrder(id, reason))));
     }
 }

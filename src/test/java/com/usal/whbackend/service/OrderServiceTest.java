@@ -1,7 +1,7 @@
 package com.usal.whbackend.service;
 
 import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import com.usal.whbackend.api.order.CreateOrderRequest;
@@ -98,7 +98,39 @@ class OrderServiceTest {
         assertEquals(OrderStatus.PENDING, result.getStatus());
         assertEquals("user-1", result.getRequestedByUserId());
         assertEquals("AREA-B", result.getDestinationArea());
-        verify(productRepository).save(any(Product.class));
+        verify(productRepository).updateStock("prod-1", -3, 3);
+    }
+
+    @Test
+    void createOrder_destinationAreaVacia_lanza400() {
+        CreateOrderRequest request = new CreateOrderRequest(List.of(), "");
+
+        ResponseStatusException ex = assertThrows(
+                ResponseStatusException.class, () -> orderService.createOrder(request, "user-1"));
+
+        assertEquals(400, ex.getStatusCode().value());
+    }
+
+    @Test
+    void createOrder_cantidadCero_lanza400() {
+        CreateOrderRequest request = new CreateOrderRequest(
+                List.of(new OrderItemRequest("prod-1", 0)), "AREA-B");
+
+        ResponseStatusException ex = assertThrows(
+                ResponseStatusException.class, () -> orderService.createOrder(request, "user-1"));
+
+        assertEquals(400, ex.getStatusCode().value());
+    }
+
+    @Test
+    void createOrder_cantidadNegativa_lanza400() {
+        CreateOrderRequest request = new CreateOrderRequest(
+                List.of(new OrderItemRequest("prod-1", -1)), "AREA-B");
+
+        ResponseStatusException ex = assertThrows(
+                ResponseStatusException.class, () -> orderService.createOrder(request, "user-1"));
+
+        assertEquals(400, ex.getStatusCode().value());
     }
 
     @Test
@@ -167,7 +199,8 @@ class OrderServiceTest {
         when(orderRepository.findById("no-existe")).thenReturn(Optional.empty());
 
         ResponseStatusException ex = assertThrows(
-                ResponseStatusException.class, () -> orderService.cancelOrder("no-existe", "motivo"));
+                ResponseStatusException.class,
+                () -> orderService.cancelOrder("no-existe", "motivo"));
 
         assertEquals(404, ex.getStatusCode().value());
     }
