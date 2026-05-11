@@ -1,8 +1,9 @@
 package com.usal.whbackend.api.order;
 
 import com.usal.whbackend.service.OrderService;
-import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -23,26 +24,37 @@ public class OrderController {
     }
 
     @GetMapping
-    public ResponseEntity<List<OrderResponse>> getOrders(
+    public ResponseEntity<Map<String, List<OrderResponse>>> getOrders(
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String from,
             @RequestParam(required = false) String to,
             @RequestParam(required = false) String vehicleId) {
-        return ResponseEntity.ok(Collections.emptyList());
+        List<OrderResponse> orders = orderService.getOrders(status, from, to, vehicleId)
+                .stream()
+                .map(OrderResponse::from)
+                .toList();
+        return ResponseEntity.ok(Map.of("orders", orders));
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<OrderResponse> getOrder(@PathVariable String id) {
-        return ResponseEntity.ok().build();
+    public ResponseEntity<Map<String, OrderResponse>> getOrder(@PathVariable String id) {
+        return ResponseEntity.ok(Map.of("order", OrderResponse.from(orderService.getOrder(id))));
     }
 
     @PostMapping
-    public ResponseEntity<OrderResponse> createOrder(@RequestBody CreateOrderRequest request) {
-        return ResponseEntity.ok().build();
+    public ResponseEntity<Map<String, OrderResponse>> createOrder(
+            @RequestBody CreateOrderRequest request) {
+        // TODO: extraer userId del JWT cuando se implemente autenticación (issue #16)
+        String userId = "anonymous";
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(Map.of("order", OrderResponse.from(orderService.createOrder(request, userId))));
     }
 
     @PostMapping("/{id}/cancel")
-    public ResponseEntity<OrderResponse> cancelOrder(@PathVariable String id) {
-        return ResponseEntity.ok().build();
+    public ResponseEntity<Map<String, OrderResponse>> cancelOrder(
+            @PathVariable String id,
+            @RequestParam(required = false) String reason) {
+        return ResponseEntity.ok(
+                Map.of("order", OrderResponse.from(orderService.cancelOrder(id, reason))));
     }
 }
