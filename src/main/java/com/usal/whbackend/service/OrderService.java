@@ -8,8 +8,11 @@ import com.usal.whbackend.domain.Product;
 import com.usal.whbackend.repository.OrderRepository;
 import com.usal.whbackend.repository.ProductRepository;
 import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -29,33 +32,42 @@ public class OrderService {
         List<Order> orders;
 
         if (status != null) {
-            orders = orderRepository.findByStatus(OrderStatus.valueOf(status.toUpperCase()));
+            try {
+                orders = orderRepository.findByStatus(OrderStatus.valueOf(status.toUpperCase()));
+            } catch (IllegalArgumentException e) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "INVALID_STATUS");
+            }
         } else if (vehicleId != null) {
             orders = orderRepository.findByAssignedVehicleId(vehicleId);
         } else {
             orders = orderRepository.findAll();
         }
 
-        // Si vinieron ambos filtros, aplicamos vehicleId sobre el resultado de status
         if (status != null && vehicleId != null) {
-            final String fVehicleId = vehicleId;
             orders = orders.stream()
-                    .filter(o -> fVehicleId.equals(o.getAssignedVehicleId()))
+                    .filter(o -> vehicleId.equals(o.getAssignedVehicleId()))
                     .toList();
         }
 
-        // Filtro por rango de fechas
         if (from != null) {
-            Instant fromInstant = Instant.parse(from);
-            orders = orders.stream()
-                    .filter(o -> o.getCreatedAt() != null && !o.getCreatedAt().isBefore(fromInstant))
-                    .toList();
+            try {
+                Instant fromInstant = Instant.parse(from);
+                orders = orders.stream()
+                        .filter(o -> o.getCreatedAt() != null && !o.getCreatedAt().isBefore(fromInstant))
+                        .toList();
+            } catch (DateTimeParseException e) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "INVALID_DATE_FORMAT");
+            }
         }
         if (to != null) {
-            Instant toInstant = Instant.parse(to);
-            orders = orders.stream()
-                    .filter(o -> o.getCreatedAt() != null && !o.getCreatedAt().isAfter(toInstant))
-                    .toList();
+            try {
+                Instant toInstant = Instant.parse(to);
+                orders = orders.stream()
+                        .filter(o -> o.getCreatedAt() != null && !o.getCreatedAt().isAfter(toInstant))
+                        .toList();
+            } catch (DateTimeParseException e) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "INVALID_DATE_FORMAT");
+            }
         }
 
         return orders;
@@ -68,17 +80,26 @@ public class OrderService {
     }
 
     public Order createOrder(CreateOrderRequest request, String userId) {
-        // Validación: destinationArea es obligatorio (RFC sección 3.3)
         if (request.destinationArea() == null || request.destinationArea().isBlank()) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST, "DESTINATION_AREA_REQUIRED");
+        }
+        if (request.items() == null || request.items().isEmpty()) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST, "ITEMS_REQUIRED");
+        }
+
+        Set<String> seenProductIds = new HashSet<>();
+        for (CreateOrderRequest.OrderItemRequest itemRequest : request.items()) {
+            if (!seenProductIds.add(itemRequest.productId())) {
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST, "DUPLICATE_PRODUCT_IN_ORDER");
+            }
         }
 
         List<OrderItem> items = new ArrayList<>();
 
         for (CreateOrderRequest.OrderItemRequest itemRequest : request.items()) {
-
-            // Validación: quantity debe ser mayor a cero
             if (itemRequest.quantity() <= 0) {
                 throw new ResponseStatusException(
                         HttpStatus.BAD_REQUEST, "INVALID_QUANTITY");
@@ -103,9 +124,7 @@ public class OrderService {
                         HttpStatus.BAD_REQUEST, "INSUFFICIENT_STOCK");
             }
 
-            // Reservar stock con operación atómica $inc (RFC sección 7)
             productRepository.updateStock(product.getId(), -itemRequest.quantity(), itemRequest.quantity());
-
             items.add(new OrderItem(product.getId(), product.getSku(), itemRequest.quantity()));
         }
 
@@ -134,7 +153,6 @@ public class OrderService {
                     HttpStatus.CONFLICT, "ORDER_NOT_CANCELLABLE");
         }
 
-        // Devolver stock reservado con operación atómica $inc (RFC sección 7)
         if (order.getItems() != null) {
             for (OrderItem item : order.getItems()) {
                 productRepository.updateStock(item.getProductId(), item.getQuantity(), -item.getQuantity());

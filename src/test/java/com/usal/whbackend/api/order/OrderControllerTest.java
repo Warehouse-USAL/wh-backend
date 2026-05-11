@@ -54,7 +54,7 @@ class OrderControllerTest {
         when(orderService.getOrder(anyString())).thenReturn(sampleOrder);
         mockMvc.perform(get("/orders/test-id"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.order.status").value("PENDING"));
+                .andExpect(jsonPath("$.order.status").value("pending"));
     }
 
     @Test
@@ -74,6 +74,6 @@ class OrderControllerTest {
         when(orderService.cancelOrder(anyString(), any())).thenReturn(sampleOrder);
         mockMvc.perform(post("/orders/test-id/cancel"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.order.status").value("PENDING"));
+                .andExpect(jsonPath("$.order.status").value("pending"));
     }
 }

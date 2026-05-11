@@ -52,6 +52,28 @@ class OrderServiceTest {
         assertEquals(OrderStatus.PENDING, result.get(0).getStatus());
     }
 
+    @Test
+    void getOrders_statusInvalido_lanza400() {
+        ResponseStatusException ex = assertThrows(
+                ResponseStatusException.class,
+                () -> orderService.getOrders("INVALIDO", null, null, null));
+
+        assertEquals(400, ex.getStatusCode().value());
+        assertEquals("INVALID_STATUS", ex.getReason());
+    }
+
+    @Test
+    void getOrders_fromInvalido_lanza400() {
+        when(orderRepository.findAll()).thenReturn(List.of());
+
+        ResponseStatusException ex = assertThrows(
+                ResponseStatusException.class,
+                () -> orderService.getOrders(null, "no-es-fecha", null, null));
+
+        assertEquals(400, ex.getStatusCode().value());
+        assertEquals("INVALID_DATE_FORMAT", ex.getReason());
+    }
+
     // ── getOrder ───────────────────────────────────────────────────────────────
 
     @Test
@@ -109,6 +131,29 @@ class OrderServiceTest {
                 ResponseStatusException.class, () -> orderService.createOrder(request, "user-1"));
 
         assertEquals(400, ex.getStatusCode().value());
+        assertEquals("DESTINATION_AREA_REQUIRED", ex.getReason());
+    }
+
+    @Test
+    void createOrder_itemsNulos_lanza400() {
+        CreateOrderRequest request = new CreateOrderRequest(null, "AREA-B");
+
+        ResponseStatusException ex = assertThrows(
+                ResponseStatusException.class, () -> orderService.createOrder(request, "user-1"));
+
+        assertEquals(400, ex.getStatusCode().value());
+        assertEquals("ITEMS_REQUIRED", ex.getReason());
+    }
+
+    @Test
+    void createOrder_itemsVacios_lanza400() {
+        CreateOrderRequest request = new CreateOrderRequest(List.of(), "AREA-B");
+
+        ResponseStatusException ex = assertThrows(
+                ResponseStatusException.class, () -> orderService.createOrder(request, "user-1"));
+
+        assertEquals(400, ex.getStatusCode().value());
+        assertEquals("ITEMS_REQUIRED", ex.getReason());
     }
 
     @Test
@@ -120,6 +165,7 @@ class OrderServiceTest {
                 ResponseStatusException.class, () -> orderService.createOrder(request, "user-1"));
 
         assertEquals(400, ex.getStatusCode().value());
+        assertEquals("INVALID_QUANTITY", ex.getReason());
     }
 
     @Test
@@ -131,6 +177,19 @@ class OrderServiceTest {
                 ResponseStatusException.class, () -> orderService.createOrder(request, "user-1"));
 
         assertEquals(400, ex.getStatusCode().value());
+        assertEquals("INVALID_QUANTITY", ex.getReason());
+    }
+
+    @Test
+    void createOrder_productoRepetido_lanza400() {
+        CreateOrderRequest request = new CreateOrderRequest(
+                List.of(new OrderItemRequest("prod-1", 2), new OrderItemRequest("prod-1", 3)), "AREA-B");
+
+        ResponseStatusException ex = assertThrows(
+                ResponseStatusException.class, () -> orderService.createOrder(request, "user-1"));
+
+        assertEquals(400, ex.getStatusCode().value());
+        assertEquals("DUPLICATE_PRODUCT_IN_ORDER", ex.getReason());
     }
 
     @Test
