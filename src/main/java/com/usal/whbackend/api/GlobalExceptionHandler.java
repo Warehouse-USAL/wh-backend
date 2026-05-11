@@ -14,6 +14,6 @@ public class GlobalExceptionHandler {
     public ResponseEntity<Map<String, Object>> handle(ResponseStatusException ex) {
         String code = ex.getReason() != null ? ex.getReason() : ex.getStatusCode().toString();
         return ResponseEntity.status(ex.getStatusCode())
-                .body(Map.of("error", Map.of("code", code, "message", ex.getMessage())));
+                .body(Map.of("error", Map.of("code", code, "message", code)));
     }
 }

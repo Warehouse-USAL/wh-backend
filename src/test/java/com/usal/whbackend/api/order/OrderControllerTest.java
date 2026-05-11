@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.usal.whbackend.config.SecurityConfig;
@@ -43,13 +44,17 @@ class OrderControllerTest {
     @Test
     void getOrders_returns200() throws Exception {
         when(orderService.getOrders(any(), any(), any(), any())).thenReturn(List.of(sampleOrder));
-        mockMvc.perform(get("/orders")).andExpect(status().isOk());
+        mockMvc.perform(get("/orders"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.orders").isArray());
     }
 
     @Test
     void getOrder_returns200() throws Exception {
         when(orderService.getOrder(anyString())).thenReturn(sampleOrder);
-        mockMvc.perform(get("/orders/test-id")).andExpect(status().isOk());
+        mockMvc.perform(get("/orders/test-id"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.order.status").value("PENDING"));
     }
 
     @Test
@@ -60,12 +65,15 @@ class OrderControllerTest {
                         post("/orders")
                                 .contentType("application/json")
                                 .content("{\"items\":[],\"destinationArea\":\"AREA-A\"}"))
-                .andExpect(status().isCreated());
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.order").exists());
     }
 
     @Test
     void cancelOrder_returns200() throws Exception {
         when(orderService.cancelOrder(anyString(), any())).thenReturn(sampleOrder);
-        mockMvc.perform(post("/orders/test-id/cancel")).andExpect(status().isOk());
+        mockMvc.perform(post("/orders/test-id/cancel"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.order.status").value("PENDING"));
     }
 }
