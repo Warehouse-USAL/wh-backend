@@ -15,6 +15,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.web.server.ResponseStatusException;
 
 @ExtendWith(MockitoExtension.class)
@@ -26,26 +27,46 @@ import org.springframework.web.server.ResponseStatusException;
     // ── getProducts ────────────────────────────────────────────────────────
 
     @Test
-        void getProducts_sinFiltros_devuelveTodos() {
+        void getProducts_sinFiltros_devuelveSoloActivos() {
                   Product p1 = new Product();
+                  p1.setActive(true);
                   Product p2 = new Product();
-                  when(productRepository.findAll()).thenReturn(List.of(p1, p2));
+                  p2.setActive(true);
+                  when(productRepository.findByActive(true)).thenReturn(List.of(p1, p2));
 
             List<Product> result = productService.getProducts(null, null, null);
 
             assertEquals(2, result.size());
+                  verify(productRepository).findByActive(true);
+                  verify(productRepository, never()).findAll();
         }
 
     @Test
-        void getProducts_conCategory_filtraPorCategory() {
+        void getProducts_conCategory_filtraPorCategoryYActivos() {
                   Product p = new Product();
                   p.setCategory("electronics");
-                  when(productRepository.findByCategory("electronics")).thenReturn(List.of(p));
+                  p.setActive(true);
+                  when(productRepository.findByCategoryAndActive("electronics", true)).thenReturn(List.of(p));
 
             List<Product> result = productService.getProducts("electronics", null, null);
 
             assertEquals(1, result.size());
                   assertEquals("electronics", result.get(0).getCategory());
+                  verify(productRepository).findByCategoryAndActive("electronics", true);
+                  verify(productRepository, never()).findByCategory(any());
+        }
+
+    @Test
+        void getProducts_conCategoryYActive_filtraPorAmbos() {
+                  Product p = new Product();
+                  p.setCategory("electronics");
+                  p.setActive(false);
+                  when(productRepository.findByCategoryAndActive("electronics", false)).thenReturn(List.of(p));
+
+            List<Product> result = productService.getProducts("electronics", null, false);
+
+            assertEquals(1, result.size());
+                  verify(productRepository).findByCategoryAndActive("electronics", false);
         }
 
     @Test
@@ -53,12 +74,14 @@ import org.springframework.web.server.ResponseStatusException;
                   Product p1 = new Product();
                   p1.setName("laptop gamer");
                   p1.setSku("LPT-001");
+                  p1.setActive(true);
 
             Product p2 = new Product();
                   p2.setName("mouse");
                   p2.setSku("MSE-001");
+                  p2.setActive(true);
 
-            when(productRepository.findAll()).thenReturn(List.of(p1, p2));
+            when(productRepository.findByActive(true)).thenReturn(List.of(p1, p2));
 
             List<Product> result = productService.getProducts(null, "laptop", null);
 
@@ -140,6 +163,21 @@ import org.springframework.web.server.ResponseStatusException;
         }
 
     @Test
+        void createProduct_duplicateKeyExceptionEnSave_lanza400() {
+                  when(productRepository.findBySku("SKU-RACE")).thenReturn(Optional.empty());
+                  when(productRepository.save(any(Product.class))).thenThrow(new DuplicateKeyException("duplicate key"));
+
+            CreateProductRequest request = new CreateProductRequest(
+                              "SKU-RACE", "Product", null, "category", null);
+
+            ResponseStatusException ex = assertThrows(
+                              ResponseStatusException.class, () -> productService.createProduct(request));
+
+            assertEquals(400, ex.getStatusCode().value());
+                  assertEquals("SKU_ALREADY_EXISTS", ex.getReason());
+        }
+
+    @Test
         void createProduct_skuVacio_lanza400() {
                   CreateProductRequest request = new CreateProductRequest(
                                     "", "Product", null, "category", null);
@@ -183,6 +221,7 @@ import org.springframework.web.server.ResponseStatusException;
                   product.setId("prod-1");
                   product.setSku("SKU-001");
                   product.setName("Old Name");
+                  product.setActive(true);
                   when(productRepository.findById("prod-1")).thenReturn(Optional.of(product));
                   when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
 
@@ -206,10 +245,26 @@ import org.springframework.web.server.ResponseStatusException;
                   assertEquals("PRODUCT_NOT_FOUND", ex.getReason());
         }
 
+    @Test
+        void updateProduct_softDeleted_lanza404() {
+                  Product product = new Product();
+                  product.setId("prod-1");
+                  product.setActive(false);
+                  when(productRepository.findById("prod-1")).thenReturn(Optional.of(product));
+
+            ResponseStatusException ex = assertThrows(
+                              ResponseStatusException.class,
+                              () -> productService.updateProduct("prod-1", new UpdateProductRequest("New Name", null, null, null)));
+
+            assertEquals(404, ex.getStatusCode().value());
+                  assertEquals("PRODUCT_NOT_FOUND", ex.getReason());
+                  verify(productRepository, never()).save(any());
+        }
+
     // ── deleteProduct ──────────────────────────────────────────────────────
 
     @Test
-        void deleteProduct_existente_setaActiveFalse() {
+        void deleteProduct_existente_setActiveFalse() {
                   Product product = new Product();
                   product.setId("prod-1");
                   product.setActive(true);
