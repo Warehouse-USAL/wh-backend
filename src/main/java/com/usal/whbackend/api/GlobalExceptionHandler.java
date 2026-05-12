@@ -21,7 +21,9 @@ public class GlobalExceptionHandler {
             Map.entry("ITEMS_REQUIRED", "La orden debe contener al menos un producto."),
             Map.entry("INVALID_STATUS", "Estado inválido. Valores aceptados: PENDING, IN_PROGRESS, COMPLETED, CANCELLED."),
             Map.entry("INVALID_DATE_FORMAT", "Formato de fecha inválido. Usar ISO-8601, ej: 2024-01-01T00:00:00Z."),
-            Map.entry("DUPLICATE_PRODUCT_IN_ORDER", "No se puede incluir el mismo producto más de una vez en la orden.")
+            Map.entry("DUPLICATE_PRODUCT_IN_ORDER", "No se puede incluir el mismo producto más de una vez en la orden."),
+            Map.entry("MISSING_REQUIRED_FIELDS", "Los campos sku, name y category son obligatorios."),
+            Map.entry("SKU_ALREADY_EXISTS", "Ya existe un producto con ese SKU.")
     );
 
     @ExceptionHandler(ResponseStatusException.class)
