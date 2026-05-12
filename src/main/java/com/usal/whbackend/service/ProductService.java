@@ -69,8 +69,13 @@ import org.springframework.web.server.ResponseStatusException;
                 product.setDescription(request.description());
                 product.setCategory(request.category());
                 product.setImageUrl(request.imageUrl());
+                product.setAvailableStock(request.availableStock() != null ? request.availableStock() : 0);
+                product.setMaxQuantityPerOrder(request.maxQuantityPerOrder() != null ? request.maxQuantityPerOrder() : 0);
+                product.setZone(request.zone());
+                product.setLine(request.line());
+                product.setPosition(request.position());
+                product.setHeight(request.height());
                 product.setActive(true);
-                product.setAvailableStock(0);
                 product.setReservedStock(0);
                 product.setCreatedAt(Instant.now());
 
@@ -103,6 +108,24 @@ import org.springframework.web.server.ResponseStatusException;
                 }
                 if (request.imageUrl() != null) {
                                 product.setImageUrl(request.imageUrl());
+                }
+                if (request.availableStock() != null) {
+                                product.setAvailableStock(request.availableStock());
+                }
+                if (request.maxQuantityPerOrder() != null) {
+                                product.setMaxQuantityPerOrder(request.maxQuantityPerOrder());
+                }
+                if (request.zone() != null) {
+                                product.setZone(request.zone());
+                }
+                if (request.line() != null) {
+                                product.setLine(request.line());
+                }
+                if (request.position() != null) {
+                                product.setPosition(request.position());
+                }
+                if (request.height() != null) {
+                                product.setHeight(request.height());
                 }
 
                 return productRepository.save(product);
