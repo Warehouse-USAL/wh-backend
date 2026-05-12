@@ -6,6 +6,7 @@ import com.usal.whbackend.domain.Product;
 import com.usal.whbackend.repository.ProductRepository;
 import java.time.Instant;
 import java.util.List;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -22,19 +23,14 @@ import org.springframework.web.server.ResponseStatusException;
     public List<Product> getProducts(String category, String search, Boolean active) {
                 List<Product> products;
 
-                if (category != null) {
-                                products = productRepository.findByCategory(category);
+                if (category != null && active != null) {
+                                products = productRepository.findByCategoryAndActive(category, active);
+                } else if (category != null) {
+                                products = productRepository.findByCategoryAndActive(category, true);
                 } else if (active != null) {
                                 products = productRepository.findByActive(active);
                 } else {
-                                products = productRepository.findAll();
-                }
-
-                if (category != null && active != null) {
-                                final boolean activeFilter = active;
-                                products = products.stream()
-                                                        .filter(p -> p.isActive() == activeFilter)
-                                                        .toList();
+                                products = productRepository.findByActive(true);
                 }
 
                 if (search != null && !search.isBlank()) {
@@ -78,13 +74,23 @@ import org.springframework.web.server.ResponseStatusException;
                 product.setReservedStock(0);
                 product.setCreatedAt(Instant.now());
 
-                return productRepository.save(product);
+                try {
+                                return productRepository.save(product);
+                } catch (DuplicateKeyException e) {
+                                throw new ResponseStatusException(
+                                                        HttpStatus.BAD_REQUEST, "SKU_ALREADY_EXISTS");
+                }
     }
 
     public Product updateProduct(String id, UpdateProductRequest request) {
                 Product product = productRepository.findById(id)
                                     .orElseThrow(() -> new ResponseStatusException(
                                                                 HttpStatus.NOT_FOUND, "PRODUCT_NOT_FOUND"));
+
+                if (!product.isActive()) {
+                                throw new ResponseStatusException(
+                                                        HttpStatus.NOT_FOUND, "PRODUCT_NOT_FOUND");
+                }
 
                 if (request.name() != null) {
                                 product.setName(request.name());
