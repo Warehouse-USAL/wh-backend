@@ -38,8 +38,10 @@ import org.springframework.web.bind.annotation.RestController;
             }
 
     @GetMapping("/{id}")
-            public ResponseEntity<Map<String, ProductResponse>> getProduct(@PathVariable String id) {
-                        return ResponseEntity.ok(Map.of("product", ProductResponse.from(productService.getProduct(id))));
+            public ResponseEntity<Map<String, ProductResponse>> getProduct(
+                            @PathVariable String id,
+                            @RequestParam(required = false) Boolean isActive) {
+                        return ResponseEntity.ok(Map.of("product", ProductResponse.from(productService.getProduct(id, isActive))));
             }
 
     @PostMapping

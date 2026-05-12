@@ -44,10 +44,16 @@ import org.springframework.web.server.ResponseStatusException;
                 return products;
     }
 
-    public Product getProduct(String id) {
-                return productRepository.findById(id)
+    public Product getProduct(String id, Boolean isActive) {
+                Product product = productRepository.findById(id)
                                     .orElseThrow(() -> new ResponseStatusException(
                                                                 HttpStatus.NOT_FOUND, "PRODUCT_NOT_FOUND"));
+
+                if (!Boolean.FALSE.equals(isActive) && !product.isActive()) {
+                                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "PRODUCT_NOT_FOUND");
+                }
+
+                return product;
     }
 
     public Product createProduct(CreateProductRequest request) {

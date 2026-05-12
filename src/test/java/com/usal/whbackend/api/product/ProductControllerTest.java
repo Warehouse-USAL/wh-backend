@@ -54,7 +54,7 @@ import org.springframework.test.web.servlet.MockMvc;
 
     @Test
         void getProduct_returns200() throws Exception {
-                  when(productService.getProduct(anyString())).thenReturn(sampleProduct);
+                  when(productService.getProduct(anyString(), any())).thenReturn(sampleProduct);
                   mockMvc.perform(get("/products/prod-1"))
                                     .andExpect(status().isOk())
                                     .andExpect(jsonPath("$.product.sku").value("SKU-001"));

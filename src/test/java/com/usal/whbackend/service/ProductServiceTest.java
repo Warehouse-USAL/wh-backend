@@ -109,9 +109,10 @@ import org.springframework.web.server.ResponseStatusException;
         void getProduct_existente_devuelveProducto() {
                   Product product = new Product();
                   product.setSku("SKU-001");
+                  product.setActive(true);
                   when(productRepository.findById("prod-1")).thenReturn(Optional.of(product));
 
-            Product result = productService.getProduct("prod-1");
+            Product result = productService.getProduct("prod-1", null);
 
             assertEquals("SKU-001", result.getSku());
         }
@@ -121,10 +122,36 @@ import org.springframework.web.server.ResponseStatusException;
                   when(productRepository.findById("no-existe")).thenReturn(Optional.empty());
 
             ResponseStatusException ex = assertThrows(
-                              ResponseStatusException.class, () -> productService.getProduct("no-existe"));
+                              ResponseStatusException.class, () -> productService.getProduct("no-existe", null));
 
             assertEquals(404, ex.getStatusCode().value());
                   assertEquals("PRODUCT_NOT_FOUND", ex.getReason());
+        }
+
+    @Test
+        void getProduct_softDeleted_lanza404() {
+                  Product product = new Product();
+                  product.setActive(false);
+                  when(productRepository.findById("prod-1")).thenReturn(Optional.of(product));
+
+            ResponseStatusException ex = assertThrows(
+                              ResponseStatusException.class, () -> productService.getProduct("prod-1", null));
+
+            assertEquals(404, ex.getStatusCode().value());
+                  assertEquals("PRODUCT_NOT_FOUND", ex.getReason());
+        }
+
+    @Test
+        void getProduct_softDeleted_conIsActiveFalse_devuelveProducto() {
+                  Product product = new Product();
+                  product.setSku("SKU-001");
+                  product.setActive(false);
+                  when(productRepository.findById("prod-1")).thenReturn(Optional.of(product));
+
+            Product result = productService.getProduct("prod-1", false);
+
+            assertEquals("SKU-001", result.getSku());
+                  assertFalse(result.isActive());
         }
 
     // ── createProduct ──────────────────────────────────────────────────────
@@ -135,7 +162,7 @@ import org.springframework.web.server.ResponseStatusException;
                   when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
 
             CreateProductRequest request = new CreateProductRequest(
-                              "SKU-001", "Test Product", "A description", "electronics", null);
+                              "SKU-001", "Test Product", "A description", "electronics", null, null, null, null, null, null, null);
 
             Product result = productService.createProduct(request);
 
@@ -153,7 +180,7 @@ import org.springframework.web.server.ResponseStatusException;
                   when(productRepository.findBySku("SKU-DUP")).thenReturn(Optional.of(existing));
 
             CreateProductRequest request = new CreateProductRequest(
-                              "SKU-DUP", "Product", null, "category", null);
+                              "SKU-DUP", "Product", null, "category", null, null, null, null, null, null, null);
 
             ResponseStatusException ex = assertThrows(
                               ResponseStatusException.class, () -> productService.createProduct(request));
@@ -168,7 +195,7 @@ import org.springframework.web.server.ResponseStatusException;
                   when(productRepository.save(any(Product.class))).thenThrow(new DuplicateKeyException("duplicate key"));
 
             CreateProductRequest request = new CreateProductRequest(
-                              "SKU-RACE", "Product", null, "category", null);
+                              "SKU-RACE", "Product", null, "category", null, null, null, null, null, null, null);
 
             ResponseStatusException ex = assertThrows(
                               ResponseStatusException.class, () -> productService.createProduct(request));
@@ -180,7 +207,7 @@ import org.springframework.web.server.ResponseStatusException;
     @Test
         void createProduct_skuVacio_lanza400() {
                   CreateProductRequest request = new CreateProductRequest(
-                                    "", "Product", null, "category", null);
+                                    "", "Product", null, "category", null, null, null, null, null, null, null);
 
             ResponseStatusException ex = assertThrows(
                               ResponseStatusException.class, () -> productService.createProduct(request));
@@ -192,7 +219,7 @@ import org.springframework.web.server.ResponseStatusException;
     @Test
         void createProduct_nameFaltante_lanza400() {
                   CreateProductRequest request = new CreateProductRequest(
-                                    "SKU-001", null, null, "category", null);
+                                    "SKU-001", null, null, "category", null, null, null, null, null, null, null);
 
             ResponseStatusException ex = assertThrows(
                               ResponseStatusException.class, () -> productService.createProduct(request));
@@ -204,7 +231,7 @@ import org.springframework.web.server.ResponseStatusException;
     @Test
         void createProduct_categoryFaltante_lanza400() {
                   CreateProductRequest request = new CreateProductRequest(
-                                    "SKU-001", "Product", null, null, null);
+                                    "SKU-001", "Product", null, null, null, null, null, null, null, null, null);
 
             ResponseStatusException ex = assertThrows(
                               ResponseStatusException.class, () -> productService.createProduct(request));
@@ -225,7 +252,7 @@ import org.springframework.web.server.ResponseStatusException;
                   when(productRepository.findById("prod-1")).thenReturn(Optional.of(product));
                   when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
 
-            UpdateProductRequest request = new UpdateProductRequest("New Name", null, null, null);
+            UpdateProductRequest request = new UpdateProductRequest("New Name", null, null, null, null, null, null, null, null, null);
                   Product result = productService.updateProduct("prod-1", request);
 
             assertEquals("New Name", result.getName());
@@ -239,7 +266,7 @@ import org.springframework.web.server.ResponseStatusException;
 
             ResponseStatusException ex = assertThrows(
                               ResponseStatusException.class,
-                              () -> productService.updateProduct("no-existe", new UpdateProductRequest(null, null, null, null)));
+                              () -> productService.updateProduct("no-existe", new UpdateProductRequest(null, null, null, null, null, null, null, null, null, null)));
 
             assertEquals(404, ex.getStatusCode().value());
                   assertEquals("PRODUCT_NOT_FOUND", ex.getReason());
@@ -254,7 +281,7 @@ import org.springframework.web.server.ResponseStatusException;
 
             ResponseStatusException ex = assertThrows(
                               ResponseStatusException.class,
-                              () -> productService.updateProduct("prod-1", new UpdateProductRequest("New Name", null, null, null)));
+                              () -> productService.updateProduct("prod-1", new UpdateProductRequest("New Name", null, null, null, null, null, null, null, null, null)));
 
             assertEquals(404, ex.getStatusCode().value());
                   assertEquals("PRODUCT_NOT_FOUND", ex.getReason());
