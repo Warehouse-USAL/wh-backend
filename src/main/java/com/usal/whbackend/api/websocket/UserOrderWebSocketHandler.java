@@ -63,7 +63,9 @@ public class UserOrderWebSocketHandler extends TextWebSocketHandler implements O
         if (sessionUserId != null && sessionUserId.equals(order.getRequestedByUserId())) {
           try {
             session.sendMessage(new TextMessage(json));
-          } catch (IOException ignored) {}
+          } catch (IOException e) {
+            log.warn("Failed to send order event to session {}: {}", session.getId(), e.getMessage());
+          }
         }
       }
     }

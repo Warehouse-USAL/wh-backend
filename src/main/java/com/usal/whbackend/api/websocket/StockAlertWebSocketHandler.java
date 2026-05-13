@@ -6,6 +6,8 @@ import com.usal.whbackend.service.StockEventPublisher;
 import java.io.IOException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
@@ -16,6 +18,7 @@ import org.springframework.web.socket.handler.TextWebSocketHandler;
 @Component
 public class StockAlertWebSocketHandler extends TextWebSocketHandler implements StockEventPublisher {
 
+  private static final Logger log = LoggerFactory.getLogger(StockAlertWebSocketHandler.class);
   private final Map<String, WebSocketSession> sessions = new ConcurrentHashMap<>();
   private final ObjectMapper objectMapper =
       new ObjectMapper()
@@ -56,7 +59,9 @@ public class StockAlertWebSocketHandler extends TextWebSocketHandler implements 
       if (session.isOpen()) {
         try {
           session.sendMessage(new TextMessage(json));
-        } catch (IOException ignored) {}
+        } catch (IOException e) {
+          log.warn("Failed to send stock alert to session {}: {}", session.getId(), e.getMessage());
+        }
       }
     }
   }
