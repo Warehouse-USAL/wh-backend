@@ -74,7 +74,18 @@ class AuthServiceTest {
     User user = activeUser();
     user.setActive(false);
     when(userRepository.findByEmail("admin@test.com")).thenReturn(Optional.of(user));
+    when(passwordEncoder.matches("password", "$2a$10$hash")).thenReturn(true);
     assertThatThrownBy(() -> authService.login(new LoginRequest("admin@test.com", "password")))
         .isInstanceOf(AccountDisabledException.class);
+  }
+
+  @Test
+  void login_disabledAccount_withWrongPassword_throwsInvalidCredentials() {
+    User user = activeUser();
+    user.setActive(false);
+    when(userRepository.findByEmail("admin@test.com")).thenReturn(Optional.of(user));
+    when(passwordEncoder.matches("wrong", "$2a$10$hash")).thenReturn(false);
+    assertThatThrownBy(() -> authService.login(new LoginRequest("admin@test.com", "wrong")))
+        .isInstanceOf(InvalidCredentialsException.class);
   }
 }

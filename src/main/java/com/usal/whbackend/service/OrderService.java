@@ -130,11 +130,14 @@ public class OrderService {
 
       productRepository.updateStock(
           product.getId(), -itemRequest.quantity(), itemRequest.quantity());
-      int newAvailableStock = product.getAvailableStock() - itemRequest.quantity();
-      if (newAvailableStock < product.getMinimumStock()) {
-        product.setAvailableStock(newAvailableStock);
-        stockEventPublishers.forEach(p -> p.broadcastStockAlert(product));
-      }
+      productRepository
+          .findById(product.getId())
+          .ifPresent(
+              updated -> {
+                if (updated.getAvailableStock() < updated.getMinimumStock()) {
+                  stockEventPublishers.forEach(p -> p.broadcastStockAlert(updated));
+                }
+              });
       items.add(new OrderItem(product.getId(), product.getSku(), itemRequest.quantity()));
     }
 

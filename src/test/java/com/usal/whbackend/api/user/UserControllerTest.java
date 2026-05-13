@@ -16,6 +16,7 @@ import com.usal.whbackend.config.JwtService;
 import com.usal.whbackend.domain.User;
 import com.usal.whbackend.domain.UserRole;
 import com.usal.whbackend.service.UserService;
+import com.usal.whbackend.service.exception.EmailAlreadyExistsException;
 import com.usal.whbackend.service.exception.UserNotFoundException;
 import java.time.Instant;
 import java.util.List;
@@ -115,6 +116,19 @@ class UserControllerTest {
                 .content(objectMapper.writeValueAsString(new ResetPasswordRequest("newpass"))))
         .andExpect(status().isNoContent());
     verify(userService).resetPassword("USR-001", "newpass");
+  }
+
+  @Test
+  void createUser_duplicateEmail_returns409() throws Exception {
+    when(userService.createUser(any())).thenThrow(new EmailAlreadyExistsException("dup@test.com"));
+    mockMvc
+        .perform(
+            post("/users")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    objectMapper.writeValueAsString(
+                        new CreateUserRequest("dup@test.com", "Name", "ADMIN_SALES", "pass"))))
+        .andExpect(status().isConflict());
   }
 
   @Test

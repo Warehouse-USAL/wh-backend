@@ -59,7 +59,8 @@ public class UserController {
 
   @Operation(summary = "Create user")
   @ApiResponse(responseCode = "201", description = "User created")
-  @ApiResponse(responseCode = "400", description = "Validation error or EMAIL_ALREADY_EXISTS")
+  @ApiResponse(responseCode = "400", description = "Validation error")
+  @ApiResponse(responseCode = "409", description = "EMAIL_ALREADY_EXISTS")
   @ApiResponse(responseCode = "403", description = "Insufficient role")
   @PreAuthorize("hasRole('ADMIN_SYSTEM')")
   @PostMapping

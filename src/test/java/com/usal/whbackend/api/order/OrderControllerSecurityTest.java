@@ -66,4 +66,12 @@ class OrderControllerSecurityTest {
         mockMvc.perform(post("/orders/order-1/cancel"))
             .andExpect(status().isForbidden());
     }
+
+    @Test
+    void createOrder_withNoToken_returns401() throws Exception {
+        mockMvc.perform(post("/orders")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"items\":[],\"destination_area\":\"AREA-B\"}"))
+            .andExpect(status().isUnauthorized());
+    }
 }

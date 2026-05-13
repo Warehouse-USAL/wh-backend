@@ -28,12 +28,12 @@ public class AuthService {
     User user =
         userRepository.findByEmail(request.email()).orElseThrow(InvalidCredentialsException::new);
 
-    if (!user.isActive()) {
-      throw new AccountDisabledException();
-    }
-
     if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
       throw new InvalidCredentialsException();
+    }
+
+    if (!user.isActive()) {
+      throw new AccountDisabledException();
     }
 
     String token = jwtService.generateToken(user);

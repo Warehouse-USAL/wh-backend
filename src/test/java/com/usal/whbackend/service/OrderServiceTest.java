@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
+import org.mockito.ArgumentCaptor;
+
 import com.usal.whbackend.api.order.CreateOrderRequest;
 import com.usal.whbackend.api.order.CreateOrderRequest.OrderItemRequest;
 import com.usal.whbackend.domain.Order;
@@ -322,7 +324,15 @@ class OrderServiceTest {
     product.setMinimumStock(3);
     product.setMaxQuantityPerOrder(10);
 
-    when(productRepository.findById("p-1")).thenReturn(Optional.of(product));
+    // After atomic updateStock, DB reflects the deducted stock (5 - 3 = 2)
+    Product afterUpdate = new Product();
+    afterUpdate.setId("p-1");
+    afterUpdate.setAvailableStock(2);
+    afterUpdate.setMinimumStock(3);
+
+    when(productRepository.findById("p-1"))
+        .thenReturn(Optional.of(product))      // validation
+        .thenReturn(Optional.of(afterUpdate));  // re-fetch after update
     when(orderRepository.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
 
     CreateOrderRequest request =
@@ -331,6 +341,38 @@ class OrderServiceTest {
     orderService.createOrder(request, "user-1");
 
     verify(stockEventPublisher).broadcastStockAlert(any(Product.class));
+  }
+
+  @Test
+  void createOrder_stockAlertUsesActualDbStockAfterConcurrentUpdate() {
+    Product staleProduct = new Product();
+    staleProduct.setId("p-1");
+    staleProduct.setSku("SKU-001");
+    staleProduct.setActive(true);
+    staleProduct.setAvailableStock(5);
+    staleProduct.setReservedStock(0);
+    staleProduct.setMinimumStock(3);
+    staleProduct.setMaxQuantityPerOrder(10);
+
+    // After the atomic updateStock, a concurrent write reduced stock to 0 in the DB
+    Product dbStateAfterUpdate = new Product();
+    dbStateAfterUpdate.setId("p-1");
+    dbStateAfterUpdate.setSku("SKU-001");
+    dbStateAfterUpdate.setActive(true);
+    dbStateAfterUpdate.setAvailableStock(0);
+    dbStateAfterUpdate.setMinimumStock(3);
+
+    when(productRepository.findById("p-1"))
+        .thenReturn(Optional.of(staleProduct))       // first call: validation
+        .thenReturn(Optional.of(dbStateAfterUpdate)); // second call: re-fetch after update
+    when(orderRepository.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
+
+    orderService.createOrder(
+        new CreateOrderRequest(List.of(new OrderItemRequest("p-1", 3)), "AREA-B"), "user-1");
+
+    ArgumentCaptor<Product> captor = ArgumentCaptor.forClass(Product.class);
+    verify(stockEventPublisher).broadcastStockAlert(captor.capture());
+    assertEquals(0, captor.getValue().getAvailableStock());
   }
 
   @Test
