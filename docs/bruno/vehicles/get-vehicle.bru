@@ -1,0 +1,19 @@
+meta {
+  name: Get Vehicle by ID
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/vehicles/:id
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+params:path {
+  id: VEHICLE_ID_HERE
+}

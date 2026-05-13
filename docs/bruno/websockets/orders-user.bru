@@ -1,0 +1,18 @@
+meta {
+  name: WS - User Orders
+  type: ws
+  seq: 2
+}
+
+ws {
+  url: {{wsBaseUrl}}/ws/v1/orders/333?token={{token}}
+  body: ws
+  auth: none
+}
+
+body:ws {
+  name: message 1
+  content: '''
+    {}
+  '''
+}

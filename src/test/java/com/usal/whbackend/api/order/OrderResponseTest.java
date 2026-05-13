@@ -21,9 +21,7 @@ class OrderResponseTest {
             List.of(item),
             "zone-A",
             "vehicle-1",
-            now,
-            now,
-            now,
+            new OrderResponse.Timestamps(now, now, now),
             "cancelled");
 
     assertEquals("id-1", response.id());
@@ -32,9 +30,9 @@ class OrderResponseTest {
     assertEquals(1, response.items().size());
     assertEquals("zone-A", response.destinationArea());
     assertEquals("vehicle-1", response.assignedVehicleId());
-    assertEquals(now, response.createdAt());
-    assertEquals(now, response.startedAt());
-    assertEquals(now, response.completedAt());
+    assertEquals(now, response.timestamps().createdAt());
+    assertEquals(now, response.timestamps().startedAt());
+    assertEquals(now, response.timestamps().completedAt());
     assertEquals("cancelled", response.cancelReason());
 
     assertEquals("p-1", item.productId());

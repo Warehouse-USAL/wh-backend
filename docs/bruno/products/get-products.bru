@@ -1,0 +1,21 @@
+meta {
+  name: Get Products
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/products
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+params:query {
+  ~category: electronics
+  ~search: laptop
+  ~isActive: true
+}

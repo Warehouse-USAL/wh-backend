@@ -1,0 +1,30 @@
+meta {
+  name: Update User
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{baseUrl}}/users/:id
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+headers {
+  Content-Type: application/json
+}
+
+params:path {
+  id: USER_ID_HERE
+}
+
+body:json {
+  {
+    "name": "Updated Name",
+    "active": true
+  }
+}
