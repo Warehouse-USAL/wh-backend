@@ -1,0 +1,26 @@
+meta {
+  name: Get Orders
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/orders
+  body: none
+  auth: bearer
+}
+
+params:query {
+  ~status: pending
+  ~from: 2026-01-01T00:00:00Z
+  ~to: 2026-12-31T23:59:59Z
+  ~vehicleId: 
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+vars:pre-request {
+  token: eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiI2YTAzYjYwNWMyMWE4MDJmMjJhNGMzZDkiLCJlbWFpbCI6ImFkbWluQHRlc3QuY29tIiwicm9sZSI6IkFETUlOX1NZU1RFTSIsImlhdCI6MTc3ODYzNDU3NSwiZXhwIjoxNzc4NzIwOTc1fQ.sikchxA24e8O8m1KENhIrExIAINTiUQV36BaB-qIjAc
+}

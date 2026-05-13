@@ -1,0 +1,98 @@
+package com.usal.whbackend.api.error;
+
+import com.usal.whbackend.service.exception.AccountDisabledException;
+import com.usal.whbackend.service.exception.EmailAlreadyExistsException;
+import com.usal.whbackend.service.exception.InvalidCredentialsException;
+import com.usal.whbackend.service.exception.UserNotFoundException;
+import java.util.Map;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.AccessDeniedException;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.server.ResponseStatusException;
+
+@RestControllerAdvice
+public class GlobalExceptionHandler {
+
+  private static final Map<String, String> MESSAGES =
+      Map.ofEntries(
+          Map.entry("ORDER_NOT_FOUND", "La orden solicitada no existe."),
+          Map.entry("ORDER_NOT_CANCELLABLE", "La orden no puede cancelarse en su estado actual."),
+          Map.entry("PRODUCT_NOT_FOUND", "Uno o más productos no existen en el catálogo."),
+          Map.entry("PRODUCT_INACTIVE", "Uno o más productos no están disponibles en el catálogo."),
+          Map.entry("INSUFFICIENT_STOCK", "No hay stock suficiente para uno o más productos."),
+          Map.entry(
+              "QUANTITY_EXCEEDS_LIMIT",
+              "La cantidad solicitada supera el máximo permitido por orden."),
+          Map.entry("INVALID_QUANTITY", "La cantidad de cada producto debe ser mayor a cero."),
+          Map.entry("DESTINATION_AREA_REQUIRED", "El área de destino es obligatoria."),
+          Map.entry("ITEMS_REQUIRED", "La orden debe contener al menos un producto."),
+          Map.entry(
+              "INVALID_STATUS",
+              "Estado inválido. Valores aceptados: PENDING, IN_PROGRESS, COMPLETED, CANCELLED."),
+          Map.entry(
+              "INVALID_DATE_FORMAT",
+              "Formato de fecha inválido. Usar ISO-8601, ej: 2024-01-01T00:00:00Z."),
+          Map.entry(
+              "DUPLICATE_PRODUCT_IN_ORDER",
+              "No se puede incluir el mismo producto más de una vez en la orden."),
+          Map.entry("MISSING_REQUIRED_FIELDS", "Los campos sku, name y category son obligatorios."),
+          Map.entry("SKU_ALREADY_EXISTS", "Ya existe un producto con ese SKU."));
+
+  @ExceptionHandler(AccessDeniedException.class)
+  public ResponseEntity<ErrorResponse> handleAccessDenied(AccessDeniedException ex) {
+    return ResponseEntity.status(HttpStatus.FORBIDDEN)
+        .body(ErrorResponse.of("ACCESS_DENIED", "No tiene permisos para realizar esta operación."));
+  }
+
+  @ExceptionHandler(ResponseStatusException.class)
+  public ResponseEntity<Map<String, Object>> handle(ResponseStatusException ex) {
+    String code = ex.getReason() != null ? ex.getReason() : ex.getStatusCode().toString();
+    String message = MESSAGES.getOrDefault(code, code);
+    return ResponseEntity.status(ex.getStatusCode())
+        .body(Map.of("error", Map.of("code", code, "message", message)));
+  }
+
+  @ExceptionHandler(InvalidCredentialsException.class)
+  public ResponseEntity<ErrorResponse> handleInvalidCredentials(InvalidCredentialsException ex) {
+    return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+        .body(ErrorResponse.of("INVALID_CREDENTIALS", ex.getMessage()));
+  }
+
+  @ExceptionHandler(AccountDisabledException.class)
+  public ResponseEntity<ErrorResponse> handleAccountDisabled(AccountDisabledException ex) {
+    return ResponseEntity.status(HttpStatus.FORBIDDEN)
+        .body(ErrorResponse.of("ACCOUNT_DISABLED", ex.getMessage()));
+  }
+
+  @ExceptionHandler(UserNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleUserNotFound(UserNotFoundException ex) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(ErrorResponse.of("USER_NOT_FOUND", ex.getMessage()));
+  }
+
+  @ExceptionHandler(EmailAlreadyExistsException.class)
+  public ResponseEntity<ErrorResponse> handleEmailAlreadyExists(EmailAlreadyExistsException ex) {
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+        .body(ErrorResponse.of("EMAIL_ALREADY_EXISTS", ex.getMessage()));
+  }
+
+  @ExceptionHandler(IllegalArgumentException.class)
+  public ResponseEntity<ErrorResponse> handleIllegalArgument(IllegalArgumentException ex) {
+    return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+        .body(ErrorResponse.of("BAD_REQUEST", ex.getMessage()));
+  }
+
+  @ExceptionHandler(MethodArgumentNotValidException.class)
+  public ResponseEntity<ErrorResponse> handleValidation(MethodArgumentNotValidException ex) {
+    String message =
+        ex.getBindingResult().getFieldErrors().stream()
+            .map(e -> e.getField() + ": " + e.getDefaultMessage())
+            .findFirst()
+            .orElse("Validation error");
+    return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+        .body(ErrorResponse.of("VALIDATION_ERROR", message));
+  }
+}

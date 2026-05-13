@@ -9,16 +9,16 @@ import org.springframework.data.mongodb.repository.Update;
 
 public interface ProductRepository extends MongoRepository<Product, String> {
 
-    Optional<Product> findBySku(String sku);
+  Optional<Product> findBySku(String sku);
 
-    List<Product> findByCategory(String category);
+  List<Product> findByCategory(String category);
 
-    List<Product> findByActive(boolean active);
+  List<Product> findByActive(boolean active);
 
-    List<Product> findByCategoryAndActive(String category, boolean active);
+  List<Product> findByCategoryAndActive(String category, boolean active);
 
-    // Atomic $inc to avoid race conditions on stock updates (RFC §7)
-    @Query("{ '_id': ?0 }")
-    @Update("{ '$inc': { 'availableStock': ?1, 'reservedStock': ?2 } }")
-    void updateStock(String id, int availableDelta, int reservedDelta);
+  // Atomic $inc to avoid race conditions on stock updates (RFC §7)
+  @Query("{ '_id': ?0 }")
+  @Update("{ '$inc': { 'availableStock': ?1, 'reservedStock': ?2 } }")
+  void updateStock(String id, int availableDelta, int reservedDelta);
 }
