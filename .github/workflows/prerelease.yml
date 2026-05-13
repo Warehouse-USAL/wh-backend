@@ -86,11 +86,17 @@ jobs:
         run: |
           docker push ghcr.io/${{ env.OWNER }}/wh-backend:${{ steps.tag.outputs.tag }}
 
-      - name: Create pre-release
+      - name: Create pre-release draft
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: Pre-release ${{ steps.tag.outputs.tag }}
           prerelease: true
+          draft: true
           files: build/libs/*.jar
           generate_release_notes: true
+
+      - name: Publish pre-release
+        run: gh release edit ${{ steps.tag.outputs.tag }} --draft=false
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
