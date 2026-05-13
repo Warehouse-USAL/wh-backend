@@ -33,8 +33,8 @@ public class OrderService {
       List<StockEventPublisher> stockEventPublishers) {
     this.orderRepository = orderRepository;
     this.productRepository = productRepository;
-    this.orderEventPublishers = orderEventPublishers;
-    this.stockEventPublishers = stockEventPublishers;
+    this.orderEventPublishers = List.copyOf(orderEventPublishers);
+    this.stockEventPublishers = List.copyOf(stockEventPublishers);
   }
 
   public List<Order> getOrders(String status, String from, String to, String vehicleId) {

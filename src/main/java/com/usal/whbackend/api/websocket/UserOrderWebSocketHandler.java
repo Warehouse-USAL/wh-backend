@@ -7,6 +7,8 @@ import com.usal.whbackend.service.OrderEventPublisher;
 import java.io.IOException;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
@@ -17,6 +19,7 @@ import org.springframework.web.socket.handler.TextWebSocketHandler;
 @Component
 public class UserOrderWebSocketHandler extends TextWebSocketHandler implements OrderEventPublisher {
 
+  private static final Logger log = LoggerFactory.getLogger(UserOrderWebSocketHandler.class);
   private final Map<String, WebSocketSession> sessions = new ConcurrentHashMap<>();
   private final ObjectMapper objectMapper =
       new ObjectMapper()
@@ -33,7 +36,9 @@ public class UserOrderWebSocketHandler extends TextWebSocketHandler implements O
     if (pathUserId == null || !pathUserId.equals(jwtUserId)) {
       try {
         session.close(CloseStatus.NOT_ACCEPTABLE);
-      } catch (IOException ignored) {}
+      } catch (IOException e) {
+        log.warn("Failed to close unauthorized WebSocket session: {}", e.getMessage());
+      }
       return;
     }
     sessions.put(session.getId(), new ConcurrentWebSocketSessionDecorator(session, 1000, 65536));

@@ -18,7 +18,7 @@ public class JwtHandshakeInterceptor implements HandshakeInterceptor {
 
   public JwtHandshakeInterceptor(JwtService jwtService, Set<String> allowedRoles) {
     this.jwtService = jwtService;
-    this.allowedRoles = allowedRoles;
+    this.allowedRoles = Set.copyOf(allowedRoles);
   }
 
   @Override

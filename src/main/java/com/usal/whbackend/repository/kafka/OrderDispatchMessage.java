@@ -10,6 +10,10 @@ public record OrderDispatchMessage(
     @JsonProperty("destination_area") String destinationArea,
     @JsonProperty("published_at") String publishedAt) {
 
+  public OrderDispatchMessage {
+    items = items == null ? List.of() : List.copyOf(items);
+  }
+
   public record Item(
       @JsonProperty("product_id") String productId, String sku, int quantity) {}
 }

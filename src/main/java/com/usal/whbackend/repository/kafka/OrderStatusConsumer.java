@@ -24,7 +24,7 @@ public class OrderStatusConsumer {
       OrderMongoRepository orderMongoRepository,
       List<OrderEventPublisher> orderEventPublishers) {
     this.orderMongoRepository = orderMongoRepository;
-    this.orderEventPublishers = orderEventPublishers;
+    this.orderEventPublishers = List.copyOf(orderEventPublishers);
   }
 
   @KafkaListener(topics = "order.status", groupId = "wh-backend")
