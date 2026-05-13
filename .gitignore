@@ -76,3 +76,6 @@ hs_err_pid*
 # ─── Test reports & coverage ──────────────────────────────────────────────────
 test-results/
 coverage/
+
+# ─── Bruno ────────────────────────────────────────────────────────────────────
+docs/bruno/collection.bru
