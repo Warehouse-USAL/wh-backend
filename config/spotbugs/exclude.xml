@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FindBugsFilter>
+    <!-- Spring constructor injection stores service references, not mutable data -->
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+        <Class name="~.*(Controller|Config|Repository)"/>
+    </Match>
+</FindBugsFilter>

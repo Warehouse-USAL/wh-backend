@@ -3,3 +3,5 @@ spring:
     uri: mongodb://mongodb:27017/smartwarehouse
   kafka:
     bootstrap-servers: redpanda:9092
+  jackson:
+    property-naming-strategy: SNAKE_CASE

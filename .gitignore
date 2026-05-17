@@ -48,6 +48,7 @@ logs/
 
 # ─── Config / properties (ignore actuals, keep examples) ──────────────────────
 *.properties
+!gradle/wrapper/gradle-wrapper.properties
 *.yml
 *.yaml
 !*.example.properties
@@ -56,6 +57,7 @@ logs/
 !docker-compose*.yml
 !docker-compose*.yaml
 !application-docker.yml
+!.github/**
 
 # ─── Local data (bind-mounted Docker volumes) ─────────────────────────────────
 data/
@@ -66,6 +68,7 @@ docs/superpowers/
 # ─── Java ─────────────────────────────────────────────────────────────────────
 *.class
 *.jar
+!gradle/wrapper/gradle-wrapper.jar
 *.war
 *.ear
 hs_err_pid*
@@ -73,3 +76,6 @@ hs_err_pid*
 # ─── Test reports & coverage ──────────────────────────────────────────────────
 test-results/
 coverage/
+
+# ─── Bruno ────────────────────────────────────────────────────────────────────
+docs/bruno/collection.bru

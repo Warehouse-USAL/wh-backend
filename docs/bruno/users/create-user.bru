@@ -1,0 +1,28 @@
+meta {
+  name: Create User
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/users
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+headers {
+  Content-Type: application/json
+}
+
+body:json {
+  {
+    "email": "sales@warehouse.com",
+    "name": "Sales Manager",
+    "role": "ADMIN_SALES",
+    "initial_password": "SecurePass123!"
+  }
+}

@@ -6,7 +6,7 @@ GRADLE = docker run --rm \
 	-v "$(PWD)":/app \
 	-v wh-gradle-cache:/root/.gradle \
 	-w /app \
-	eclipse-temurin:25-jdk-alpine ./gradlew
+	eclipse-temurin:21-jdk-alpine ./gradlew
 
 help: ## Show available commands
 	@echo ""

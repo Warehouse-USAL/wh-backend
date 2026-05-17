@@ -10,52 +10,153 @@ import org.springframework.data.mongodb.core.mapping.Document;
 @CompoundIndex(name = "category_active_idx", def = "{'category': 1, 'active': 1}")
 public class Product {
 
-    @Id private String id;
-    @Indexed(unique = true) private String sku;
-    private String name;
-    private String description;
-    private String category;
-    private String imageUrl;
-    private int availableStock;
-    private int reservedStock;
-    private int maxQuantityPerOrder;
-    private String zone;
-    private String line;
-    private String position;
-    private String height;
-    private boolean active;
-    private Instant createdAt;
+  @Id private String id;
 
-    public Product() {}
+  @Indexed(unique = true)
+  private String sku;
 
-    public String getId() { return id; }
-    public void setId(String id) { this.id = id; }
-    public String getSku() { return sku; }
-    public void setSku(String sku) { this.sku = sku; }
-    public String getName() { return name; }
-    public void setName(String name) { this.name = name; }
-    public String getDescription() { return description; }
-    public void setDescription(String description) { this.description = description; }
-    public String getCategory() { return category; }
-    public void setCategory(String category) { this.category = category; }
-    public String getImageUrl() { return imageUrl; }
-    public void setImageUrl(String imageUrl) { this.imageUrl = imageUrl; }
-    public int getAvailableStock() { return availableStock; }
-    public void setAvailableStock(int availableStock) { this.availableStock = availableStock; }
-    public int getReservedStock() { return reservedStock; }
-    public void setReservedStock(int reservedStock) { this.reservedStock = reservedStock; }
-    public int getMaxQuantityPerOrder() { return maxQuantityPerOrder; }
-    public void setMaxQuantityPerOrder(int maxQuantityPerOrder) { this.maxQuantityPerOrder = maxQuantityPerOrder; }
-    public String getZone() { return zone; }
-    public void setZone(String zone) { this.zone = zone; }
-    public String getLine() { return line; }
-    public void setLine(String line) { this.line = line; }
-    public String getPosition() { return position; }
-    public void setPosition(String position) { this.position = position; }
-    public String getHeight() { return height; }
-    public void setHeight(String height) { this.height = height; }
-    public boolean isActive() { return active; }
-    public void setActive(boolean active) { this.active = active; }
-    public Instant getCreatedAt() { return createdAt; }
-    public void setCreatedAt(Instant createdAt) { this.createdAt = createdAt; }
+  private String name;
+  private String description;
+  private String category;
+  private String imageUrl;
+  private int availableStock;
+  private int reservedStock;
+  private int maxQuantityPerOrder;
+  private int minimumStock;
+  private String zone;
+  private String line;
+  private String position;
+  private String height;
+  private boolean active;
+  private Instant createdAt;
+
+  public Product() {}
+
+  public String getId() {
+    return id;
+  }
+
+  public void setId(String id) {
+    this.id = id;
+  }
+
+  public String getSku() {
+    return sku;
+  }
+
+  public void setSku(String sku) {
+    this.sku = sku;
+  }
+
+  public String getName() {
+    return name;
+  }
+
+  public void setName(String name) {
+    this.name = name;
+  }
+
+  public String getDescription() {
+    return description;
+  }
+
+  public void setDescription(String description) {
+    this.description = description;
+  }
+
+  public String getCategory() {
+    return category;
+  }
+
+  public void setCategory(String category) {
+    this.category = category;
+  }
+
+  public String getImageUrl() {
+    return imageUrl;
+  }
+
+  public void setImageUrl(String imageUrl) {
+    this.imageUrl = imageUrl;
+  }
+
+  public int getAvailableStock() {
+    return availableStock;
+  }
+
+  public void setAvailableStock(int availableStock) {
+    this.availableStock = availableStock;
+  }
+
+  public int getReservedStock() {
+    return reservedStock;
+  }
+
+  public void setReservedStock(int reservedStock) {
+    this.reservedStock = reservedStock;
+  }
+
+  public int getMaxQuantityPerOrder() {
+    return maxQuantityPerOrder;
+  }
+
+  public void setMaxQuantityPerOrder(int maxQuantityPerOrder) {
+    this.maxQuantityPerOrder = maxQuantityPerOrder;
+  }
+
+  public int getMinimumStock() {
+    return minimumStock;
+  }
+
+  public void setMinimumStock(int minimumStock) {
+    this.minimumStock = minimumStock;
+  }
+
+  public String getZone() {
+    return zone;
+  }
+
+  public void setZone(String zone) {
+    this.zone = zone;
+  }
+
+  public String getLine() {
+    return line;
+  }
+
+  public void setLine(String line) {
+    this.line = line;
+  }
+
+  public String getPosition() {
+    return position;
+  }
+
+  public void setPosition(String position) {
+    this.position = position;
+  }
+
+  public String getHeight() {
+    return height;
+  }
+
+  public void setHeight(String height) {
+    this.height = height;
+  }
+
+  public boolean isActive() {
+    return active;
+  }
+
+  public void setActive(boolean active) {
+    this.active = active;
+  }
+
+  public Instant getCreatedAt() {
+    return createdAt;
+  }
+
+  public void setCreatedAt(Instant createdAt) {
+    this.createdAt = createdAt;
+  }
 }

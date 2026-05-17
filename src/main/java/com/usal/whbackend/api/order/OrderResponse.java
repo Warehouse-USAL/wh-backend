@@ -1,19 +1,46 @@
 package com.usal.whbackend.api.order;
 
+import com.usal.whbackend.domain.Order;
+import com.usal.whbackend.domain.OrderItem;
 import com.usal.whbackend.domain.OrderStatus;
 import java.time.Instant;
 import java.util.List;
 
 public record OrderResponse(
-        String id,
-        OrderStatus status,
-        String requestedByUserId,
-        List<OrderItemResponse> items,
-        String destinationArea,
-        String assignedVehicleId,
-        Instant createdAt,
-        Instant startedAt,
-        Instant completedAt,
-        String cancelReason) {
-    public record OrderItemResponse(String productId, String sku, int quantity) {}
+    String id,
+    OrderStatus status,
+    String requestedByUserId,
+    List<OrderItemResponse> items,
+    String destinationArea,
+    String assignedVehicleId,
+    Timestamps timestamps,
+    String cancelReason) {
+
+  public OrderResponse {
+    items = items == null ? null : List.copyOf(items);
+  }
+
+  public record OrderItemResponse(String productId, String sku, int quantity) {}
+
+  public record Timestamps(Instant createdAt, Instant startedAt, Instant completedAt) {}
+
+  public static OrderResponse from(Order order) {
+    List<OrderItem> rawItems = order.getItems();
+    List<OrderItemResponse> items =
+        rawItems == null
+            ? List.of()
+            : rawItems.stream()
+                .map(i -> new OrderItemResponse(i.getProductId(), i.getSku(), i.getQuantity()))
+                .toList();
+
+    return new OrderResponse(
+        order.getId(),
+        order.getStatus(),
+        order.getRequestedByUserId(),
+        items,
+        order.getDestinationArea(),
+        order.getAssignedVehicleId(),
+        new Timestamps(order.getCreatedAt(), order.getStartedAt(), order.getCompletedAt()),
+        order.getCancelReason());
+  }
 }

@@ -1,0 +1,31 @@
+meta {
+  name: Create Order
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/orders
+  body: json
+  auth: bearer
+}
+
+headers {
+  Content-Type: application/json
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "destination_area": "AREA-A",
+    "items": [
+      {
+        "product_id": "6a03ba18c21a802f22a4c3db",
+        "quantity": 2
+      }
+    ]
+  }
+}

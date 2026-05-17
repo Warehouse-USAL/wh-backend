@@ -1,0 +1,30 @@
+meta {
+  name: Update Product
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{baseUrl}}/products/:id
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+headers {
+  Content-Type: application/json
+}
+
+params:path {
+  id: PRODUCT_ID_HERE
+}
+
+body:json {
+  {
+    "name": "Updated Product Name",
+    "available_stock": 100
+  }
+}

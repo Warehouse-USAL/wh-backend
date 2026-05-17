@@ -9,21 +9,21 @@ import org.springframework.stereotype.Service;
 @Service
 public class VehicleService {
 
-    private final VehicleRepository vehicleRepository;
+  private final VehicleRepository vehicleRepository;
 
-    public VehicleService(VehicleRepository vehicleRepository) {
-        this.vehicleRepository = vehicleRepository;
-    }
+  public VehicleService(VehicleRepository vehicleRepository) {
+    this.vehicleRepository = vehicleRepository;
+  }
 
-    public List<Vehicle> getVehicles() {
-        throw new UnsupportedOperationException("not implemented");
-    }
+  public List<Vehicle> getVehicles() {
+    throw new UnsupportedOperationException("not implemented");
+  }
 
-    public Vehicle getVehicle(String id) {
-        throw new UnsupportedOperationException("not implemented");
-    }
+  public Vehicle getVehicle(String id) {
+    throw new UnsupportedOperationException("not implemented");
+  }
 
-    public Vehicle registerVehicle(RegisterVehicleRequest request) {
-        throw new UnsupportedOperationException("not implemented");
-    }
+  public Vehicle registerVehicle(RegisterVehicleRequest request) {
+    throw new UnsupportedOperationException("not implemented");
+  }
 }
