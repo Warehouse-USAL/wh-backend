@@ -2,6 +2,8 @@ package com.usal.whbackend.api.order;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -148,5 +150,34 @@ class OrderControllerTest {
         .perform(post("/orders/test-id/cancel"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.order.status").value("pending"));
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void cancelOrder_withReasonBody_passesReasonToService() throws Exception {
+    Order withReason = new Order();
+    withReason.setId("test-id");
+    withReason.setStatus(OrderStatus.CANCELLED);
+    withReason.setCancelReason("Out of stock");
+    withReason.setRequestedByUserId("user-1");
+    withReason.setItems(java.util.List.of());
+    withReason.setCreatedAt(java.time.Instant.now());
+    when(orderService.cancelOrder(eq("test-id"), eq("Out of stock"))).thenReturn(withReason);
+
+    mockMvc
+        .perform(
+            post("/orders/test-id/cancel")
+                .contentType("application/json")
+                .content("{\"reason\":\"Out of stock\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.order.cancel_reason").value("Out of stock"));
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void cancelOrder_withoutBody_reasonIsNull() throws Exception {
+    when(orderService.cancelOrder(anyString(), isNull())).thenReturn(sampleOrder);
+
+    mockMvc.perform(post("/orders/test-id/cancel")).andExpect(status().isOk());
   }
 }

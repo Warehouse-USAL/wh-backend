@@ -108,9 +108,8 @@ public class OrderController {
   @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_WAREHOUSE', 'ADMIN_SALES')")
   @PostMapping("/{id}/cancel")
   public ResponseEntity<Map<String, OrderResponse>> cancelOrder(
-      @PathVariable String id,
-      @Parameter(description = "Optional cancellation reason") @RequestParam(required = false)
-          String reason) {
+      @PathVariable String id, @RequestBody(required = false) CancelOrderRequest body) {
+    String reason = body != null ? body.reason() : null;
     return ResponseEntity.ok(
         Map.of("order", OrderResponse.from(orderService.cancelOrder(id, reason))));
   }
