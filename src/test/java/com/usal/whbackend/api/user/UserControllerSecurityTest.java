@@ -16,10 +16,12 @@ import com.usal.whbackend.domain.UserRole;
 import com.usal.whbackend.service.UserService;
 import java.util.List;
 import org.junit.jupiter.api.Test;
-import org.springframework.http.MediaType;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
+import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -30,114 +32,125 @@ import org.springframework.test.web.servlet.MockMvc;
 @Import(GlobalExceptionHandler.class)
 class UserControllerSecurityTest {
 
-    @Autowired MockMvc mockMvc;
-    @MockitoBean UserService userService;
-    @MockitoBean JwtService jwtService;
+  @Autowired MockMvc mockMvc;
+  @MockitoBean UserService userService;
+  @MockitoBean JwtService jwtService;
 
-    @Test
-    @WithMockUser(roles = "ADMIN_SALES")
-    void getUsers_withNonAdminSystem_returns403() throws Exception {
-        mockMvc.perform(get("/users"))
-            .andExpect(status().isForbidden());
-    }
+  @Test
+  @WithMockUser(roles = "ADMIN_SALES")
+  void getUsers_withNonAdminSystem_returns403() throws Exception {
+    mockMvc.perform(get("/users")).andExpect(status().isForbidden());
+  }
 
-    @Test
-    @WithMockUser(roles = "ADMIN_SYSTEM")
-    void getUsers_withAdminSystem_returns200() throws Exception {
-        when(userService.getUsers(any(), any())).thenReturn(List.of());
-        mockMvc.perform(get("/users"))
-            .andExpect(status().isOk());
-    }
+  @Test
+  @WithMockUser(roles = "ADMIN_SYSTEM")
+  void getUsers_withAdminSystem_returns200() throws Exception {
+    when(userService.getUsers(any(), any(), any(Pageable.class)))
+        .thenReturn(new PageImpl<>(List.of()));
+    mockMvc.perform(get("/users")).andExpect(status().isOk());
+  }
 
-    @Test
-    @WithMockUser(roles = "ADMIN_SALES")
-    void getUser_withNonAdminSystem_returns403() throws Exception {
-        mockMvc.perform(get("/users/some-id"))
-            .andExpect(status().isForbidden());
-    }
+  @Test
+  @WithMockUser(roles = "ADMIN_SALES")
+  void getUser_withNonAdminSystem_returns403() throws Exception {
+    mockMvc.perform(get("/users/some-id")).andExpect(status().isForbidden());
+  }
 
-    @Test
-    @WithMockUser(roles = "ADMIN_SALES")
-    void createUser_withNonAdminSystem_returns403() throws Exception {
-        mockMvc.perform(post("/users")
+  @Test
+  @WithMockUser(roles = "ADMIN_SALES")
+  void createUser_withNonAdminSystem_returns403() throws Exception {
+    mockMvc
+        .perform(
+            post("/users")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"email\":\"test@test.com\",\"name\":\"Test\",\"role\":\"OPERATOR\",\"initial_password\":\"pass\"}"))
-            .andExpect(status().isForbidden());
-    }
+                .content(
+                    "{\"email\":\"test@test.com\",\"name\":\"Test\",\"role\":\"OPERATOR\",\"initial_password\":\"pass\"}"))
+        .andExpect(status().isForbidden());
+  }
 
-    @Test
-    @WithMockUser(roles = "ADMIN_SALES")
-    void updateUser_withNonAdminSystem_returns403() throws Exception {
-        mockMvc.perform(patch("/users/some-id")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"name\":\"New Name\"}"))
-            .andExpect(status().isForbidden());
-    }
-
-    @Test
-    @WithMockUser(roles = "ADMIN_SALES")
-    void resetPassword_withNonAdminSystem_returns403() throws Exception {
-        mockMvc.perform(post("/users/some-id/reset-password")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"new_password\":\"newpass123\"}"))
-            .andExpect(status().isForbidden());
-    }
-
-    // ── SUPERADMIN: should have full access to all user endpoints ──────────
-
-    @Test
-    @WithMockUser(roles = "SUPERADMIN")
-    void getUsers_withSuperadmin_returns200() throws Exception {
-        when(userService.getUsers(any(), any())).thenReturn(List.of());
-        mockMvc.perform(get("/users"))
-            .andExpect(status().isOk());
-    }
-
-    @Test
-    @WithMockUser(roles = "SUPERADMIN")
-    void getUser_withSuperadmin_returns200() throws Exception {
-        when(userService.getUser(anyString())).thenReturn(sampleUser());
-        mockMvc.perform(get("/users/some-id"))
-            .andExpect(status().isOk());
-    }
-
-    @Test
-    @WithMockUser(roles = "SUPERADMIN")
-    void createUser_withSuperadmin_returns201() throws Exception {
-        when(userService.createUser(any())).thenReturn(sampleUser());
-        mockMvc.perform(post("/users")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"email\":\"op@test.com\",\"name\":\"Op\",\"role\":\"OPERATOR\",\"initial_password\":\"pass1234\"}"))
-            .andExpect(status().isCreated());
-    }
-
-    @Test
-    @WithMockUser(roles = "SUPERADMIN")
-    void updateUser_withSuperadmin_returns200() throws Exception {
-        when(userService.updateUser(anyString(), any())).thenReturn(sampleUser());
-        mockMvc.perform(patch("/users/some-id")
+  @Test
+  @WithMockUser(roles = "ADMIN_SALES")
+  void updateUser_withNonAdminSystem_returns403() throws Exception {
+    mockMvc
+        .perform(
+            patch("/users/some-id")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"name\":\"New Name\"}"))
-            .andExpect(status().isOk());
-    }
+        .andExpect(status().isForbidden());
+  }
 
-    @Test
-    @WithMockUser(roles = "SUPERADMIN")
-    void resetPassword_withSuperadmin_returns204() throws Exception {
-        doNothing().when(userService).resetPassword(anyString(), anyString());
-        mockMvc.perform(post("/users/some-id/reset-password")
+  @Test
+  @WithMockUser(roles = "ADMIN_SALES")
+  void resetPassword_withNonAdminSystem_returns403() throws Exception {
+    mockMvc
+        .perform(
+            post("/users/some-id/reset-password")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"new_password\":\"newpass123\"}"))
-            .andExpect(status().isNoContent());
-    }
+        .andExpect(status().isForbidden());
+  }
 
-    private User sampleUser() {
-        User u = new User();
-        u.setId("usr-1");
-        u.setEmail("admin@test.com");
-        u.setName("Admin");
-        u.setRole(UserRole.SUPERADMIN);
-        u.setActive(true);
-        return u;
-    }
+  // ── SUPERADMIN: should have full access to all user endpoints ──────────
+
+  @Test
+  @WithMockUser(roles = "SUPERADMIN")
+  void getUsers_withSuperadmin_returns200() throws Exception {
+    when(userService.getUsers(any(), any(), any(Pageable.class)))
+        .thenReturn(new PageImpl<>(List.of()));
+    mockMvc.perform(get("/users")).andExpect(status().isOk());
+  }
+
+  @Test
+  @WithMockUser(roles = "SUPERADMIN")
+  void getUser_withSuperadmin_returns200() throws Exception {
+    when(userService.getUser(anyString())).thenReturn(sampleUser());
+    mockMvc.perform(get("/users/some-id")).andExpect(status().isOk());
+  }
+
+  @Test
+  @WithMockUser(roles = "SUPERADMIN")
+  void createUser_withSuperadmin_returns201() throws Exception {
+    when(userService.createUser(any())).thenReturn(sampleUser());
+    mockMvc
+        .perform(
+            post("/users")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"email\":\"op@test.com\",\"name\":\"Op\",\"role\":\"OPERATOR\",\"initial_password\":\"pass1234\"}"))
+        .andExpect(status().isCreated());
+  }
+
+  @Test
+  @WithMockUser(roles = "SUPERADMIN")
+  void updateUser_withSuperadmin_returns200() throws Exception {
+    when(userService.updateUser(anyString(), any())).thenReturn(sampleUser());
+    mockMvc
+        .perform(
+            patch("/users/some-id")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"New Name\"}"))
+        .andExpect(status().isOk());
+  }
+
+  @Test
+  @WithMockUser(roles = "SUPERADMIN")
+  void resetPassword_withSuperadmin_returns204() throws Exception {
+    doNothing().when(userService).resetPassword(anyString(), anyString());
+    mockMvc
+        .perform(
+            post("/users/some-id/reset-password")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"new_password\":\"newpass123\"}"))
+        .andExpect(status().isNoContent());
+  }
+
+  private User sampleUser() {
+    User u = new User();
+    u.setId("usr-1");
+    u.setEmail("admin@test.com");
+    u.setName("Admin");
+    u.setRole(UserRole.SUPERADMIN);
+    u.setActive(true);
+    return u;
+  }
 }

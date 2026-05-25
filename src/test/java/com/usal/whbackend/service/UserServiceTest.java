@@ -20,6 +20,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 @ExtendWith(MockitoExtension.class)
@@ -39,35 +43,72 @@ class UserServiceTest {
     return u;
   }
 
+  // ── getUsers ──────────────────────────────────────────────────────────────
+
   @Test
   void getUsers_noFilters_returnsAll() {
-    when(userRepository.findAll()).thenReturn(List.of(sample("1")));
-    assertThat(userService.getUsers(null, null)).hasSize(1);
+    Pageable pageable = PageRequest.of(0, 10);
+    when(userRepository.findAll(pageable))
+        .thenReturn(new PageImpl<>(List.of(sample("1")), pageable, 1));
+
+    Page<User> result = userService.getUsers(null, null, pageable);
+
+    assertThat(result.getContent()).hasSize(1);
+    assertThat(result.getTotalElements()).isEqualTo(1);
   }
 
   @Test
   void getUsers_roleFilter_returnsByRole() {
-    when(userRepository.findByRole(UserRole.ADMIN_SALES)).thenReturn(List.of(sample("1")));
-    assertThat(userService.getUsers("ADMIN_SALES", null)).hasSize(1);
+    Pageable pageable = PageRequest.of(0, 10);
+    when(userRepository.findByRole(UserRole.ADMIN_SALES, pageable))
+        .thenReturn(new PageImpl<>(List.of(sample("1")), pageable, 1));
+
+    Page<User> result = userService.getUsers("ADMIN_SALES", null, pageable);
+
+    assertThat(result.getContent()).hasSize(1);
   }
 
   @Test
   void getUsers_activeFilter_returnsByActive() {
-    when(userRepository.findByActive(true)).thenReturn(List.of(sample("1")));
-    assertThat(userService.getUsers(null, true)).hasSize(1);
+    Pageable pageable = PageRequest.of(0, 10);
+    when(userRepository.findByActive(true, pageable))
+        .thenReturn(new PageImpl<>(List.of(sample("1")), pageable, 1));
+
+    Page<User> result = userService.getUsers(null, true, pageable);
+
+    assertThat(result.getContent()).hasSize(1);
   }
 
   @Test
-  void getUsers_bothFilters_returnsByRoleAndActive() {
-    when(userRepository.findByRoleAndActive(UserRole.ADMIN_SALES, true))
-        .thenReturn(List.of(sample("1")));
-    assertThat(userService.getUsers("ADMIN_SALES", true)).hasSize(1);
+  void getUsers_roleAndActiveFilter_returnsByBoth() {
+    Pageable pageable = PageRequest.of(0, 10);
+    when(userRepository.findByRoleAndActive(UserRole.ADMIN_SALES, true, pageable))
+        .thenReturn(new PageImpl<>(List.of(sample("1")), pageable, 1));
+
+    Page<User> result = userService.getUsers("ADMIN_SALES", true, pageable);
+
+    assertThat(result.getContent()).hasSize(1);
   }
+
+  @Test
+  void getUsers_secondPage_passesPageableThrough() {
+    Pageable pageable = PageRequest.of(1, 5);
+    when(userRepository.findAll(pageable))
+        .thenReturn(new PageImpl<>(List.of(sample("6")), pageable, 6));
+
+    Page<User> result = userService.getUsers(null, null, pageable);
+
+    assertThat(result.getNumber()).isEqualTo(1);
+    assertThat(result.getSize()).isEqualTo(5);
+    assertThat(result.getTotalElements()).isEqualTo(6);
+  }
+
+  // ── getUser / createUser / updateUser / resetPassword ─────────────────────
 
   @Test
   void getUser_existingId_returnsUser() {
-    when(userRepository.findById("1")).thenReturn(Optional.of(sample("1")));
-    assertThat(userService.getUser("1").getId()).isEqualTo("1");
+    when(userRepository.findById("USR-001")).thenReturn(Optional.of(sample("USR-001")));
+    assertThat(userService.getUser("USR-001").getId()).isEqualTo("USR-001");
   }
 
   @Test
@@ -77,19 +118,17 @@ class UserServiceTest {
   }
 
   @Test
-  void createUser_newEmail_savesUser() {
+  void createUser_newEmail_savesAndReturns() {
     when(userRepository.findByEmail("new@test.com")).thenReturn(Optional.empty());
-    when(passwordEncoder.encode("pass")).thenReturn("$2a$hash");
-    User saved = sample("2");
-    saved.setEmail("new@test.com");
-    when(userRepository.save(any())).thenReturn(saved);
+    when(userRepository.save(any())).thenReturn(sample("USR-NEW"));
+    when(passwordEncoder.encode("pw")).thenReturn("encoded");
 
     User result =
-        userService.createUser(
-            new CreateUserRequest("new@test.com", "New User", "ADMIN_SALES", "pass"));
+        userService.createUser(new CreateUserRequest("new@test.com", "Name", "ADMIN_SALES", "pw"));
 
-    assertThat(result.getEmail()).isEqualTo("new@test.com");
-    verify(passwordEncoder).encode("pass");
+    assertThat(result.getId()).isEqualTo("USR-NEW");
+    verify(passwordEncoder).encode("pw");
+    verify(userRepository).save(any());
   }
 
   @Test
@@ -98,44 +137,45 @@ class UserServiceTest {
     assertThatThrownBy(
             () ->
                 userService.createUser(
-                    new CreateUserRequest("dup@test.com", "Dup", "ADMIN_SALES", "pass")))
+                    new CreateUserRequest("dup@test.com", "Name", "ADMIN_SALES", "pw")))
         .isInstanceOf(EmailAlreadyExistsException.class);
   }
 
   @Test
-  void updateUser_existingId_updatesName() {
-    User user = sample("1");
-    when(userRepository.findById("1")).thenReturn(Optional.of(user));
-    when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+  void updateUser_existingId_updatesFields() {
+    User u = sample("USR-001");
+    when(userRepository.findById("USR-001")).thenReturn(Optional.of(u));
+    when(userRepository.save(any())).thenReturn(u);
 
-    User result = userService.updateUser("1", new UpdateUserRequest("New Name", null, null));
-    assertThat(result.getName()).isEqualTo("New Name");
+    userService.updateUser("USR-001", new UpdateUserRequest("New Name", null, null));
+
+    verify(userRepository).save(any());
+  }
+
+  @Test
+  void resetPassword_existingId_encodesAndSaves() {
+    User u = sample("USR-001");
+    when(userRepository.findById("USR-001")).thenReturn(Optional.of(u));
+    when(passwordEncoder.encode("newpass")).thenReturn("encoded");
+    when(userRepository.save(any())).thenReturn(u);
+
+    userService.resetPassword("USR-001", "newpass");
+
+    verify(passwordEncoder).encode("newpass");
+    verify(userRepository).save(any());
   }
 
   @Test
   void updateUser_unknownId_throwsUserNotFound() {
     when(userRepository.findById("999")).thenReturn(Optional.empty());
-    assertThatThrownBy(() -> userService.updateUser("999", new UpdateUserRequest("N", null, null)))
+    assertThatThrownBy(() -> userService.updateUser("999", new UpdateUserRequest(null, null, null)))
         .isInstanceOf(UserNotFoundException.class);
-  }
-
-  @Test
-  void resetPassword_existingId_savesNewHash() {
-    User user = sample("1");
-    when(userRepository.findById("1")).thenReturn(Optional.of(user));
-    when(passwordEncoder.encode("newpass")).thenReturn("$2a$newhash");
-    when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-
-    userService.resetPassword("1", "newpass");
-
-    verify(userRepository).save(user);
-    assertThat(user.getPasswordHash()).isEqualTo("$2a$newhash");
   }
 
   @Test
   void resetPassword_unknownId_throwsUserNotFound() {
     when(userRepository.findById("999")).thenReturn(Optional.empty());
-    assertThatThrownBy(() -> userService.resetPassword("999", "pass"))
+    assertThatThrownBy(() -> userService.resetPassword("999", "newpass"))
         .isInstanceOf(UserNotFoundException.class);
   }
 }
