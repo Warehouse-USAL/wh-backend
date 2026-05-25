@@ -21,8 +21,11 @@ public class AuthController {
     this.authService = authService;
   }
 
-  @Operation(summary = "Login", description = "Authenticate with email/password and receive a signed JWT token")
+  @Operation(
+      summary = "Login",
+      description = "Authenticate with email/password and receive a signed JWT token")
   @ApiResponse(responseCode = "200", description = "Login successful — returns JWT and user info")
+  @ApiResponse(responseCode = "400", description = "MALFORMED_REQUEST — body is not valid JSON")
   @ApiResponse(responseCode = "401", description = "Invalid credentials")
   @PostMapping("/login")
   public ResponseEntity<LoginResponse> login(@RequestBody LoginRequest request) {

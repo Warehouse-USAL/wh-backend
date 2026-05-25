@@ -28,41 +28,78 @@ import org.springframework.test.web.servlet.MockMvc;
 @Import(GlobalExceptionHandler.class)
 class ProductControllerSecurityTest {
 
-    @Autowired MockMvc mockMvc;
-    @MockitoBean ProductService productService;
-    @MockitoBean JwtService jwtService;
+  @Autowired MockMvc mockMvc;
+  @MockitoBean ProductService productService;
+  @MockitoBean JwtService jwtService;
 
-    @Test
-    @WithMockUser(roles = "PROVIDER")
-    void createProduct_withUnauthorizedRole_returns403() throws Exception {
-        mockMvc.perform(post("/products")
+  @Test
+  @WithMockUser(roles = "PROVIDER")
+  void createProduct_withUnauthorizedRole_returns403() throws Exception {
+    mockMvc
+        .perform(
+            post("/products")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"sku\":\"SKU-001\",\"name\":\"Test\",\"category\":\"electronics\",\"description\":\"\",\"zoneId\":\"A\",\"line\":\"1\",\"position\":\"1\",\"height\":\"1\",\"maxQuantityPerOrder\":10}"))
-            .andExpect(status().isForbidden());
-    }
+                .content(
+                    "{\"sku\":\"SKU-001\",\"name\":\"Test\",\"category\":\"electronics\",\"description\":\"\",\"zoneId\":\"A\",\"line\":\"1\",\"position\":\"1\",\"height\":\"1\",\"maxQuantityPerOrder\":10}"))
+        .andExpect(status().isForbidden());
+  }
 
-    @Test
-    @WithMockUser(roles = "ADMIN_WAREHOUSE")
-    void createProduct_withAdminWarehouse_returns201() throws Exception {
-        when(productService.createProduct(any())).thenReturn(new Product());
-        mockMvc.perform(post("/products")
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void createProduct_withAdminWarehouse_returns201() throws Exception {
+    when(productService.createProduct(any())).thenReturn(new Product());
+    mockMvc
+        .perform(
+            post("/products")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"sku\":\"SKU-001\",\"name\":\"Test\",\"category\":\"electronics\",\"description\":\"\",\"zoneId\":\"A\",\"line\":\"1\",\"position\":\"1\",\"height\":\"1\",\"maxQuantityPerOrder\":10}"))
-            .andExpect(status().isCreated());
-    }
+                .content(
+                    "{\"sku\":\"SKU-001\",\"name\":\"Test\",\"category\":\"electronics\",\"description\":\"\",\"zoneId\":\"A\",\"line\":\"1\",\"position\":\"1\",\"height\":\"1\",\"maxQuantityPerOrder\":10}"))
+        .andExpect(status().isCreated());
+  }
 
-    @Test
-    @WithMockUser(roles = "ADMIN_SALES")
-    void deleteProduct_withAdminSales_returns403() throws Exception {
-        mockMvc.perform(delete("/products/prod-1"))
-            .andExpect(status().isForbidden());
-    }
+  @Test
+  @WithMockUser(roles = "ADMIN_SALES")
+  void deleteProduct_withAdminSales_returns403() throws Exception {
+    mockMvc.perform(delete("/products/prod-1")).andExpect(status().isForbidden());
+  }
 
-    @Test
-    @WithMockUser(roles = "ADMIN_WAREHOUSE")
-    void deleteProduct_withAdminWarehouse_returns204() throws Exception {
-        doNothing().when(productService).deleteProduct(anyString());
-        mockMvc.perform(delete("/products/prod-1"))
-            .andExpect(status().isNoContent());
-    }
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void deleteProduct_withAdminWarehouse_returns204() throws Exception {
+    doNothing().when(productService).deleteProduct(anyString());
+    mockMvc.perform(delete("/products/prod-1")).andExpect(status().isNoContent());
+  }
+
+  // ── SUPERADMIN: should have full access to all product endpoints ───────
+
+  @Test
+  @WithMockUser(roles = "SUPERADMIN")
+  void createProduct_withSuperadmin_returns201() throws Exception {
+    when(productService.createProduct(any())).thenReturn(new Product());
+    mockMvc
+        .perform(
+            post("/products")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"sku\":\"SKU-001\",\"name\":\"Test\",\"category\":\"electronics\"}"))
+        .andExpect(status().isCreated());
+  }
+
+  @Test
+  @WithMockUser(roles = "SUPERADMIN")
+  void updateProduct_withSuperadmin_returns200() throws Exception {
+    when(productService.updateProduct(anyString(), any())).thenReturn(new Product());
+    mockMvc
+        .perform(
+            patch("/products/prod-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"Updated Name\"}"))
+        .andExpect(status().isOk());
+  }
+
+  @Test
+  @WithMockUser(roles = "SUPERADMIN")
+  void deleteProduct_withSuperadmin_returns204() throws Exception {
+    doNothing().when(productService).deleteProduct(anyString());
+    mockMvc.perform(delete("/products/prod-1")).andExpect(status().isNoContent());
+  }
 }

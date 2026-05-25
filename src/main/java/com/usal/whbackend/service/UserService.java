@@ -8,9 +8,12 @@ import com.usal.whbackend.repository.UserRepository;
 import com.usal.whbackend.service.exception.EmailAlreadyExistsException;
 import com.usal.whbackend.service.exception.UserNotFoundException;
 import java.time.Instant;
-import java.util.List;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class UserService {
@@ -23,17 +26,25 @@ public class UserService {
     this.passwordEncoder = passwordEncoder;
   }
 
-  public List<User> getUsers(String role, Boolean active) {
-    if (role != null && active != null) {
-      return userRepository.findByRoleAndActive(UserRole.valueOf(role), active);
-    }
+  public Page<User> getUsers(String role, Boolean active, Pageable pageable) {
+    UserRole parsedRole = null;
     if (role != null) {
-      return userRepository.findByRole(UserRole.valueOf(role));
+      try {
+        parsedRole = UserRole.valueOf(role);
+      } catch (IllegalArgumentException e) {
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "INVALID_ROLE");
+      }
+    }
+    if (parsedRole != null && active != null) {
+      return userRepository.findByRoleAndActive(parsedRole, active, pageable);
+    }
+    if (parsedRole != null) {
+      return userRepository.findByRole(parsedRole, pageable);
     }
     if (active != null) {
-      return userRepository.findByActive(active);
+      return userRepository.findByActive(active, pageable);
     }
-    return userRepository.findAll();
+    return userRepository.findAll(pageable);
   }
 
   public User getUser(String id) {

@@ -60,4 +60,23 @@ class AuthControllerTest {
         .andExpect(status().isUnauthorized())
         .andExpect(jsonPath("$.error.code").value("INVALID_CREDENTIALS"));
   }
+
+  @Test
+  void login_malformedJson_returns400() throws Exception {
+    mockMvc
+        .perform(
+            post("/auth/login")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("not-valid-json{{{"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.error.code").value("MALFORMED_REQUEST"));
+  }
+
+  @Test
+  void login_emptyBody_returns400() throws Exception {
+    mockMvc
+        .perform(post("/auth/login").contentType(MediaType.APPLICATION_JSON).content(""))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.error.code").value("MALFORMED_REQUEST"));
+  }
 }

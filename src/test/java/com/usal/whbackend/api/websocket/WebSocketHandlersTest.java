@@ -156,7 +156,8 @@ class WebSocketHandlersTest {
     when(s.getAttributes()).thenReturn(Map.of("userId", id));
     try {
       when(s.getUri()).thenReturn(URI.create("/ws/v1/orders"));
-    } catch (Exception ignored) {}
+    } catch (Exception ignored) {
+    }
     return s;
   }
 
@@ -176,7 +177,8 @@ class WebSocketHandlersTest {
     when(s.getAttributes()).thenReturn(attrs);
     try {
       when(s.getUri()).thenReturn(URI.create(uri));
-    } catch (Exception ignored) {}
+    } catch (Exception ignored) {
+    }
     return s;
   }
 

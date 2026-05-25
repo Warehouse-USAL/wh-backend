@@ -1,7 +1,6 @@
 package com.usal.whbackend.repository.kafka;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.usal.whbackend.domain.Vehicle;
 import com.usal.whbackend.domain.VehicleStatus;
 import com.usal.whbackend.repository.VehicleRepository;
 import com.usal.whbackend.service.VehicleEventPublisher;

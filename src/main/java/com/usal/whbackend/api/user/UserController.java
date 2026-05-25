@@ -1,5 +1,6 @@
 package com.usal.whbackend.api.user;
 
+import com.usal.whbackend.api.Pagination;
 import com.usal.whbackend.domain.User;
 import com.usal.whbackend.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -8,7 +9,10 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import java.util.List;
+import java.util.Map;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -33,25 +37,35 @@ public class UserController {
     this.userService = userService;
   }
 
-  @Operation(summary = "List users", description = "Returns all users, optionally filtered by role and active status")
-  @ApiResponse(responseCode = "200", description = "User list")
+  @Operation(
+      summary = "List users",
+      description = "Returns paginated users, optionally filtered by role and active status")
+  @ApiResponse(responseCode = "200", description = "Paginated user list")
   @ApiResponse(responseCode = "403", description = "Insufficient role")
-  @PreAuthorize("hasRole('ADMIN_SYSTEM')")
+  @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_SYSTEM')")
   @GetMapping
-  public ResponseEntity<List<UserResponse>> getUsers(
+  public ResponseEntity<Map<String, Object>> getUsers(
       @Parameter(description = "Filter by role (e.g. ADMIN_SALES, OPERATOR)")
-      @RequestParam(required = false) String role,
-      @Parameter(description = "Filter by active status")
-      @RequestParam(required = false) Boolean isActive) {
+          @RequestParam(required = false)
+          String role,
+      @Parameter(description = "Filter by active status") @RequestParam(required = false)
+          Boolean isActive,
+      @Parameter(description = "Zero-indexed page number") @RequestParam(defaultValue = "0")
+          int page,
+      @Parameter(description = "Page size (max 50)") @RequestParam(defaultValue = "10") int size) {
+    Pageable pageable = PageRequest.of(Math.max(page, 0), Math.max(Math.min(size, 50), 1));
+    Page<User> result = userService.getUsers(role, isActive, pageable);
     return ResponseEntity.ok(
-        userService.getUsers(role, isActive).stream().map(this::toResponse).toList());
+        Map.of(
+            "users", result.getContent().stream().map(this::toResponse).toList(),
+            "pagination", Pagination.from(result)));
   }
 
   @Operation(summary = "Get user by ID")
   @ApiResponse(responseCode = "200", description = "User found")
   @ApiResponse(responseCode = "403", description = "Insufficient role")
   @ApiResponse(responseCode = "404", description = "USER_NOT_FOUND")
-  @PreAuthorize("hasRole('ADMIN_SYSTEM')")
+  @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_SYSTEM')")
   @GetMapping("/{id}")
   public ResponseEntity<UserResponse> getUser(@PathVariable String id) {
     return ResponseEntity.ok(toResponse(userService.getUser(id)));
@@ -62,18 +76,20 @@ public class UserController {
   @ApiResponse(responseCode = "400", description = "Validation error")
   @ApiResponse(responseCode = "409", description = "EMAIL_ALREADY_EXISTS")
   @ApiResponse(responseCode = "403", description = "Insufficient role")
-  @PreAuthorize("hasRole('ADMIN_SYSTEM')")
+  @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_SYSTEM')")
   @PostMapping
   public ResponseEntity<UserResponse> createUser(@Valid @RequestBody CreateUserRequest request) {
     return ResponseEntity.status(HttpStatus.CREATED)
         .body(toResponse(userService.createUser(request)));
   }
 
-  @Operation(summary = "Update user", description = "Partial update — only provided fields are changed")
+  @Operation(
+      summary = "Update user",
+      description = "Partial update — only provided fields are changed")
   @ApiResponse(responseCode = "200", description = "User updated")
   @ApiResponse(responseCode = "403", description = "Insufficient role")
   @ApiResponse(responseCode = "404", description = "USER_NOT_FOUND")
-  @PreAuthorize("hasRole('ADMIN_SYSTEM')")
+  @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_SYSTEM')")
   @PatchMapping("/{id}")
   public ResponseEntity<UserResponse> updateUser(
       @PathVariable String id, @RequestBody UpdateUserRequest request) {
@@ -85,7 +101,7 @@ public class UserController {
   @ApiResponse(responseCode = "400", description = "Validation error")
   @ApiResponse(responseCode = "403", description = "Insufficient role")
   @ApiResponse(responseCode = "404", description = "USER_NOT_FOUND")
-  @PreAuthorize("hasRole('ADMIN_SYSTEM')")
+  @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_SYSTEM')")
   @PostMapping("/{id}/reset-password")
   public ResponseEntity<Void> resetPassword(
       @PathVariable String id, @Valid @RequestBody ResetPasswordRequest request) {

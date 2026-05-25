@@ -12,6 +12,7 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.BindingResult;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -48,6 +49,15 @@ class GlobalExceptionHandlerTest {
         handler.handleEmailAlreadyExists(new EmailAlreadyExistsException("x@x.com"));
     assertThat(r.getStatusCode()).isEqualTo(HttpStatus.CONFLICT);
     assertThat(r.getBody().error().code()).isEqualTo("EMAIL_ALREADY_EXISTS");
+  }
+
+  @Test
+  void malformedRequest_returns400WithCode() {
+    ResponseEntity<ErrorResponse> r =
+        handler.handleMalformedRequest(mock(HttpMessageNotReadableException.class));
+    assertThat(r.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    assertThat(r.getBody()).isNotNull();
+    assertThat(r.getBody().error().code()).isEqualTo("MALFORMED_REQUEST");
   }
 
   @Test
