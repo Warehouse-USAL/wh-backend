@@ -23,18 +23,20 @@ public record CreateProductRequest(
             requiredMode = Schema.RequiredMode.REQUIRED)
         String category,
     @JsonProperty("image_url")
-    @Schema(
+        @Schema(
             description = "Full URL of the product image",
             example = "https://example.com/images/casco.png")
         String imageUrl,
     @JsonProperty("available_stock")
-    @Schema(description = "Units currently available in stock", example = "100")
+        @Schema(description = "Units currently available in stock", example = "100")
         Integer availableStock,
     @JsonProperty("max_quantity_per_order")
-    @Schema(description = "Maximum units a single order can request", example = "10")
+        @Schema(description = "Maximum units a single order can request", example = "10")
         Integer maxQuantityPerOrder,
     @JsonProperty("minimum_stock")
-    @Schema(description = "Minimum stock threshold that triggers a restock alert", example = "20")
+        @Schema(
+            description = "Minimum stock threshold that triggers a restock alert",
+            example = "20")
         Integer minimumStock,
     @Schema(description = "Warehouse zone where the product is stored", example = "A") String zone,
     @Schema(description = "Aisle/line within the zone", example = "3") String line,

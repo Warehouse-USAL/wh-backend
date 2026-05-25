@@ -38,10 +38,15 @@ class VehicleErrorConsumerTest {
     when(vehicleRepository.findById("vhc-2")).thenReturn(Optional.of(vehicle));
     when(vehicleRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-    String message = new ObjectMapper().writeValueAsString(
-        new VehicleErrorMessage(
-            "vehicle.error", "vhc-2", "CONNECTION_LOST",
-            "Sin señal desde hace 30 segundos.", "2026-05-01T10:07:00Z"));
+    String message =
+        new ObjectMapper()
+            .writeValueAsString(
+                new VehicleErrorMessage(
+                    "vehicle.error",
+                    "vhc-2",
+                    "CONNECTION_LOST",
+                    "Sin señal desde hace 30 segundos.",
+                    "2026-05-01T10:07:00Z"));
 
     consumer.consume(message);
 
@@ -49,7 +54,7 @@ class VehicleErrorConsumerTest {
     verify(vehicleRepository).save(captor.capture());
     assert captor.getValue().getStatus() == VehicleStatus.OFFLINE;
 
-    verify(vehicleEventPublisher).broadcastVehicleError(
-        eq("vhc-2"), eq("CONNECTION_LOST"), any(), any());
+    verify(vehicleEventPublisher)
+        .broadcastVehicleError(eq("vhc-2"), eq("CONNECTION_LOST"), any(), any());
   }
 }

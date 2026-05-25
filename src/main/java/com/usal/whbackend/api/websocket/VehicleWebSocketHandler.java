@@ -45,7 +45,8 @@ public class VehicleWebSocketHandler extends TextWebSocketHandler implements Veh
 
   @Override
   public void broadcastVehicleUpdate(Vehicle vehicle) {
-    broadcast(serialize(Map.of("event", "vehicle.updated", "payload", VehicleResponse.from(vehicle))));
+    broadcast(
+        serialize(Map.of("event", "vehicle.updated", "payload", VehicleResponse.from(vehicle))));
   }
 
   @Override
@@ -66,7 +67,8 @@ public class VehicleWebSocketHandler extends TextWebSocketHandler implements Veh
         try {
           session.sendMessage(new TextMessage(json));
         } catch (IOException e) {
-          log.warn("Failed to send vehicle event to session {}: {}", session.getId(), e.getMessage());
+          log.warn(
+              "Failed to send vehicle event to session {}: {}", session.getId(), e.getMessage());
         }
       }
     }

@@ -30,7 +30,8 @@ public record ProductResponse(
         product.getDescription(),
         product.getCategory(),
         product.getImageUrl(),
-        new Stock(product.getAvailableStock(), product.getReservedStock(), product.getMinimumStock()),
+        new Stock(
+            product.getAvailableStock(), product.getReservedStock(), product.getMinimumStock()),
         new OrderConstraints(product.getMaxQuantityPerOrder()),
         new Location(
             product.getZone(), product.getLine(), product.getPosition(), product.getHeight()),

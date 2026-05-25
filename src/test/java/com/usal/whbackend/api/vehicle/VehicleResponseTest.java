@@ -11,7 +11,14 @@ class VehicleResponseTest {
   void recordAccessors() {
     Instant now = Instant.now();
     VehicleResponse response =
-        new VehicleResponse("id-1", "Rover-01", "IDLE", new VehicleResponse.Position(10.5, 20.3), 85, "order-1", now);
+        new VehicleResponse(
+            "id-1",
+            "Rover-01",
+            "IDLE",
+            new VehicleResponse.Position(10.5, 20.3),
+            85,
+            "order-1",
+            now);
 
     assertEquals("id-1", response.id());
     assertEquals("Rover-01", response.name());

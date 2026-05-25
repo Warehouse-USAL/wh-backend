@@ -21,8 +21,7 @@ public class OrderStatusConsumer {
   private final ObjectMapper objectMapper = new ObjectMapper();
 
   public OrderStatusConsumer(
-      OrderMongoRepository orderMongoRepository,
-      List<OrderEventPublisher> orderEventPublishers) {
+      OrderMongoRepository orderMongoRepository, List<OrderEventPublisher> orderEventPublishers) {
     this.orderMongoRepository = orderMongoRepository;
     this.orderEventPublishers = List.copyOf(orderEventPublishers);
   }
