@@ -97,4 +97,68 @@ class ProductControllerTest {
     doNothing().when(productService).deleteProduct(anyString());
     mockMvc.perform(delete("/products/prod-1")).andExpect(status().isNoContent());
   }
+
+  @Test
+  @WithMockUser
+  void getProduct_responseBodyUsesSnakeCaseKeys() throws Exception {
+    // Regression: API must serialize responses with snake_case field names so that
+    // consumers sending image_url / available_stock / max_quantity_per_order / minimum_stock
+    // receive them back under the same snake_case keys.
+    Product product = new Product();
+    product.setId("prod-snake");
+    product.setSku("SKU-SNAKE");
+    product.setName("Snake Product");
+    product.setCategory("electronics");
+    product.setActive(true);
+    product.setImageUrl("https://example.com/img.png");
+    product.setAvailableStock(50);
+    product.setMaxQuantityPerOrder(5);
+    product.setMinimumStock(10);
+    product.setCreatedAt(java.time.Instant.parse("2026-01-01T00:00:00Z"));
+
+    when(productService.getProduct(anyString(), any())).thenReturn(product);
+
+    mockMvc
+        .perform(get("/products/prod-snake"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.product.image_url").value("https://example.com/img.png"))
+        .andExpect(jsonPath("$.product.created_at").exists())
+        .andExpect(jsonPath("$.product.stock.minimum_stock").value(10))
+        .andExpect(jsonPath("$.product.order_constraints.max_quantity_per_order").value(5))
+        .andExpect(jsonPath("$.product.stock.available").value(50));
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void createProduct_acceptsSnakeCaseRequestBody() throws Exception {
+    // Regression: fields sent as snake_case must be deserialized, not silently dropped.
+    Product stored = new Product();
+    stored.setId("prod-sc");
+    stored.setSku("SKU-SC");
+    stored.setName("Snake Create");
+    stored.setCategory("tools");
+    stored.setImageUrl("https://example.com/tool.png");
+    stored.setAvailableStock(100);
+    stored.setMaxQuantityPerOrder(10);
+    stored.setMinimumStock(20);
+    stored.setActive(true);
+    stored.setCreatedAt(java.time.Instant.parse("2026-01-01T00:00:00Z"));
+
+    when(productService.createProduct(any())).thenReturn(stored);
+
+    mockMvc
+        .perform(
+            post("/products")
+                .contentType("application/json")
+                .content(
+                    "{\"sku\":\"SKU-SC\",\"name\":\"Snake Create\",\"category\":\"tools\","
+                        + "\"image_url\":\"https://example.com/tool.png\","
+                        + "\"available_stock\":100,"
+                        + "\"max_quantity_per_order\":10,"
+                        + "\"minimum_stock\":20}"))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.product.image_url").value("https://example.com/tool.png"))
+        .andExpect(jsonPath("$.product.stock.available").value(100))
+        .andExpect(jsonPath("$.product.order_constraints.max_quantity_per_order").value(10));
+  }
 }

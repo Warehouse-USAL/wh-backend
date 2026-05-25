@@ -1,6 +1,8 @@
 package com.usal.whbackend.api.user;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -9,6 +11,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.usal.whbackend.api.error.GlobalExceptionHandler;
 import com.usal.whbackend.config.JwtService;
+import com.usal.whbackend.domain.User;
+import com.usal.whbackend.domain.UserRole;
 import com.usal.whbackend.service.UserService;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -77,5 +81,63 @@ class UserControllerSecurityTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"new_password\":\"newpass123\"}"))
             .andExpect(status().isForbidden());
+    }
+
+    // ── SUPERADMIN: should have full access to all user endpoints ──────────
+
+    @Test
+    @WithMockUser(roles = "SUPERADMIN")
+    void getUsers_withSuperadmin_returns200() throws Exception {
+        when(userService.getUsers(any(), any())).thenReturn(List.of());
+        mockMvc.perform(get("/users"))
+            .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockUser(roles = "SUPERADMIN")
+    void getUser_withSuperadmin_returns200() throws Exception {
+        when(userService.getUser(anyString())).thenReturn(sampleUser());
+        mockMvc.perform(get("/users/some-id"))
+            .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockUser(roles = "SUPERADMIN")
+    void createUser_withSuperadmin_returns201() throws Exception {
+        when(userService.createUser(any())).thenReturn(sampleUser());
+        mockMvc.perform(post("/users")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"email\":\"op@test.com\",\"name\":\"Op\",\"role\":\"OPERATOR\",\"initial_password\":\"pass1234\"}"))
+            .andExpect(status().isCreated());
+    }
+
+    @Test
+    @WithMockUser(roles = "SUPERADMIN")
+    void updateUser_withSuperadmin_returns200() throws Exception {
+        when(userService.updateUser(anyString(), any())).thenReturn(sampleUser());
+        mockMvc.perform(patch("/users/some-id")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"New Name\"}"))
+            .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockUser(roles = "SUPERADMIN")
+    void resetPassword_withSuperadmin_returns204() throws Exception {
+        doNothing().when(userService).resetPassword(anyString(), anyString());
+        mockMvc.perform(post("/users/some-id/reset-password")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"new_password\":\"newpass123\"}"))
+            .andExpect(status().isNoContent());
+    }
+
+    private User sampleUser() {
+        User u = new User();
+        u.setId("usr-1");
+        u.setEmail("admin@test.com");
+        u.setName("Admin");
+        u.setRole(UserRole.SUPERADMIN);
+        u.setActive(true);
+        return u;
     }
 }

@@ -65,4 +65,34 @@ class ProductControllerSecurityTest {
         mockMvc.perform(delete("/products/prod-1"))
             .andExpect(status().isNoContent());
     }
+
+    // ── SUPERADMIN: should have full access to all product endpoints ───────
+
+    @Test
+    @WithMockUser(roles = "SUPERADMIN")
+    void createProduct_withSuperadmin_returns201() throws Exception {
+        when(productService.createProduct(any())).thenReturn(new Product());
+        mockMvc.perform(post("/products")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"sku\":\"SKU-001\",\"name\":\"Test\",\"category\":\"electronics\"}"))
+            .andExpect(status().isCreated());
+    }
+
+    @Test
+    @WithMockUser(roles = "SUPERADMIN")
+    void updateProduct_withSuperadmin_returns200() throws Exception {
+        when(productService.updateProduct(anyString(), any())).thenReturn(new Product());
+        mockMvc.perform(patch("/products/prod-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"Updated Name\"}"))
+            .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockUser(roles = "SUPERADMIN")
+    void deleteProduct_withSuperadmin_returns204() throws Exception {
+        doNothing().when(productService).deleteProduct(anyString());
+        mockMvc.perform(delete("/products/prod-1"))
+            .andExpect(status().isNoContent());
+    }
 }

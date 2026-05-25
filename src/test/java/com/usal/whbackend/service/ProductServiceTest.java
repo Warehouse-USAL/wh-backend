@@ -187,6 +187,40 @@ class ProductServiceTest {
   }
 
   @Test
+  void createProduct_conTodosLosCamposOpcionales_losGuardaCorrectamente() {
+    // Regression: fields imageUrl/availableStock/maxQuantityPerOrder/minimumStock must NOT
+    // be silently lost when the consumer sends them with the correct camelCase field names.
+    when(productRepository.findBySku("SKU-FULL")).thenReturn(Optional.empty());
+    when(productRepository.save(any(Product.class))).thenAnswer(inv -> inv.getArgument(0));
+
+    CreateProductRequest request =
+        new CreateProductRequest(
+            "SKU-FULL",
+            "Full Product",
+            "Description",
+            "safety",
+            "https://example.com/img.png",
+            100,
+            10,
+            20,
+            "A",
+            "3",
+            "B",
+            "2");
+
+    Product result = productService.createProduct(request);
+
+    assertEquals(100, result.getAvailableStock(), "availableStock must be stored, not defaulted to 0");
+    assertEquals(10, result.getMaxQuantityPerOrder(), "maxQuantityPerOrder must be stored, not defaulted to 0");
+    assertEquals(20, result.getMinimumStock(), "minimumStock must be stored, not defaulted to 0");
+    assertEquals("https://example.com/img.png", result.getImageUrl(), "imageUrl must be stored, not null");
+    assertEquals("A", result.getZone());
+    assertEquals("3", result.getLine());
+    assertEquals("B", result.getPosition());
+    assertEquals("2", result.getHeight());
+  }
+
+  @Test
   void createProduct_skuDuplicado_lanza400() {
     Product existing = new Product();
     when(productRepository.findBySku("SKU-DUP")).thenReturn(Optional.of(existing));

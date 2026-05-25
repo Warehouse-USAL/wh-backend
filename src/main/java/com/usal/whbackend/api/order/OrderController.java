@@ -65,7 +65,7 @@ public class OrderController {
   @ApiResponse(responseCode = "201", description = "Order created")
   @ApiResponse(responseCode = "400", description = "DESTINATION_AREA_REQUIRED, ITEMS_REQUIRED, PRODUCT_NOT_FOUND, INSUFFICIENT_STOCK, QUANTITY_EXCEEDS_LIMIT, etc.")
   @ApiResponse(responseCode = "403", description = "Insufficient role")
-  @PreAuthorize("hasAnyRole('ADMIN_SALES', 'ADMIN_WAREHOUSE')")
+  @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_SALES', 'ADMIN_WAREHOUSE')")
   @PostMapping
   public ResponseEntity<Map<String, OrderResponse>> createOrder(
       @RequestBody CreateOrderRequest request,
@@ -80,7 +80,7 @@ public class OrderController {
   @ApiResponse(responseCode = "403", description = "Insufficient role")
   @ApiResponse(responseCode = "404", description = "ORDER_NOT_FOUND")
   @ApiResponse(responseCode = "409", description = "ORDER_NOT_CANCELLABLE — already completed or cancelled")
-  @PreAuthorize("hasAnyRole('ADMIN_WAREHOUSE', 'ADMIN_SALES')")
+  @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_WAREHOUSE', 'ADMIN_SALES')")
   @PostMapping("/{id}/cancel")
   public ResponseEntity<Map<String, OrderResponse>> cancelOrder(
       @PathVariable String id,

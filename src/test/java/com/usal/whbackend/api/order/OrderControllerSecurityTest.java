@@ -1,6 +1,7 @@
 package com.usal.whbackend.api.order;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
@@ -73,5 +74,25 @@ class OrderControllerSecurityTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content("{\"items\":[],\"destination_area\":\"AREA-B\"}"))
             .andExpect(status().isUnauthorized());
+    }
+
+    // ── SUPERADMIN: should have full access to all order endpoints ─────────
+
+    @Test
+    @WithMockUser(username = "superadmin-id", roles = "SUPERADMIN")
+    void createOrder_withSuperadmin_returns201() throws Exception {
+        when(orderService.createOrder(any(), eq("superadmin-id"))).thenReturn(new Order());
+        mockMvc.perform(post("/orders")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"items\":[],\"destination_area\":\"AREA-B\"}"))
+            .andExpect(status().isCreated());
+    }
+
+    @Test
+    @WithMockUser(roles = "SUPERADMIN")
+    void cancelOrder_withSuperadmin_returns200() throws Exception {
+        when(orderService.cancelOrder(anyString(), any())).thenReturn(new Order());
+        mockMvc.perform(post("/orders/order-1/cancel"))
+            .andExpect(status().isOk());
     }
 }

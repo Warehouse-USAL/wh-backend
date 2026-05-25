@@ -66,7 +66,7 @@ public class ProductController {
   @ApiResponse(responseCode = "201", description = "Product created")
   @ApiResponse(responseCode = "400", description = "MISSING_REQUIRED_FIELDS or SKU_ALREADY_EXISTS")
   @ApiResponse(responseCode = "403", description = "Insufficient role")
-  @PreAuthorize("hasAnyRole('ADMIN_WAREHOUSE', 'ADMIN_SALES')")
+  @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_WAREHOUSE', 'ADMIN_SALES')")
   @PostMapping
   public ResponseEntity<Map<String, ProductResponse>> createProduct(
       @RequestBody CreateProductRequest request) {
@@ -78,7 +78,7 @@ public class ProductController {
   @ApiResponse(responseCode = "200", description = "Product updated")
   @ApiResponse(responseCode = "403", description = "Insufficient role")
   @ApiResponse(responseCode = "404", description = "PRODUCT_NOT_FOUND")
-  @PreAuthorize("hasAnyRole('ADMIN_WAREHOUSE', 'ADMIN_SALES')")
+  @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_WAREHOUSE', 'ADMIN_SALES')")
   @PatchMapping("/{id}")
   public ResponseEntity<Map<String, ProductResponse>> updateProduct(
       @PathVariable String id, @RequestBody UpdateProductRequest request) {
@@ -90,7 +90,7 @@ public class ProductController {
   @ApiResponse(responseCode = "204", description = "Product deleted")
   @ApiResponse(responseCode = "403", description = "Insufficient role")
   @ApiResponse(responseCode = "404", description = "PRODUCT_NOT_FOUND")
-  @PreAuthorize("hasRole('ADMIN_WAREHOUSE')")
+  @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_WAREHOUSE')")
   @DeleteMapping("/{id}")
   public ResponseEntity<Void> deleteProduct(@PathVariable String id) {
     productService.deleteProduct(id);

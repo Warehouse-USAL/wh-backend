@@ -32,7 +32,7 @@ public class VehicleController {
   @Operation(summary = "List vehicles", description = "Requires ADMIN_SYSTEM or ADMIN_WAREHOUSE role")
   @ApiResponse(responseCode = "200", description = "Vehicle list")
   @ApiResponse(responseCode = "403", description = "Insufficient role")
-  @PreAuthorize("hasAnyRole('ADMIN_SYSTEM', 'ADMIN_WAREHOUSE')")
+  @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_SYSTEM', 'ADMIN_WAREHOUSE')")
   @GetMapping
   public ResponseEntity<List<VehicleResponse>> getVehicles() {
     return ResponseEntity.ok(Collections.emptyList());
@@ -42,7 +42,7 @@ public class VehicleController {
   @ApiResponse(responseCode = "200", description = "Vehicle found")
   @ApiResponse(responseCode = "403", description = "Insufficient role")
   @ApiResponse(responseCode = "404", description = "VEHICLE_NOT_FOUND")
-  @PreAuthorize("hasAnyRole('ADMIN_SYSTEM', 'ADMIN_WAREHOUSE')")
+  @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_SYSTEM', 'ADMIN_WAREHOUSE')")
   @GetMapping("/{id}")
   public ResponseEntity<VehicleResponse> getVehicle(@PathVariable String id) {
     return ResponseEntity.ok().build();
@@ -51,7 +51,7 @@ public class VehicleController {
   @Operation(summary = "Register vehicle", description = "Registers a new vehicle in the fleet. Requires ADMIN_SYSTEM role.")
   @ApiResponse(responseCode = "201", description = "Vehicle registered")
   @ApiResponse(responseCode = "403", description = "Insufficient role")
-  @PreAuthorize("hasRole('ADMIN_SYSTEM')")
+  @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_SYSTEM')")
   @PostMapping
   public ResponseEntity<VehicleResponse> registerVehicle(
       @RequestBody RegisterVehicleRequest request) {

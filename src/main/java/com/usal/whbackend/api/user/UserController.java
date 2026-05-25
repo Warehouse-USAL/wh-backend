@@ -36,7 +36,7 @@ public class UserController {
   @Operation(summary = "List users", description = "Returns all users, optionally filtered by role and active status")
   @ApiResponse(responseCode = "200", description = "User list")
   @ApiResponse(responseCode = "403", description = "Insufficient role")
-  @PreAuthorize("hasRole('ADMIN_SYSTEM')")
+  @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_SYSTEM')")
   @GetMapping
   public ResponseEntity<List<UserResponse>> getUsers(
       @Parameter(description = "Filter by role (e.g. ADMIN_SALES, OPERATOR)")
@@ -51,7 +51,7 @@ public class UserController {
   @ApiResponse(responseCode = "200", description = "User found")
   @ApiResponse(responseCode = "403", description = "Insufficient role")
   @ApiResponse(responseCode = "404", description = "USER_NOT_FOUND")
-  @PreAuthorize("hasRole('ADMIN_SYSTEM')")
+  @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_SYSTEM')")
   @GetMapping("/{id}")
   public ResponseEntity<UserResponse> getUser(@PathVariable String id) {
     return ResponseEntity.ok(toResponse(userService.getUser(id)));
@@ -62,7 +62,7 @@ public class UserController {
   @ApiResponse(responseCode = "400", description = "Validation error")
   @ApiResponse(responseCode = "409", description = "EMAIL_ALREADY_EXISTS")
   @ApiResponse(responseCode = "403", description = "Insufficient role")
-  @PreAuthorize("hasRole('ADMIN_SYSTEM')")
+  @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_SYSTEM')")
   @PostMapping
   public ResponseEntity<UserResponse> createUser(@Valid @RequestBody CreateUserRequest request) {
     return ResponseEntity.status(HttpStatus.CREATED)
@@ -73,7 +73,7 @@ public class UserController {
   @ApiResponse(responseCode = "200", description = "User updated")
   @ApiResponse(responseCode = "403", description = "Insufficient role")
   @ApiResponse(responseCode = "404", description = "USER_NOT_FOUND")
-  @PreAuthorize("hasRole('ADMIN_SYSTEM')")
+  @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_SYSTEM')")
   @PatchMapping("/{id}")
   public ResponseEntity<UserResponse> updateUser(
       @PathVariable String id, @RequestBody UpdateUserRequest request) {
@@ -85,7 +85,7 @@ public class UserController {
   @ApiResponse(responseCode = "400", description = "Validation error")
   @ApiResponse(responseCode = "403", description = "Insufficient role")
   @ApiResponse(responseCode = "404", description = "USER_NOT_FOUND")
-  @PreAuthorize("hasRole('ADMIN_SYSTEM')")
+  @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_SYSTEM')")
   @PostMapping("/{id}/reset-password")
   public ResponseEntity<Void> resetPassword(
       @PathVariable String id, @Valid @RequestBody ResetPasswordRequest request) {

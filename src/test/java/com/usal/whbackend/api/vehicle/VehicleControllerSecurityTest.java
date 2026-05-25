@@ -57,4 +57,22 @@ class VehicleControllerSecurityTest {
                 .content("{\"name\":\"Rover-01\"}"))
             .andExpect(status().isCreated());
     }
+
+    // ── SUPERADMIN: should have full access to all vehicle endpoints ───────
+
+    @Test
+    @WithMockUser(roles = "SUPERADMIN")
+    void getVehicles_withSuperadmin_returns200() throws Exception {
+        mockMvc.perform(get("/vehicles"))
+            .andExpect(status().isOk());
+    }
+
+    @Test
+    @WithMockUser(roles = "SUPERADMIN")
+    void registerVehicle_withSuperadmin_returns201() throws Exception {
+        mockMvc.perform(post("/vehicles")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"name\":\"Rover-02\"}"))
+            .andExpect(status().isCreated());
+    }
 }
