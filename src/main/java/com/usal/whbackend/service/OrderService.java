@@ -13,10 +13,11 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
-import com.usal.whbackend.service.StockEventPublisher;
 
 @Service
 public class OrderService {
@@ -37,49 +38,36 @@ public class OrderService {
     this.stockEventPublishers = List.copyOf(stockEventPublishers);
   }
 
-  public List<Order> getOrders(String status, String from, String to, String vehicleId) {
-    List<Order> orders;
-
+  public Page<Order> getOrders(
+      String status, String from, String to, String vehicleId, Pageable pageable) {
+    OrderStatus parsedStatus = null;
     if (status != null) {
       try {
-        orders = orderRepository.findByStatus(OrderStatus.valueOf(status.toUpperCase()));
+        parsedStatus = OrderStatus.valueOf(status.toUpperCase());
       } catch (IllegalArgumentException e) {
         throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "INVALID_STATUS");
       }
-    } else if (vehicleId != null) {
-      orders = orderRepository.findByAssignedVehicleId(vehicleId);
-    } else {
-      orders = orderRepository.findAll();
     }
 
-    if (status != null && vehicleId != null) {
-      orders = orders.stream().filter(o -> vehicleId.equals(o.getAssignedVehicleId())).toList();
-    }
-
+    Instant fromInstant = null;
     if (from != null) {
       try {
-        Instant fromInstant = Instant.parse(from);
-        orders =
-            orders.stream()
-                .filter(o -> o.getCreatedAt() != null && !o.getCreatedAt().isBefore(fromInstant))
-                .toList();
-      } catch (DateTimeParseException e) {
-        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "INVALID_DATE_FORMAT");
-      }
-    }
-    if (to != null) {
-      try {
-        Instant toInstant = Instant.parse(to);
-        orders =
-            orders.stream()
-                .filter(o -> o.getCreatedAt() != null && !o.getCreatedAt().isAfter(toInstant))
-                .toList();
+        fromInstant = Instant.parse(from);
       } catch (DateTimeParseException e) {
         throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "INVALID_DATE_FORMAT");
       }
     }
 
-    return orders;
+    Instant toInstant = null;
+    if (to != null) {
+      try {
+        toInstant = Instant.parse(to);
+      } catch (DateTimeParseException e) {
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "INVALID_DATE_FORMAT");
+      }
+    }
+
+    return orderRepository.findByFilters(parsedStatus, vehicleId, fromInstant, toInstant, pageable);
   }
 
   public Order getOrder(String id) {

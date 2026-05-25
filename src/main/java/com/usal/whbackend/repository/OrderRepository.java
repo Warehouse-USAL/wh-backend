@@ -3,7 +3,6 @@ package com.usal.whbackend.repository;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.usal.whbackend.domain.Order;
-import com.usal.whbackend.domain.OrderItem;
 import com.usal.whbackend.domain.OrderStatus;
 import com.usal.whbackend.repository.kafka.OrderCancelMessage;
 import com.usal.whbackend.repository.kafka.OrderDispatchMessage;
@@ -12,6 +11,12 @@ import java.util.List;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 
@@ -22,11 +27,16 @@ public class OrderRepository {
 
   private final OrderMongoRepository mongo;
   private final KafkaTemplate<String, String> kafka;
+  private final MongoTemplate mongoTemplate;
   private final ObjectMapper objectMapper = new ObjectMapper();
 
-  public OrderRepository(OrderMongoRepository mongo, KafkaTemplate<String, String> kafka) {
+  public OrderRepository(
+      OrderMongoRepository mongo,
+      KafkaTemplate<String, String> kafka,
+      MongoTemplate mongoTemplate) {
     this.mongo = mongo;
     this.kafka = kafka;
+    this.mongoTemplate = mongoTemplate;
   }
 
   public Order save(Order order) {
@@ -47,16 +57,30 @@ public class OrderRepository {
     return mongo.findById(id);
   }
 
-  public List<Order> findAll() {
-    return mongo.findAll();
-  }
-
-  public List<Order> findByStatus(OrderStatus status) {
-    return mongo.findByStatus(status);
-  }
-
-  public List<Order> findByAssignedVehicleId(String vehicleId) {
-    return mongo.findByAssignedVehicleId(vehicleId);
+  public Page<Order> findByFilters(
+      OrderStatus status, String vehicleId, Instant from, Instant to, Pageable pageable) {
+    Query query = new Query();
+    if (status != null) {
+      query.addCriteria(Criteria.where("status").is(status));
+    }
+    if (vehicleId != null) {
+      query.addCriteria(Criteria.where("assignedVehicleId").is(vehicleId));
+    }
+    // from and to must be combined into a single Criteria for the same field —
+    // calling addCriteria() twice on "createdAt" throws InvalidMongoDbApiUsageException.
+    if (from != null || to != null) {
+      Criteria createdAtCriteria = Criteria.where("createdAt");
+      if (from != null) {
+        createdAtCriteria = createdAtCriteria.gte(from);
+      }
+      if (to != null) {
+        createdAtCriteria = createdAtCriteria.lte(to);
+      }
+      query.addCriteria(createdAtCriteria);
+    }
+    long total = mongoTemplate.count(query, Order.class);
+    List<Order> items = mongoTemplate.find(query.with(pageable), Order.class);
+    return new PageImpl<>(items, pageable, total);
   }
 
   public List<Order> findByRequestedByUserId(String userId) {
@@ -68,7 +92,10 @@ public class OrderRepository {
         order.getItems() == null
             ? List.of()
             : order.getItems().stream()
-                .map(i -> new OrderDispatchMessage.Item(i.getProductId(), i.getSku(), i.getQuantity()))
+                .map(
+                    i ->
+                        new OrderDispatchMessage.Item(
+                            i.getProductId(), i.getSku(), i.getQuantity()))
                 .toList();
 
     OrderDispatchMessage msg =
@@ -89,7 +116,8 @@ public class OrderRepository {
 
   private void send(String topic, Object payload) {
     try {
-      kafka.send(topic, objectMapper.writeValueAsString(payload))
+      kafka
+          .send(topic, objectMapper.writeValueAsString(payload))
           .whenComplete(
               (result, ex) -> {
                 if (ex != null) {
