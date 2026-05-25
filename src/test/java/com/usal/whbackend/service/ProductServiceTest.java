@@ -162,26 +162,32 @@ class ProductServiceTest {
   }
 
   @Test
-  void createProduct_duplicateSku_throws400() {
+  void createProduct_duplicateSku_throws409() {
     when(productRepository.findBySku("SKU-001")).thenReturn(Optional.of(activeProduct("1")));
-    assertThrows(
-        ResponseStatusException.class,
-        () ->
-            productService.createProduct(
-                new CreateProductRequest(
-                    "SKU-001", "Widget", null, "tools", null, 10, 5, 2, null, null, null, null)));
+    ResponseStatusException ex =
+        assertThrows(
+            ResponseStatusException.class,
+            () ->
+                productService.createProduct(
+                    new CreateProductRequest(
+                        "SKU-001", "Widget", null, "tools", null, 10, 5, 2, null, null, null,
+                        null)));
+    assertEquals(409, ex.getStatusCode().value());
   }
 
   @Test
-  void createProduct_duplicateKeyExceptionFromDb_throws400() {
+  void createProduct_duplicateKeyExceptionFromDb_throws409() {
     when(productRepository.findBySku(any())).thenReturn(Optional.empty());
     when(productRepository.save(any())).thenThrow(new DuplicateKeyException("dup"));
-    assertThrows(
-        ResponseStatusException.class,
-        () ->
-            productService.createProduct(
-                new CreateProductRequest(
-                    "SKU-002", "Widget", null, "tools", null, 10, 5, 2, null, null, null, null)));
+    ResponseStatusException ex =
+        assertThrows(
+            ResponseStatusException.class,
+            () ->
+                productService.createProduct(
+                    new CreateProductRequest(
+                        "SKU-002", "Widget", null, "tools", null, 10, 5, 2, null, null, null,
+                        null)));
+    assertEquals(409, ex.getStatusCode().value());
   }
 
   // ── updateProduct ──────────────────────────────────────────────────────────

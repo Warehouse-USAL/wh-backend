@@ -278,7 +278,7 @@ class OrderServiceTest {
   }
 
   @Test
-  void createOrder_productNotFound_throws400() {
+  void createOrder_productNotFound_throws404() {
     when(productRepository.findById("missing")).thenReturn(Optional.empty());
 
     ResponseStatusException ex =
@@ -289,7 +289,7 @@ class OrderServiceTest {
                     new CreateOrderRequest(List.of(new OrderItemRequest("missing", 1)), "AREA-A"),
                     "user-1"));
 
-    assertEquals(400, ex.getStatusCode().value());
+    assertEquals(404, ex.getStatusCode().value());
   }
 
   @Test

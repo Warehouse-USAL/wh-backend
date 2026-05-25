@@ -72,7 +72,7 @@ public class ProductService {
     }
 
     if (productRepository.findBySku(request.sku()).isPresent()) {
-      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "SKU_ALREADY_EXISTS");
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "SKU_ALREADY_EXISTS");
     }
 
     Product product = new Product();
@@ -96,7 +96,7 @@ public class ProductService {
     try {
       return productRepository.save(product);
     } catch (DuplicateKeyException e) {
-      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "SKU_ALREADY_EXISTS");
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "SKU_ALREADY_EXISTS");
     }
   }
 

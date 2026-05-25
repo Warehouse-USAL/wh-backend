@@ -102,7 +102,7 @@ public class OrderService {
           productRepository
               .findById(itemRequest.productId())
               .orElseThrow(
-                  () -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "PRODUCT_NOT_FOUND"));
+                  () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "PRODUCT_NOT_FOUND"));
 
       if (!product.isActive()) {
         throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "PRODUCT_INACTIVE");
