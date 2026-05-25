@@ -70,7 +70,7 @@ Spring Data MongoDB generates implementations automatically.
 
 ### Products — MongoTemplate dynamic query
 
-`ProductService` receives an injected `MongoTemplate`. The dynamic query replaces both the repository dispatch logic and the in-memory `search` stream filter:
+`ProductService` receives an injected `MongoTemplate` directly. `ProductRepository` has no `@Component` wrapper (it extends `MongoRepository` directly), so there is nowhere else to put the dynamic query logic without adding an extra layer. The dynamic query replaces both the repository dispatch logic and the in-memory `search` stream filter:
 
 ```java
 Query query = new Query();
@@ -90,7 +90,18 @@ The existing derived methods (`findBySku`, `findByCategoryAndActive`, `updateSto
 
 ### Orders — MongoTemplate dynamic query
 
-`OrderRepository` (the `@Component` wrapper) receives an injected `MongoTemplate`. The in-memory `from`/`to` stream filters are removed and replaced with Criteria:
+`OrderRepository` (the `@Component` wrapper) already exists as a hand-written class, making it the natural home for the dynamic query — consistent with its existing pattern of wrapping `OrderMongoRepository`. It receives an injected `MongoTemplate`.
+
+`OrderService` continues to own input validation: it parses the raw `String` date params to `Instant` (throwing `400 INVALID_DATE_FORMAT` on failure) and the status string to `OrderStatus` (throwing `400 INVALID_STATUS` on failure), then passes typed values to the repository.
+
+New method signature on `OrderRepository`:
+
+```java
+public Page<Order> findByFilters(OrderStatus status, String vehicleId,
+                                  Instant from, Instant to, Pageable pageable)
+```
+
+Implementation:
 
 ```java
 Query query = new Query();
