@@ -7,6 +7,12 @@ import com.usal.whbackend.repository.ProductRepository;
 import java.time.Instant;
 import java.util.List;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -15,36 +21,30 @@ import org.springframework.web.server.ResponseStatusException;
 public class ProductService {
 
   private final ProductRepository productRepository;
+  private final MongoTemplate mongoTemplate;
 
-  public ProductService(ProductRepository productRepository) {
+  public ProductService(ProductRepository productRepository, MongoTemplate mongoTemplate) {
     this.productRepository = productRepository;
+    this.mongoTemplate = mongoTemplate;
   }
 
-  public List<Product> getProducts(String category, String search, Boolean active) {
-    List<Product> products;
-
-    if (category != null && active != null) {
-      products = productRepository.findByCategoryAndActive(category, active);
-    } else if (category != null) {
-      products = productRepository.findByCategoryAndActive(category, true);
-    } else if (active != null) {
-      products = productRepository.findByActive(active);
-    } else {
-      products = productRepository.findByActive(true);
+  public Page<Product> getProducts(
+      String category, String search, Boolean active, Pageable pageable) {
+    Query query = new Query();
+    query.addCriteria(Criteria.where("active").is(active != null ? active : true));
+    if (category != null) {
+      query.addCriteria(Criteria.where("category").is(category));
     }
-
     if (search != null && !search.isBlank()) {
-      final String lowerSearch = search.toLowerCase();
-      products =
-          products.stream()
-              .filter(
-                  p ->
-                      (p.getName() != null && p.getName().toLowerCase().contains(lowerSearch))
-                          || (p.getSku() != null && p.getSku().toLowerCase().contains(lowerSearch)))
-              .toList();
+      query.addCriteria(
+          new Criteria()
+              .orOperator(
+                  Criteria.where("name").regex(search, "i"),
+                  Criteria.where("sku").regex(search, "i")));
     }
-
-    return products;
+    long total = mongoTemplate.count(query, Product.class);
+    List<Product> items = mongoTemplate.find(query.with(pageable), Product.class);
+    return new PageImpl<>(items, pageable, total);
   }
 
   public Product getProduct(String id, Boolean isActive) {

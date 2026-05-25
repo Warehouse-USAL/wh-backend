@@ -18,6 +18,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -46,12 +49,17 @@ class ProductControllerTest {
   @Test
   @WithMockUser
   void getProducts_returns200() throws Exception {
-    when(productService.getProducts(any(), any(), any()))
-        .thenReturn(java.util.List.of(sampleProduct));
+    Pageable pageable = PageRequest.of(0, 10);
+    when(productService.getProducts(any(), any(), any(), any(Pageable.class)))
+        .thenReturn(new PageImpl<>(java.util.List.of(sampleProduct), pageable, 1));
     mockMvc
         .perform(get("/products"))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.products").isArray());
+        .andExpect(jsonPath("$.products").isArray())
+        .andExpect(jsonPath("$.pagination.total_elements").value(1))
+        .andExpect(jsonPath("$.pagination.page").value(0))
+        .andExpect(jsonPath("$.pagination.size").value(10))
+        .andExpect(jsonPath("$.pagination.total_pages").value(1));
   }
 
   @Test
@@ -160,5 +168,66 @@ class ProductControllerTest {
         .andExpect(jsonPath("$.product.image_url").value("https://example.com/tool.png"))
         .andExpect(jsonPath("$.product.stock.available").value(100))
         .andExpect(jsonPath("$.product.order_constraints.max_quantity_per_order").value(10));
+  }
+
+  @Test
+  @WithMockUser
+  void getProducts_sizeExceedsMax_clampsTo50() throws Exception {
+    when(productService.getProducts(any(), any(), any(), any(Pageable.class)))
+        .thenAnswer(
+            inv -> {
+              Pageable p = inv.getArgument(3);
+              return new PageImpl<>(java.util.List.of(), p, 0);
+            });
+    mockMvc
+        .perform(get("/products").param("size", "200"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pagination.size").value(50));
+  }
+
+  @Test
+  @WithMockUser
+  void getProducts_explicitPage_passedThrough() throws Exception {
+    when(productService.getProducts(any(), any(), any(), any(Pageable.class)))
+        .thenAnswer(
+            inv -> {
+              Pageable p = inv.getArgument(3);
+              return new PageImpl<>(java.util.List.of(sampleProduct), p, 25);
+            });
+    mockMvc
+        .perform(get("/products").param("page", "1").param("size", "10"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pagination.page").value(1))
+        .andExpect(jsonPath("$.pagination.total_pages").value(3));
+  }
+
+  @Test
+  @WithMockUser
+  void getProducts_negativePage_clampsToZero() throws Exception {
+    when(productService.getProducts(any(), any(), any(), any(Pageable.class)))
+        .thenAnswer(
+            inv -> {
+              Pageable p = inv.getArgument(3);
+              return new PageImpl<>(java.util.List.of(), p, 0);
+            });
+    mockMvc
+        .perform(get("/products").param("page", "-1"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pagination.page").value(0));
+  }
+
+  @Test
+  @WithMockUser
+  void getProducts_zeroSize_clampsToOne() throws Exception {
+    when(productService.getProducts(any(), any(), any(), any(Pageable.class)))
+        .thenAnswer(
+            inv -> {
+              Pageable p = inv.getArgument(3);
+              return new PageImpl<>(java.util.List.of(), p, 0);
+            });
+    mockMvc
+        .perform(get("/products").param("size", "0"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pagination.size").value(1));
   }
 }
