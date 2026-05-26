@@ -1,13 +1,14 @@
 package com.usal.whbackend.domain;
 
 import java.time.Instant;
+import java.util.UUID;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.mapping.Document;
 
 @Document(collection = "vehicles")
 public class Vehicle {
 
-  @Id private String id;
+  @Id private String id = UUID.randomUUID().toString();
   private String name;
   private VehicleStatus status;
   private double positionX;

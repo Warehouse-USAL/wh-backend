@@ -63,7 +63,8 @@ public class VehicleController {
   @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_SYSTEM', 'ADMIN_WAREHOUSE')")
   @GetMapping("/{id}")
   public ResponseEntity<VehicleResponse> getVehicle(@PathVariable String id) {
-    return ResponseEntity.ok().build();
+    Vehicle vehicle = vehicleService.getVehicle(id);
+    return ResponseEntity.ok(VehicleResponse.from(vehicle));
   }
 
   @Operation(
@@ -75,6 +76,7 @@ public class VehicleController {
   @PostMapping
   public ResponseEntity<VehicleResponse> registerVehicle(
       @RequestBody RegisterVehicleRequest request) {
-    return ResponseEntity.status(HttpStatus.CREATED).build();
+    Vehicle vehicle = vehicleService.registerVehicle(request);
+    return ResponseEntity.status(HttpStatus.CREATED).body(VehicleResponse.from(vehicle));
   }
 }

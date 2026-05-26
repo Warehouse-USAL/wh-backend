@@ -8,6 +8,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.usal.whbackend.config.JwtService;
+import com.usal.whbackend.domain.Vehicle;
+import com.usal.whbackend.domain.VehicleStatus;
 import com.usal.whbackend.service.VehicleService;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -16,9 +18,11 @@ import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.server.ResponseStatusException;
 
 @WebMvcTest(VehicleController.class)
 class VehicleControllerTest {
@@ -95,15 +99,52 @@ class VehicleControllerTest {
   @Test
   @WithMockUser(roles = "ADMIN_WAREHOUSE")
   void getVehicle_returns200() throws Exception {
-    mockMvc.perform(get("/vehicles/test-id")).andExpect(status().isOk());
+    Vehicle vehicle = new Vehicle();
+    vehicle.setId("VHC-001");
+    vehicle.setName("Rover-01");
+    vehicle.setStatus(VehicleStatus.BUSY);
+    vehicle.setPositionX(12.5);
+    vehicle.setPositionY(7.3);
+    vehicle.setBattery(82);
+    when(vehicleService.getVehicle("VHC-001")).thenReturn(vehicle);
+
+    mockMvc
+        .perform(get("/vehicles/VHC-001"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.id").value("VHC-001"))
+        .andExpect(jsonPath("$.name").value("Rover-01"))
+        .andExpect(jsonPath("$.status").value("busy"))
+        .andExpect(jsonPath("$.position.x").value(12.5))
+        .andExpect(jsonPath("$.position.y").value(7.3))
+        .andExpect(jsonPath("$.battery").value(82));
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void getVehicle_unknownId_returns404() throws Exception {
+    when(vehicleService.getVehicle("no-existe"))
+        .thenThrow(new ResponseStatusException(HttpStatus.NOT_FOUND, "VEHICLE_NOT_FOUND"));
+
+    mockMvc.perform(get("/vehicles/no-existe")).andExpect(status().isNotFound());
   }
 
   @Test
   @WithMockUser(roles = "ADMIN_SYSTEM")
   void registerVehicle_returns201() throws Exception {
+    Vehicle vehicle = new Vehicle();
+    vehicle.setId("550e8400-e29b-41d4-a716-446655440000");
+    vehicle.setName("Rover-03");
+    vehicle.setStatus(VehicleStatus.OFFLINE);
+    when(vehicleService.registerVehicle(any())).thenReturn(vehicle);
+
     mockMvc
         .perform(
-            post("/vehicles").contentType("application/json").content("{\"name\":\"Rover-01\"}"))
-        .andExpect(status().isCreated());
+            post("/vehicles")
+                .contentType("application/json")
+                .content("{\"name\":\"Rover-03\"}"))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.id").value("550e8400-e29b-41d4-a716-446655440000"))
+        .andExpect(jsonPath("$.name").value("Rover-03"))
+        .andExpect(jsonPath("$.status").value("offline"));
   }
 }
