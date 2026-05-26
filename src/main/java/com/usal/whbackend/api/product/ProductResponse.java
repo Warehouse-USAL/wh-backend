@@ -33,6 +33,7 @@ public record ProductResponse(
         product.getImages() == null
             ? List.of()
             : product.getImages().stream()
+                .filter(java.util.Objects::nonNull)
                 .map(i -> new Image(i.getUrl(), i.getAlt(), i.isPrimary()))
                 .toList();
 
@@ -47,7 +48,10 @@ public record ProductResponse(
     List<Spec> specs =
         product.getSpecs() == null
             ? List.of()
-            : product.getSpecs().stream().map(s -> new Spec(s.getLabel(), s.getValue())).toList();
+            : product.getSpecs().stream()
+                .filter(java.util.Objects::nonNull)
+                .map(s -> new Spec(s.getLabel(), s.getValue()))
+                .toList();
 
     return new ProductResponse(
         product.getId(),
