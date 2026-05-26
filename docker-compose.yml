@@ -4,6 +4,7 @@ services:
     ports:
       - "8080:8080"
     environment:
+      SERVER_PORT: 8080
       SPRING_MONGODB_URI: mongodb://mongodb:27017/smartwarehouse
       REDPANDA_BOOTSTRAP_SERVERS: redpanda:9092
       JWT_SECRET: dev-secret-change-in-prod-min-32-chars

@@ -1,0 +1,18 @@
+# Local dev config override — must not leak into Docker image
+# (port, MongoDB URI, etc. are set via docker-compose environment instead)
+src/main/resources/application.yml
+
+# Build artifacts
+build/
+.gradle/
+
+# IDE and OS
+.idea/
+*.iml
+.DS_Store
+
+# Local data volumes
+data/
+
+# Docs / plans
+docs/
