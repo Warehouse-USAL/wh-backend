@@ -159,6 +159,20 @@ public class Product {
     public void setPrimary(boolean primary) {
       this.primary = primary;
     }
+
+    @Override
+    public boolean equals(Object o) {
+      if (this == o) return true;
+      if (!(o instanceof ProductImage that)) return false;
+      return primary == that.primary
+          && java.util.Objects.equals(url, that.url)
+          && java.util.Objects.equals(alt, that.alt);
+    }
+
+    @Override
+    public int hashCode() {
+      return java.util.Objects.hash(url, alt, primary);
+    }
   }
 
   public static class Price {
@@ -191,6 +205,20 @@ public class Product {
     public void setTaxIncluded(boolean taxIncluded) {
       this.taxIncluded = taxIncluded;
     }
+
+    @Override
+    public boolean equals(Object o) {
+      if (this == o) return true;
+      if (!(o instanceof Price that)) return false;
+      return amountCents == that.amountCents
+          && taxIncluded == that.taxIncluded
+          && java.util.Objects.equals(currency, that.currency);
+    }
+
+    @Override
+    public int hashCode() {
+      return java.util.Objects.hash(amountCents, currency, taxIncluded);
+    }
   }
 
   public static class Spec {
@@ -213,6 +241,19 @@ public class Product {
 
     public void setValue(String value) {
       this.value = value;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+      if (this == o) return true;
+      if (!(o instanceof Spec that)) return false;
+      return java.util.Objects.equals(label, that.label)
+          && java.util.Objects.equals(value, that.value);
+    }
+
+    @Override
+    public int hashCode() {
+      return java.util.Objects.hash(label, value);
     }
   }
 }

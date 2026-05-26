@@ -11,7 +11,6 @@ public record CreateProductRequest(
         String name,
     @Schema(description = "Product description") String description,
     @NotBlank @Schema(description = "Product category", example = "seguridad") String category,
-    @Schema(description = "Full URL of the product image") String imageUrl,
     @Min(0) @Schema(description = "Maximum units a single order can request")
         Integer maxQuantityPerOrder,
     @Min(0) @Schema(description = "Minimum stock threshold for restock alert")
