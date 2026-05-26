@@ -44,6 +44,8 @@ class ProductControllerTest {
             null,
             "electronics",
             null,
+            null,
+            null,
             new ProductResponse.Stock(10, 0, 0),
             new ProductResponse.OrderConstraints(0),
             true,
@@ -123,7 +125,9 @@ class ProductControllerTest {
             "Snake Product",
             null,
             "electronics",
-            "https://example.com/img.png",
+            java.util.List.of(new ProductResponse.Image("https://example.com/img.png", null, true)),
+            null,
+            null,
             new ProductResponse.Stock(50, 0, 10),
             new ProductResponse.OrderConstraints(5),
             true,
@@ -134,7 +138,7 @@ class ProductControllerTest {
     mockMvc
         .perform(get("/products/prod-snake"))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.product.image_url").value("https://example.com/img.png"))
+        .andExpect(jsonPath("$.product.images[0].url").value("https://example.com/img.png"))
         .andExpect(jsonPath("$.product.created_at").exists())
         .andExpect(jsonPath("$.product.stock.min").value(10))
         .andExpect(jsonPath("$.product.order_constraints.max_quantity_per_order").value(5))
@@ -152,7 +156,10 @@ class ProductControllerTest {
             "Snake Create",
             null,
             "tools",
-            "https://example.com/tool.png",
+            java.util.List.of(
+                new ProductResponse.Image("https://example.com/tool.png", null, true)),
+            null,
+            null,
             new ProductResponse.Stock(100, 0, 20),
             new ProductResponse.OrderConstraints(10),
             true,
@@ -166,11 +173,10 @@ class ProductControllerTest {
                 .contentType("application/json")
                 .content(
                     "{\"sku\":\"SKU-SC\",\"name\":\"Snake Create\",\"category\":\"tools\","
-                        + "\"image_url\":\"https://example.com/tool.png\","
                         + "\"max_quantity_per_order\":10,"
                         + "\"minimum_stock\":20}"))
         .andExpect(status().isCreated())
-        .andExpect(jsonPath("$.product.image_url").value("https://example.com/tool.png"))
+        .andExpect(jsonPath("$.product.images[0].url").value("https://example.com/tool.png"))
         .andExpect(jsonPath("$.product.stock.available").value(100))
         .andExpect(jsonPath("$.product.order_constraints.max_quantity_per_order").value(10));
   }
