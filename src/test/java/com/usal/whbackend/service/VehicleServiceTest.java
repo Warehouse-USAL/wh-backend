@@ -79,16 +79,23 @@ class VehicleServiceTest {
 
   @Test
   void registerVehicle_createsAndSaves() {
-    RegisterVehicleRequest request = new RegisterVehicleRequest("VHC-003", "Rover-03");
+    RegisterVehicleRequest request = new RegisterVehicleRequest("Rover-03");
+
     Vehicle saved = new Vehicle();
-    saved.setId("VHC-003");
     saved.setName("Rover-03");
     saved.setStatus(VehicleStatus.OFFLINE);
-    when(vehicleRepository.save(any(Vehicle.class))).thenReturn(saved);
+    when(vehicleRepository.save(any(Vehicle.class)))
+        .thenAnswer(
+            inv -> {
+              Vehicle v = inv.getArgument(0);
+              saved.setId(v.getId());
+              return saved;
+            });
 
     Vehicle result = vehicleService.registerVehicle(request);
 
-    assertEquals("VHC-003", result.getId());
+    assertNotNull(result.getId());
+    assertTrue(result.getId().matches("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"));
     assertEquals("Rover-03", result.getName());
     assertEquals(VehicleStatus.OFFLINE, result.getStatus());
     verify(vehicleRepository).save(any(Vehicle.class));

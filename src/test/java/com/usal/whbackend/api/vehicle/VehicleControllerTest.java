@@ -132,7 +132,7 @@ class VehicleControllerTest {
   @WithMockUser(roles = "ADMIN_SYSTEM")
   void registerVehicle_returns201() throws Exception {
     Vehicle vehicle = new Vehicle();
-    vehicle.setId("VHC-003");
+    vehicle.setId("550e8400-e29b-41d4-a716-446655440000");
     vehicle.setName("Rover-03");
     vehicle.setStatus(VehicleStatus.OFFLINE);
     when(vehicleService.registerVehicle(any())).thenReturn(vehicle);
@@ -141,9 +141,9 @@ class VehicleControllerTest {
         .perform(
             post("/vehicles")
                 .contentType("application/json")
-                .content("{\"id\":\"VHC-003\",\"name\":\"Rover-03\"}"))
+                .content("{\"name\":\"Rover-03\"}"))
         .andExpect(status().isCreated())
-        .andExpect(jsonPath("$.id").value("VHC-003"))
+        .andExpect(jsonPath("$.id").value("550e8400-e29b-41d4-a716-446655440000"))
         .andExpect(jsonPath("$.name").value("Rover-03"))
         .andExpect(jsonPath("$.status").value("offline"));
   }

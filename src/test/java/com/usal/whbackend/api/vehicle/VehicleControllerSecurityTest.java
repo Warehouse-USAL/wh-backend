@@ -42,7 +42,7 @@ class VehicleControllerSecurityTest {
         .thenReturn(new PageImpl<>(List.of(), pageable, 0));
 
     Vehicle sampleVehicle = new Vehicle();
-    sampleVehicle.setId("VHC-001");
+    sampleVehicle.setId("550e8400-e29b-41d4-a716-446655440000");
     sampleVehicle.setName("Rover-01");
     sampleVehicle.setStatus(VehicleStatus.OFFLINE);
     when(vehicleService.registerVehicle(any())).thenReturn(sampleVehicle);
@@ -67,7 +67,7 @@ class VehicleControllerSecurityTest {
         .perform(
             post("/vehicles")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"id\":\"VHC-001\",\"name\":\"Rover-01\"}"))
+                .content("{\"name\":\"Rover-01\"}"))
         .andExpect(status().isForbidden());
   }
 
@@ -78,7 +78,7 @@ class VehicleControllerSecurityTest {
         .perform(
             post("/vehicles")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"id\":\"VHC-001\",\"name\":\"Rover-01\"}"))
+                .content("{\"name\":\"Rover-01\"}"))
         .andExpect(status().isCreated());
   }
 
@@ -97,7 +97,7 @@ class VehicleControllerSecurityTest {
         .perform(
             post("/vehicles")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"id\":\"VHC-001\",\"name\":\"Rover-01\"}"))
+                .content("{\"name\":\"Rover-01\"}"))
         .andExpect(status().isCreated());
   }
 }

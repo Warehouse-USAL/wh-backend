@@ -31,7 +31,6 @@ public class VehicleService {
 
   public Vehicle registerVehicle(RegisterVehicleRequest request) {
     Vehicle vehicle = new Vehicle();
-    vehicle.setId(request.id());
     vehicle.setName(request.name());
     vehicle.setStatus(VehicleStatus.OFFLINE);
     return vehicleRepository.save(vehicle);
