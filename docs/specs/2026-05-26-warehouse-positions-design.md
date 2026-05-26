@@ -362,7 +362,45 @@ StockExceedsCapacityException.java
 
 ---
 
-## 8. Out of Scope
+## 8. Code Quality Improvements (included in this branch)
+
+### 8.1 Bean Validation on all request classes
+
+All new request records (`CreateZoneRequest`, `CreateLineRequest`, `CreatePositionRequest`, `UpdatePositionRequest`, etc.) and existing product/order request classes must use Jakarta Bean Validation annotations:
+
+```java
+public record CreateZoneRequest(
+    @NotBlank String zone_code,
+    @Min(1) int max_allowed_lines
+) {}
+```
+
+Controllers use `@Valid @RequestBody` on every endpoint. The existing `GlobalExceptionHandler` already handles `MethodArgumentNotValidException` → `400 Bad Request`. No new infrastructure needed.
+
+Apply to: all new request classes **and** existing `CreateProductRequest`, `UpdateProductRequest`, `CreateOrderRequest`.
+
+### 8.2 Global Jackson snake_case config
+
+Replace all individual `@JsonProperty` annotations with a single global Jackson configuration:
+
+```java
+// JacksonConfig.java (new file)
+@Configuration
+public class JacksonConfig {
+    @Bean
+    Jackson2ObjectMapperBuilderCustomizer jsonCustomizer() {
+        return builder -> builder.propertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE);
+    }
+}
+```
+
+After adding this config, remove all `@JsonProperty` annotations from existing and new request/response classes.
+
+**Regression check required:** run the full test suite and manually verify all existing endpoints still return correct snake_case field names before merging.
+
+---
+
+## 9. Out of Scope
 
 - Vehicle endpoints (`GET /vehicles/:id`, `POST /vehicles`) — separate branch
 - `POST /auth/refresh` — marked TBD in RFC
