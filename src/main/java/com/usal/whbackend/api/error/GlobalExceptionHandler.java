@@ -3,7 +3,14 @@ package com.usal.whbackend.api.error;
 import com.usal.whbackend.service.exception.AccountDisabledException;
 import com.usal.whbackend.service.exception.EmailAlreadyExistsException;
 import com.usal.whbackend.service.exception.InvalidCredentialsException;
+import com.usal.whbackend.service.exception.LineNotFoundException;
+import com.usal.whbackend.service.exception.LineNumberAlreadyExistsException;
+import com.usal.whbackend.service.exception.PositionAlreadyOccupiedException;
+import com.usal.whbackend.service.exception.PositionNotFoundException;
+import com.usal.whbackend.service.exception.StockExceedsCapacityException;
 import com.usal.whbackend.service.exception.UserNotFoundException;
+import com.usal.whbackend.service.exception.ZoneCodeAlreadyExistsException;
+import com.usal.whbackend.service.exception.ZoneNotFoundException;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -107,5 +114,48 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(HttpStatus.BAD_REQUEST)
         .body(
             ErrorResponse.of("MALFORMED_REQUEST", "El cuerpo de la solicitud no es JSON válido."));
+  }
+
+  @ExceptionHandler(ZoneNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleZoneNotFound(ZoneNotFoundException ex) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(ErrorResponse.of("ZONE_NOT_FOUND", ex.getMessage()));
+  }
+
+  @ExceptionHandler(ZoneCodeAlreadyExistsException.class)
+  public ResponseEntity<ErrorResponse> handleZoneCodeExists(ZoneCodeAlreadyExistsException ex) {
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+        .body(ErrorResponse.of("ZONE_CODE_ALREADY_EXISTS", ex.getMessage()));
+  }
+
+  @ExceptionHandler(LineNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleLineNotFound(LineNotFoundException ex) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(ErrorResponse.of("LINE_NOT_FOUND", ex.getMessage()));
+  }
+
+  @ExceptionHandler(LineNumberAlreadyExistsException.class)
+  public ResponseEntity<ErrorResponse> handleLineNumberExists(LineNumberAlreadyExistsException ex) {
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+        .body(ErrorResponse.of("LINE_NUMBER_ALREADY_EXISTS", ex.getMessage()));
+  }
+
+  @ExceptionHandler(PositionNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handlePositionNotFound(PositionNotFoundException ex) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(ErrorResponse.of("POSITION_NOT_FOUND", ex.getMessage()));
+  }
+
+  @ExceptionHandler(PositionAlreadyOccupiedException.class)
+  public ResponseEntity<ErrorResponse> handlePositionOccupied(PositionAlreadyOccupiedException ex) {
+    return ResponseEntity.status(HttpStatus.CONFLICT)
+        .body(ErrorResponse.of("POSITION_ALREADY_OCCUPIED", ex.getMessage()));
+  }
+
+  @ExceptionHandler(StockExceedsCapacityException.class)
+  public ResponseEntity<ErrorResponse> handleStockExceedsCapacity(
+      StockExceedsCapacityException ex) {
+    return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+        .body(ErrorResponse.of("STOCK_EXCEEDS_CAPACITY", ex.getMessage()));
   }
 }
