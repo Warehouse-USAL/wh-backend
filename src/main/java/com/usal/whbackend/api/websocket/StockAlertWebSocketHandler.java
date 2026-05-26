@@ -16,7 +16,8 @@ import org.springframework.web.socket.handler.ConcurrentWebSocketSessionDecorato
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
 @Component
-public class StockAlertWebSocketHandler extends TextWebSocketHandler implements StockEventPublisher {
+public class StockAlertWebSocketHandler extends TextWebSocketHandler
+    implements StockEventPublisher {
 
   private static final Logger log = LoggerFactory.getLogger(StockAlertWebSocketHandler.class);
   private final Map<String, WebSocketSession> sessions = new ConcurrentHashMap<>();

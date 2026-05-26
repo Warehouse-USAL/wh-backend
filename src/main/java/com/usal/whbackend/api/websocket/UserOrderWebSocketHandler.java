@@ -64,7 +64,8 @@ public class UserOrderWebSocketHandler extends TextWebSocketHandler implements O
           try {
             session.sendMessage(new TextMessage(json));
           } catch (IOException e) {
-            log.warn("Failed to send order event to session {}: {}", session.getId(), e.getMessage());
+            log.warn(
+                "Failed to send order event to session {}: {}", session.getId(), e.getMessage());
           }
         }
       }
@@ -73,7 +74,8 @@ public class UserOrderWebSocketHandler extends TextWebSocketHandler implements O
 
   private String buildOrderEvent(Order order) {
     try {
-      return objectMapper.writeValueAsString(Map.of("event", "order.updated", "payload", OrderResponse.from(order)));
+      return objectMapper.writeValueAsString(
+          Map.of("event", "order.updated", "payload", OrderResponse.from(order)));
     } catch (IOException e) {
       throw new RuntimeException(e);
     }

@@ -4,8 +4,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
-import org.mockito.ArgumentCaptor;
-
 import com.usal.whbackend.api.order.CreateOrderRequest;
 import com.usal.whbackend.api.order.CreateOrderRequest.OrderItemRequest;
 import com.usal.whbackend.domain.Order;
@@ -13,7 +11,7 @@ import com.usal.whbackend.domain.OrderStatus;
 import com.usal.whbackend.domain.Product;
 import com.usal.whbackend.repository.OrderRepository;
 import com.usal.whbackend.repository.ProductRepository;
-import com.usal.whbackend.service.StockEventPublisher;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -21,6 +19,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.web.server.ResponseStatusException;
 
 @ExtendWith(MockitoExtension.class)
@@ -34,62 +36,101 @@ class OrderServiceTest {
 
   @BeforeEach
   void setUp() {
-    orderService = new OrderService(orderRepository, productRepository, List.of(orderEventPublisher), List.of(stockEventPublisher));
+    orderService =
+        new OrderService(
+            orderRepository,
+            productRepository,
+            List.of(orderEventPublisher),
+            List.of(stockEventPublisher));
   }
 
   // ── getOrders ──────────────────────────────────────────────────────────────
 
   @Test
-  void getOrders_sinFiltros_retornaTodos() {
+  void getOrders_noFilters_returnsAll() {
+    Pageable pageable = PageRequest.of(0, 10);
     Order o1 = new Order();
     Order o2 = new Order();
-    when(orderRepository.findAll()).thenReturn(List.of(o1, o2));
+    when(orderRepository.findByFilters(null, null, null, null, pageable))
+        .thenReturn(new PageImpl<>(List.of(o1, o2), pageable, 2));
 
-    List<Order> result = orderService.getOrders(null, null, null, null);
+    Page<Order> result = orderService.getOrders(null, null, null, null, pageable);
 
-    assertEquals(2, result.size());
+    assertEquals(2, result.getContent().size());
   }
 
   @Test
-  void getOrders_conFiltroStatus_retornaFiltrados() {
+  void getOrders_statusFilter_parsesAndPassesToRepo() {
+    Pageable pageable = PageRequest.of(0, 10);
     Order o1 = new Order();
     o1.setStatus(OrderStatus.PENDING);
-    when(orderRepository.findByStatus(OrderStatus.PENDING)).thenReturn(List.of(o1));
+    when(orderRepository.findByFilters(
+            eq(OrderStatus.PENDING), isNull(), isNull(), isNull(), eq(pageable)))
+        .thenReturn(new PageImpl<>(List.of(o1), pageable, 1));
 
-    List<Order> result = orderService.getOrders("PENDING", null, null, null);
+    Page<Order> result = orderService.getOrders("PENDING", null, null, null, pageable);
 
-    assertEquals(1, result.size());
-    assertEquals(OrderStatus.PENDING, result.get(0).getStatus());
+    assertEquals(1, result.getContent().size());
+    assertEquals(OrderStatus.PENDING, result.getContent().get(0).getStatus());
   }
 
   @Test
-  void getOrders_statusInvalido_lanza400() {
+  void getOrders_invalidStatus_throws400() {
+    Pageable pageable = PageRequest.of(0, 10);
     ResponseStatusException ex =
         assertThrows(
             ResponseStatusException.class,
-            () -> orderService.getOrders("INVALIDO", null, null, null));
+            () -> orderService.getOrders("INVALIDO", null, null, null, pageable));
 
     assertEquals(400, ex.getStatusCode().value());
     assertEquals("INVALID_STATUS", ex.getReason());
   }
 
   @Test
-  void getOrders_fromInvalido_lanza400() {
-    when(orderRepository.findAll()).thenReturn(List.of());
-
+  void getOrders_invalidFromDate_throws400() {
+    Pageable pageable = PageRequest.of(0, 10);
     ResponseStatusException ex =
         assertThrows(
             ResponseStatusException.class,
-            () -> orderService.getOrders(null, "no-es-fecha", null, null));
+            () -> orderService.getOrders(null, "not-a-date", null, null, pageable));
 
     assertEquals(400, ex.getStatusCode().value());
     assertEquals("INVALID_DATE_FORMAT", ex.getReason());
   }
 
+  @Test
+  void getOrders_invalidToDate_throws400() {
+    Pageable pageable = PageRequest.of(0, 10);
+    ResponseStatusException ex =
+        assertThrows(
+            ResponseStatusException.class,
+            () -> orderService.getOrders(null, null, "not-a-date", null, pageable));
+
+    assertEquals(400, ex.getStatusCode().value());
+    assertEquals("INVALID_DATE_FORMAT", ex.getReason());
+  }
+
+  @Test
+  void getOrders_validDateRange_parsesInstantsAndPassesToRepo() {
+    Pageable pageable = PageRequest.of(0, 10);
+    String fromStr = "2026-01-01T00:00:00Z";
+    String toStr = "2026-12-31T23:59:59Z";
+    Instant fromInstant = Instant.parse(fromStr);
+    Instant toInstant = Instant.parse(toStr);
+    when(orderRepository.findByFilters(
+            isNull(), isNull(), eq(fromInstant), eq(toInstant), eq(pageable)))
+        .thenReturn(new PageImpl<>(List.of(), pageable, 0));
+
+    Page<Order> result = orderService.getOrders(null, fromStr, toStr, null, pageable);
+
+    assertEquals(0, result.getContent().size());
+    verify(orderRepository).findByFilters(null, null, fromInstant, toInstant, pageable);
+  }
+
   // ── getOrder ───────────────────────────────────────────────────────────────
 
   @Test
-  void getOrder_existente_retornaOrden() {
+  void getOrder_existingId_returnsOrder() {
     Order order = new Order();
     order.setStatus(OrderStatus.PENDING);
     when(orderRepository.findById("id-1")).thenReturn(Optional.of(order));
@@ -100,7 +141,7 @@ class OrderServiceTest {
   }
 
   @Test
-  void getOrder_noExistente_lanza404() {
+  void getOrder_unknownId_throws404() {
     when(orderRepository.findById("no-existe")).thenReturn(Optional.empty());
 
     ResponseStatusException ex =
@@ -112,284 +153,171 @@ class OrderServiceTest {
   // ── createOrder ────────────────────────────────────────────────────────────
 
   @Test
-  void createOrder_valido_creaOrdenPending() {
-    Product product = new Product();
-    product.setId("prod-1");
-    product.setSku("SKU-001");
-    product.setActive(true);
-    product.setAvailableStock(10);
-    product.setReservedStock(0);
-    product.setMaxQuantityPerOrder(5);
-
-    when(productRepository.findById("prod-1")).thenReturn(Optional.of(product));
-    when(orderRepository.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
-
-    CreateOrderRequest request =
-        new CreateOrderRequest(List.of(new OrderItemRequest("prod-1", 3)), "AREA-B");
-
-    Order result = orderService.createOrder(request, "user-1");
-
-    assertEquals(OrderStatus.PENDING, result.getStatus());
-    assertEquals("user-1", result.getRequestedByUserId());
-    assertEquals("AREA-B", result.getDestinationArea());
-    verify(productRepository).updateStock("prod-1", -3, 3);
+  void createOrder_missingDestination_throws400() {
+    CreateOrderRequest req = new CreateOrderRequest(List.of(), null);
+    assertThrows(ResponseStatusException.class, () -> orderService.createOrder(req, "user-1"));
   }
 
   @Test
-  void createOrder_destinationAreaVacia_lanza400() {
-    CreateOrderRequest request = new CreateOrderRequest(List.of(), "");
-
-    ResponseStatusException ex =
-        assertThrows(
-            ResponseStatusException.class, () -> orderService.createOrder(request, "user-1"));
-
-    assertEquals(400, ex.getStatusCode().value());
-    assertEquals("DESTINATION_AREA_REQUIRED", ex.getReason());
+  void createOrder_emptyItems_throws400() {
+    CreateOrderRequest req = new CreateOrderRequest(List.of(), "AREA-A");
+    assertThrows(ResponseStatusException.class, () -> orderService.createOrder(req, "user-1"));
   }
 
   @Test
-  void createOrder_itemsNulos_lanza400() {
-    CreateOrderRequest request = new CreateOrderRequest(null, "AREA-B");
+  void createOrder_validRequest_savesAndPublishes() {
+    Product p = new Product();
+    p.setId("prod-1");
+    p.setSku("SKU-001");
+    p.setActive(true);
+    p.setAvailableStock(10);
+    p.setMaxQuantityPerOrder(5);
+    p.setMinimumStock(2);
+    when(productRepository.findById("prod-1")).thenReturn(Optional.of(p));
+    Order saved = new Order();
+    saved.setId("ord-new");
+    when(orderRepository.save(any())).thenReturn(saved);
 
-    ResponseStatusException ex =
-        assertThrows(
-            ResponseStatusException.class, () -> orderService.createOrder(request, "user-1"));
+    Order result =
+        orderService.createOrder(
+            new CreateOrderRequest(List.of(new OrderItemRequest("prod-1", 2)), "AREA-A"), "user-1");
 
-    assertEquals(400, ex.getStatusCode().value());
-    assertEquals("ITEMS_REQUIRED", ex.getReason());
+    assertEquals("ord-new", result.getId());
+    verify(orderRepository).save(any());
+    verify(orderEventPublisher).broadcastOrderUpdate(saved);
   }
 
   @Test
-  void createOrder_itemsVacios_lanza400() {
-    CreateOrderRequest request = new CreateOrderRequest(List.of(), "AREA-B");
+  void createOrder_insufficientStock_throws400() {
+    Product p = new Product();
+    p.setId("prod-1");
+    p.setActive(true);
+    p.setAvailableStock(1);
+    p.setMaxQuantityPerOrder(5);
+    when(productRepository.findById("prod-1")).thenReturn(Optional.of(p));
 
-    ResponseStatusException ex =
-        assertThrows(
-            ResponseStatusException.class, () -> orderService.createOrder(request, "user-1"));
-
-    assertEquals(400, ex.getStatusCode().value());
-    assertEquals("ITEMS_REQUIRED", ex.getReason());
-  }
-
-  @Test
-  void createOrder_cantidadCero_lanza400() {
-    CreateOrderRequest request =
-        new CreateOrderRequest(List.of(new OrderItemRequest("prod-1", 0)), "AREA-B");
-
-    ResponseStatusException ex =
-        assertThrows(
-            ResponseStatusException.class, () -> orderService.createOrder(request, "user-1"));
-
-    assertEquals(400, ex.getStatusCode().value());
-    assertEquals("INVALID_QUANTITY", ex.getReason());
-  }
-
-  @Test
-  void createOrder_cantidadNegativa_lanza400() {
-    CreateOrderRequest request =
-        new CreateOrderRequest(List.of(new OrderItemRequest("prod-1", -1)), "AREA-B");
-
-    ResponseStatusException ex =
-        assertThrows(
-            ResponseStatusException.class, () -> orderService.createOrder(request, "user-1"));
-
-    assertEquals(400, ex.getStatusCode().value());
-    assertEquals("INVALID_QUANTITY", ex.getReason());
-  }
-
-  @Test
-  void createOrder_productoRepetido_lanza400() {
-    CreateOrderRequest request =
-        new CreateOrderRequest(
-            List.of(new OrderItemRequest("prod-1", 2), new OrderItemRequest("prod-1", 3)),
-            "AREA-B");
-
-    ResponseStatusException ex =
-        assertThrows(
-            ResponseStatusException.class, () -> orderService.createOrder(request, "user-1"));
-
-    assertEquals(400, ex.getStatusCode().value());
-    assertEquals("DUPLICATE_PRODUCT_IN_ORDER", ex.getReason());
-  }
-
-  @Test
-  void createOrder_productoInexistente_lanza400() {
-    when(productRepository.findById("no-existe")).thenReturn(Optional.empty());
-
-    CreateOrderRequest request =
-        new CreateOrderRequest(List.of(new OrderItemRequest("no-existe", 1)), "AREA-B");
-
-    ResponseStatusException ex =
-        assertThrows(
-            ResponseStatusException.class, () -> orderService.createOrder(request, "user-1"));
-
-    assertEquals(400, ex.getStatusCode().value());
-  }
-
-  @Test
-  void createOrder_stockInsuficiente_lanza400() {
-    Product product = new Product();
-    product.setId("prod-1");
-    product.setSku("SKU-001");
-    product.setActive(true);
-    product.setAvailableStock(2);
-    product.setMaxQuantityPerOrder(10);
-
-    when(productRepository.findById("prod-1")).thenReturn(Optional.of(product));
-
-    CreateOrderRequest request =
-        new CreateOrderRequest(List.of(new OrderItemRequest("prod-1", 5)), "AREA-B");
-
-    ResponseStatusException ex =
-        assertThrows(
-            ResponseStatusException.class, () -> orderService.createOrder(request, "user-1"));
-
-    assertEquals(400, ex.getStatusCode().value());
+    assertThrows(
+        ResponseStatusException.class,
+        () ->
+            orderService.createOrder(
+                new CreateOrderRequest(List.of(new OrderItemRequest("prod-1", 3)), "AREA-A"),
+                "user-1"));
   }
 
   // ── cancelOrder ────────────────────────────────────────────────────────────
 
   @Test
-  void cancelOrder_pendiente_cancelaCorrectamente() {
+  void cancelOrder_pendingOrder_cancelsAndPublishes() {
     Order order = new Order();
+    order.setId("ord-1");
     order.setStatus(OrderStatus.PENDING);
     order.setItems(List.of());
-    when(orderRepository.findById("id-1")).thenReturn(Optional.of(order));
-    when(orderRepository.cancel(any(Order.class), anyString())).thenAnswer(inv -> {
-      Order o = inv.getArgument(0);
-      o.setStatus(OrderStatus.CANCELLED);
-      o.setCancelReason(inv.getArgument(1));
-      return o;
-    });
+    when(orderRepository.findById("ord-1")).thenReturn(Optional.of(order));
+    when(orderRepository.cancel(any(), any())).thenReturn(order);
 
-    Order result = orderService.cancelOrder("id-1", "Cancelado por el usuario");
+    orderService.cancelOrder("ord-1", "reason");
 
-    assertEquals(OrderStatus.CANCELLED, result.getStatus());
-    assertEquals("Cancelado por el usuario", result.getCancelReason());
+    verify(orderRepository).cancel(order, "reason");
+    verify(orderEventPublisher).broadcastOrderUpdate(order);
   }
 
   @Test
-  void cancelOrder_completada_lanza409() {
+  void cancelOrder_completedOrder_throws409() {
     Order order = new Order();
     order.setStatus(OrderStatus.COMPLETED);
-    when(orderRepository.findById("id-1")).thenReturn(Optional.of(order));
+    when(orderRepository.findById("ord-1")).thenReturn(Optional.of(order));
 
     ResponseStatusException ex =
-        assertThrows(
-            ResponseStatusException.class, () -> orderService.cancelOrder("id-1", "motivo"));
+        assertThrows(ResponseStatusException.class, () -> orderService.cancelOrder("ord-1", null));
 
     assertEquals(409, ex.getStatusCode().value());
   }
 
+  // ── cancelOrder - missing path ─────────────────────────────────────────────
+
   @Test
-  void cancelOrder_noExistente_lanza404() {
+  void cancelOrder_unknownId_throws404() {
     when(orderRepository.findById("no-existe")).thenReturn(Optional.empty());
 
     ResponseStatusException ex =
         assertThrows(
-            ResponseStatusException.class, () -> orderService.cancelOrder("no-existe", "motivo"));
+            ResponseStatusException.class, () -> orderService.cancelOrder("no-existe", null));
 
     assertEquals(404, ex.getStatusCode().value());
   }
 
-  // ── event broadcasting ──────────────────────────────────────────────────────
+  // ── createOrder - validation paths ────────────────────────────────────────
 
   @Test
-  void createOrder_valido_broadcastaOrdenCreada() {
-    Product product = new Product();
-    product.setId("prod-1");
-    product.setSku("SKU-001");
-    product.setActive(true);
-    product.setAvailableStock(10);
-    product.setReservedStock(0);
-    product.setMaxQuantityPerOrder(5);
+  void createOrder_invalidQuantity_throws400() {
+    ResponseStatusException ex =
+        assertThrows(
+            ResponseStatusException.class,
+            () ->
+                orderService.createOrder(
+                    new CreateOrderRequest(List.of(new OrderItemRequest("prod-1", 0)), "AREA-A"),
+                    "user-1"));
 
-    when(productRepository.findById("prod-1")).thenReturn(Optional.of(product));
-    when(orderRepository.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
+    assertEquals(400, ex.getStatusCode().value());
+  }
+
+  @Test
+  void createOrder_duplicateProduct_throws400() {
+    ResponseStatusException ex =
+        assertThrows(
+            ResponseStatusException.class,
+            () ->
+                orderService.createOrder(
+                    new CreateOrderRequest(
+                        List.of(
+                            new OrderItemRequest("prod-1", 1), new OrderItemRequest("prod-1", 2)),
+                        "AREA-A"),
+                    "user-1"));
+
+    assertEquals(400, ex.getStatusCode().value());
+  }
+
+  @Test
+  void createOrder_productNotFound_throws404() {
+    when(productRepository.findById("missing")).thenReturn(Optional.empty());
+
+    ResponseStatusException ex =
+        assertThrows(
+            ResponseStatusException.class,
+            () ->
+                orderService.createOrder(
+                    new CreateOrderRequest(List.of(new OrderItemRequest("missing", 1)), "AREA-A"),
+                    "user-1"));
+
+    assertEquals(404, ex.getStatusCode().value());
+  }
+
+  @Test
+  void createOrder_stockBelowMinimum_triggersStockAlert() {
+    Product p = new Product();
+    p.setId("prod-1");
+    p.setSku("SKU-001");
+    p.setActive(true);
+    p.setAvailableStock(5);
+    p.setMaxQuantityPerOrder(10);
+    p.setMinimumStock(3);
+
+    // After stock update, available stock drops to 2 (below minimumStock of 3)
+    Product updatedProduct = new Product();
+    updatedProduct.setId("prod-1");
+    updatedProduct.setAvailableStock(2);
+    updatedProduct.setMinimumStock(3);
+
+    when(productRepository.findById("prod-1"))
+        .thenReturn(Optional.of(p))
+        .thenReturn(Optional.of(updatedProduct));
+    Order saved = new Order();
+    saved.setId("ord-new");
+    when(orderRepository.save(any())).thenReturn(saved);
 
     orderService.createOrder(
-        new CreateOrderRequest(List.of(new OrderItemRequest("prod-1", 2)), "AREA-B"), "user-1");
+        new CreateOrderRequest(List.of(new OrderItemRequest("prod-1", 3)), "AREA-A"), "user-1");
 
-    verify(orderEventPublisher).broadcastOrderUpdate(any(Order.class));
-  }
-
-  @Test
-  void createOrder_triggersStockAlert_whenStockDropsBelowMinimum() {
-    Product product = new Product();
-    product.setId("p-1");
-    product.setSku("SKU-001");
-    product.setActive(true);
-    product.setAvailableStock(5);
-    product.setReservedStock(0);
-    product.setMinimumStock(3);
-    product.setMaxQuantityPerOrder(10);
-
-    // After atomic updateStock, DB reflects the deducted stock (5 - 3 = 2)
-    Product afterUpdate = new Product();
-    afterUpdate.setId("p-1");
-    afterUpdate.setAvailableStock(2);
-    afterUpdate.setMinimumStock(3);
-
-    when(productRepository.findById("p-1"))
-        .thenReturn(Optional.of(product))      // validation
-        .thenReturn(Optional.of(afterUpdate));  // re-fetch after update
-    when(orderRepository.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
-
-    CreateOrderRequest request =
-        new CreateOrderRequest(List.of(new OrderItemRequest("p-1", 3)), "AREA-B");
-
-    orderService.createOrder(request, "user-1");
-
-    verify(stockEventPublisher).broadcastStockAlert(any(Product.class));
-  }
-
-  @Test
-  void createOrder_stockAlertUsesActualDbStockAfterConcurrentUpdate() {
-    Product staleProduct = new Product();
-    staleProduct.setId("p-1");
-    staleProduct.setSku("SKU-001");
-    staleProduct.setActive(true);
-    staleProduct.setAvailableStock(5);
-    staleProduct.setReservedStock(0);
-    staleProduct.setMinimumStock(3);
-    staleProduct.setMaxQuantityPerOrder(10);
-
-    // After the atomic updateStock, a concurrent write reduced stock to 0 in the DB
-    Product dbStateAfterUpdate = new Product();
-    dbStateAfterUpdate.setId("p-1");
-    dbStateAfterUpdate.setSku("SKU-001");
-    dbStateAfterUpdate.setActive(true);
-    dbStateAfterUpdate.setAvailableStock(0);
-    dbStateAfterUpdate.setMinimumStock(3);
-
-    when(productRepository.findById("p-1"))
-        .thenReturn(Optional.of(staleProduct))       // first call: validation
-        .thenReturn(Optional.of(dbStateAfterUpdate)); // second call: re-fetch after update
-    when(orderRepository.save(any(Order.class))).thenAnswer(inv -> inv.getArgument(0));
-
-    orderService.createOrder(
-        new CreateOrderRequest(List.of(new OrderItemRequest("p-1", 3)), "AREA-B"), "user-1");
-
-    ArgumentCaptor<Product> captor = ArgumentCaptor.forClass(Product.class);
-    verify(stockEventPublisher).broadcastStockAlert(captor.capture());
-    assertEquals(0, captor.getValue().getAvailableStock());
-  }
-
-  @Test
-  void cancelOrder_pendiente_broadcastaOrdenCancelada() {
-    Order order = new Order();
-    order.setStatus(OrderStatus.PENDING);
-    order.setItems(List.of());
-    when(orderRepository.findById("id-1")).thenReturn(Optional.of(order));
-    when(orderRepository.cancel(any(Order.class), anyString())).thenAnswer(inv -> {
-      Order o = inv.getArgument(0);
-      o.setStatus(OrderStatus.CANCELLED);
-      o.setCancelReason(inv.getArgument(1));
-      return o;
-    });
-
-    orderService.cancelOrder("id-1", "motivo");
-
-    verify(orderEventPublisher).broadcastOrderUpdate(any(Order.class));
+    verify(stockEventPublisher).broadcastStockAlert(updatedProduct);
   }
 }

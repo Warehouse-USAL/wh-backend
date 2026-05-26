@@ -5,8 +5,11 @@ import com.usal.whbackend.service.exception.EmailAlreadyExistsException;
 import com.usal.whbackend.service.exception.InvalidCredentialsException;
 import com.usal.whbackend.service.exception.UserNotFoundException;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -15,6 +18,8 @@ import org.springframework.web.server.ResponseStatusException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+  private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);
 
   private static final Map<String, String> MESSAGES =
       Map.ofEntries(
@@ -94,5 +99,13 @@ public class GlobalExceptionHandler {
             .orElse("Validation error");
     return ResponseEntity.status(HttpStatus.BAD_REQUEST)
         .body(ErrorResponse.of("VALIDATION_ERROR", message));
+  }
+
+  @ExceptionHandler(HttpMessageNotReadableException.class)
+  public ResponseEntity<ErrorResponse> handleMalformedRequest(HttpMessageNotReadableException ex) {
+    log.warn("Malformed request body: {}", ex.getMessage());
+    return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+        .body(
+            ErrorResponse.of("MALFORMED_REQUEST", "El cuerpo de la solicitud no es JSON válido."));
   }
 }
