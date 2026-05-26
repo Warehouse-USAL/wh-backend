@@ -14,6 +14,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.usal.whbackend.config.JwtService;
 import com.usal.whbackend.service.ProductService;
 import java.time.Instant;
+import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -43,9 +44,9 @@ class ProductControllerTest {
             "Test Product",
             null,
             "electronics",
+            List.of(),
             null,
-            null,
-            null,
+            List.of(),
             new ProductResponse.Stock(10, 0, 0),
             new ProductResponse.OrderConstraints(0),
             true,
@@ -125,9 +126,9 @@ class ProductControllerTest {
             "Snake Product",
             null,
             "electronics",
-            java.util.List.of(new ProductResponse.Image("https://example.com/img.png", null, true)),
-            null,
-            null,
+            List.of(new ProductResponse.Image("https://example.com/img.png", "Front", true)),
+            new ProductResponse.Price(4999900L, "ARS", false),
+            List.of(new ProductResponse.Spec("Peso", "250 g")),
             new ProductResponse.Stock(50, 0, 10),
             new ProductResponse.OrderConstraints(5),
             true,
@@ -138,7 +139,15 @@ class ProductControllerTest {
     mockMvc
         .perform(get("/products/prod-snake"))
         .andExpect(status().isOk())
+        .andExpect(jsonPath("$.product.images").isArray())
         .andExpect(jsonPath("$.product.images[0].url").value("https://example.com/img.png"))
+        .andExpect(jsonPath("$.product.images[0].is_primary").value(true))
+        .andExpect(jsonPath("$.product.price.amount_cents").value(4999900))
+        .andExpect(jsonPath("$.product.price.currency").value("ARS"))
+        .andExpect(jsonPath("$.product.price.tax_included").value(false))
+        .andExpect(jsonPath("$.product.specs").isArray())
+        .andExpect(jsonPath("$.product.specs[0].label").value("Peso"))
+        .andExpect(jsonPath("$.product.specs[0].value").value("250 g"))
         .andExpect(jsonPath("$.product.created_at").exists())
         .andExpect(jsonPath("$.product.stock.min").value(10))
         .andExpect(jsonPath("$.product.order_constraints.max_quantity_per_order").value(5))
@@ -156,10 +165,9 @@ class ProductControllerTest {
             "Snake Create",
             null,
             "tools",
-            java.util.List.of(
-                new ProductResponse.Image("https://example.com/tool.png", null, true)),
-            null,
-            null,
+            List.of(new ProductResponse.Image("https://example.com/tool.png", null, true)),
+            new ProductResponse.Price(1500000L, "ARS", false),
+            List.of(),
             new ProductResponse.Stock(100, 0, 20),
             new ProductResponse.OrderConstraints(10),
             true,
@@ -173,10 +181,13 @@ class ProductControllerTest {
                 .contentType("application/json")
                 .content(
                     "{\"sku\":\"SKU-SC\",\"name\":\"Snake Create\",\"category\":\"tools\","
+                        + "\"images\":[{\"url\":\"https://example.com/tool.png\",\"alt\":null,\"is_primary\":true}],"
+                        + "\"price\":{\"amount_cents\":1500000,\"currency\":\"ARS\",\"tax_included\":false},"
                         + "\"max_quantity_per_order\":10,"
                         + "\"minimum_stock\":20}"))
         .andExpect(status().isCreated())
         .andExpect(jsonPath("$.product.images[0].url").value("https://example.com/tool.png"))
+        .andExpect(jsonPath("$.product.price.amount_cents").value(1500000))
         .andExpect(jsonPath("$.product.stock.available").value(100))
         .andExpect(jsonPath("$.product.order_constraints.max_quantity_per_order").value(10));
   }
