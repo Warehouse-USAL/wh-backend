@@ -146,7 +146,40 @@ public class ProductService {
     product.setName(request.name());
     product.setDescription(request.description());
     product.setCategory(request.category());
-    product.setImageUrl(request.imageUrl());
+    if (request.images() != null) {
+      product.setImages(
+          request.images().stream()
+              .filter(java.util.Objects::nonNull)
+              .map(
+                  i -> {
+                    Product.ProductImage img = new Product.ProductImage();
+                    img.setUrl(i.url());
+                    img.setAlt(i.alt());
+                    img.setPrimary(i.isPrimary());
+                    return img;
+                  })
+              .toList());
+    }
+    if (request.price() != null) {
+      Product.Price price = new Product.Price();
+      price.setAmountCents(request.price().amountCents());
+      price.setCurrency(request.price().currency());
+      price.setTaxIncluded(request.price().taxIncluded());
+      product.setPrice(price);
+    }
+    if (request.specs() != null) {
+      product.setSpecs(
+          request.specs().stream()
+              .filter(java.util.Objects::nonNull)
+              .map(
+                  s -> {
+                    Product.Spec spec = new Product.Spec();
+                    spec.setLabel(s.label());
+                    spec.setValue(s.value());
+                    return spec;
+                  })
+              .toList());
+    }
     product.setMaxQuantityPerOrder(
         request.maxQuantityPerOrder() != null ? request.maxQuantityPerOrder() : 0);
     product.setMinimumStock(request.minimumStock() != null ? request.minimumStock() : 0);
@@ -172,7 +205,40 @@ public class ProductService {
     if (request.name() != null) product.setName(request.name());
     if (request.description() != null) product.setDescription(request.description());
     if (request.category() != null) product.setCategory(request.category());
-    if (request.imageUrl() != null) product.setImageUrl(request.imageUrl());
+    if (request.images() != null) {
+      product.setImages(
+          request.images().stream()
+              .filter(java.util.Objects::nonNull)
+              .map(
+                  i -> {
+                    Product.ProductImage img = new Product.ProductImage();
+                    img.setUrl(i.url());
+                    img.setAlt(i.alt());
+                    img.setPrimary(i.isPrimary());
+                    return img;
+                  })
+              .toList());
+    }
+    if (request.price() != null) {
+      Product.Price price = new Product.Price();
+      price.setAmountCents(request.price().amountCents());
+      price.setCurrency(request.price().currency());
+      price.setTaxIncluded(request.price().taxIncluded());
+      product.setPrice(price);
+    }
+    if (request.specs() != null) {
+      product.setSpecs(
+          request.specs().stream()
+              .filter(java.util.Objects::nonNull)
+              .map(
+                  s -> {
+                    Product.Spec spec = new Product.Spec();
+                    spec.setLabel(s.label());
+                    spec.setValue(s.value());
+                    return spec;
+                  })
+              .toList());
+    }
     if (request.maxQuantityPerOrder() != null)
       product.setMaxQuantityPerOrder(request.maxQuantityPerOrder());
     if (request.minimumStock() != null) product.setMinimumStock(request.minimumStock());
