@@ -2,10 +2,13 @@ package com.usal.whbackend.service;
 
 import com.usal.whbackend.api.vehicle.RegisterVehicleRequest;
 import com.usal.whbackend.domain.Vehicle;
+import com.usal.whbackend.domain.VehicleStatus;
 import com.usal.whbackend.repository.VehicleRepository;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class VehicleService {
@@ -21,10 +24,16 @@ public class VehicleService {
   }
 
   public Vehicle getVehicle(String id) {
-    throw new UnsupportedOperationException("not implemented");
+    return vehicleRepository
+        .findById(id)
+        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "VEHICLE_NOT_FOUND"));
   }
 
   public Vehicle registerVehicle(RegisterVehicleRequest request) {
-    throw new UnsupportedOperationException("not implemented");
+    Vehicle vehicle = new Vehicle();
+    vehicle.setId(request.id());
+    vehicle.setName(request.name());
+    vehicle.setStatus(VehicleStatus.OFFLINE);
+    return vehicleRepository.save(vehicle);
   }
 }

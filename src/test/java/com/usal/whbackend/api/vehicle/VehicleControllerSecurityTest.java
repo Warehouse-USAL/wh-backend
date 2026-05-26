@@ -8,6 +8,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.usal.whbackend.api.error.GlobalExceptionHandler;
 import com.usal.whbackend.config.JwtService;
+import com.usal.whbackend.domain.Vehicle;
+import com.usal.whbackend.domain.VehicleStatus;
 import com.usal.whbackend.service.VehicleService;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,6 +40,12 @@ class VehicleControllerSecurityTest {
     Pageable pageable = PageRequest.of(0, 10);
     when(vehicleService.getVehicles(any(Pageable.class)))
         .thenReturn(new PageImpl<>(List.of(), pageable, 0));
+
+    Vehicle sampleVehicle = new Vehicle();
+    sampleVehicle.setId("VHC-001");
+    sampleVehicle.setName("Rover-01");
+    sampleVehicle.setStatus(VehicleStatus.OFFLINE);
+    when(vehicleService.registerVehicle(any())).thenReturn(sampleVehicle);
   }
 
   @Test
@@ -59,7 +67,7 @@ class VehicleControllerSecurityTest {
         .perform(
             post("/vehicles")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"name\":\"Rover-01\"}"))
+                .content("{\"id\":\"VHC-001\",\"name\":\"Rover-01\"}"))
         .andExpect(status().isForbidden());
   }
 
@@ -70,7 +78,7 @@ class VehicleControllerSecurityTest {
         .perform(
             post("/vehicles")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"name\":\"Rover-01\"}"))
+                .content("{\"id\":\"VHC-001\",\"name\":\"Rover-01\"}"))
         .andExpect(status().isCreated());
   }
 
@@ -89,7 +97,7 @@ class VehicleControllerSecurityTest {
         .perform(
             post("/vehicles")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"name\":\"Rover-02\"}"))
+                .content("{\"id\":\"VHC-001\",\"name\":\"Rover-01\"}"))
         .andExpect(status().isCreated());
   }
 }
