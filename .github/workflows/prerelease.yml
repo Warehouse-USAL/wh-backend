@@ -68,10 +68,6 @@ jobs:
       - name: Build JAR
         run: ./gradlew bootJar
 
-      - name: Build Docker image
-        run: |
-          docker build -t ghcr.io/${{ github.repository_owner }}/wh-backend:${{ steps.tag.outputs.tag }} .
-
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -79,9 +75,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Push Docker image
+      - name: Build and push Docker image
         run: |
-          docker push ghcr.io/${{ github.repository_owner }}/wh-backend:${{ steps.tag.outputs.tag }}
+          IMAGE="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/wh-backend"
+          docker build -t "${IMAGE}:${{ steps.tag.outputs.tag }}" .
+          docker push "${IMAGE}:${{ steps.tag.outputs.tag }}"
 
       - name: Create pre-release
         uses: softprops/action-gh-release@v2

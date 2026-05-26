@@ -12,8 +12,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.usal.whbackend.config.JwtService;
-import com.usal.whbackend.domain.Product;
 import com.usal.whbackend.service.ProductService;
+import java.time.Instant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,18 +32,22 @@ class ProductControllerTest {
   @MockitoBean ProductService productService;
   @MockitoBean JwtService jwtService;
 
-  private Product sampleProduct;
+  private ProductResponse sampleProductResponse;
 
   @BeforeEach
   void setUp() {
-    sampleProduct = new Product();
-    sampleProduct.setId("prod-1");
-    sampleProduct.setSku("SKU-001");
-    sampleProduct.setName("Test Product");
-    sampleProduct.setCategory("electronics");
-    sampleProduct.setActive(true);
-    sampleProduct.setAvailableStock(10);
-    sampleProduct.setReservedStock(0);
+    sampleProductResponse =
+        new ProductResponse(
+            "prod-1",
+            "SKU-001",
+            "Test Product",
+            null,
+            "electronics",
+            null,
+            new ProductResponse.Stock(10, 0, 0),
+            new ProductResponse.OrderConstraints(0),
+            true,
+            null);
   }
 
   @Test
@@ -51,7 +55,7 @@ class ProductControllerTest {
   void getProducts_returns200() throws Exception {
     Pageable pageable = PageRequest.of(0, 10);
     when(productService.getProducts(any(), any(), any(), any(Pageable.class)))
-        .thenReturn(new PageImpl<>(java.util.List.of(sampleProduct), pageable, 1));
+        .thenReturn(new PageImpl<>(java.util.List.of(sampleProductResponse), pageable, 1));
     mockMvc
         .perform(get("/products"))
         .andExpect(status().isOk())
@@ -65,7 +69,7 @@ class ProductControllerTest {
   @Test
   @WithMockUser
   void getProduct_returns200() throws Exception {
-    when(productService.getProduct(anyString(), any())).thenReturn(sampleProduct);
+    when(productService.getProduct(anyString(), any())).thenReturn(sampleProductResponse);
     mockMvc
         .perform(get("/products/prod-1"))
         .andExpect(status().isOk())
@@ -75,7 +79,7 @@ class ProductControllerTest {
   @Test
   @WithMockUser(roles = "ADMIN_WAREHOUSE")
   void createProduct_returns201() throws Exception {
-    when(productService.createProduct(any())).thenReturn(sampleProduct);
+    when(productService.createProduct(any())).thenReturn(sampleProductResponse);
     mockMvc
         .perform(
             post("/products")
@@ -89,7 +93,7 @@ class ProductControllerTest {
   @Test
   @WithMockUser(roles = "ADMIN_WAREHOUSE")
   void updateProduct_returns200() throws Exception {
-    when(productService.updateProduct(anyString(), any())).thenReturn(sampleProduct);
+    when(productService.updateProduct(anyString(), any())).thenReturn(sampleProductResponse);
     mockMvc
         .perform(
             patch("/products/prod-1")
@@ -112,17 +116,18 @@ class ProductControllerTest {
     // Regression: API must serialize responses with snake_case field names so that
     // consumers sending image_url / available_stock / max_quantity_per_order / minimum_stock
     // receive them back under the same snake_case keys.
-    Product product = new Product();
-    product.setId("prod-snake");
-    product.setSku("SKU-SNAKE");
-    product.setName("Snake Product");
-    product.setCategory("electronics");
-    product.setActive(true);
-    product.setImageUrl("https://example.com/img.png");
-    product.setAvailableStock(50);
-    product.setMaxQuantityPerOrder(5);
-    product.setMinimumStock(10);
-    product.setCreatedAt(java.time.Instant.parse("2026-01-01T00:00:00Z"));
+    ProductResponse product =
+        new ProductResponse(
+            "prod-snake",
+            "SKU-SNAKE",
+            "Snake Product",
+            null,
+            "electronics",
+            "https://example.com/img.png",
+            new ProductResponse.Stock(50, 0, 10),
+            new ProductResponse.OrderConstraints(5),
+            true,
+            Instant.parse("2026-01-01T00:00:00Z"));
 
     when(productService.getProduct(anyString(), any())).thenReturn(product);
 
@@ -131,7 +136,7 @@ class ProductControllerTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.product.image_url").value("https://example.com/img.png"))
         .andExpect(jsonPath("$.product.created_at").exists())
-        .andExpect(jsonPath("$.product.stock.minimum_stock").value(10))
+        .andExpect(jsonPath("$.product.stock.min").value(10))
         .andExpect(jsonPath("$.product.order_constraints.max_quantity_per_order").value(5))
         .andExpect(jsonPath("$.product.stock.available").value(50));
   }
@@ -140,17 +145,18 @@ class ProductControllerTest {
   @WithMockUser(roles = "ADMIN_WAREHOUSE")
   void createProduct_acceptsSnakeCaseRequestBody() throws Exception {
     // Regression: fields sent as snake_case must be deserialized, not silently dropped.
-    Product stored = new Product();
-    stored.setId("prod-sc");
-    stored.setSku("SKU-SC");
-    stored.setName("Snake Create");
-    stored.setCategory("tools");
-    stored.setImageUrl("https://example.com/tool.png");
-    stored.setAvailableStock(100);
-    stored.setMaxQuantityPerOrder(10);
-    stored.setMinimumStock(20);
-    stored.setActive(true);
-    stored.setCreatedAt(java.time.Instant.parse("2026-01-01T00:00:00Z"));
+    ProductResponse stored =
+        new ProductResponse(
+            "prod-sc",
+            "SKU-SC",
+            "Snake Create",
+            null,
+            "tools",
+            "https://example.com/tool.png",
+            new ProductResponse.Stock(100, 0, 20),
+            new ProductResponse.OrderConstraints(10),
+            true,
+            Instant.parse("2026-01-01T00:00:00Z"));
 
     when(productService.createProduct(any())).thenReturn(stored);
 
@@ -161,7 +167,6 @@ class ProductControllerTest {
                 .content(
                     "{\"sku\":\"SKU-SC\",\"name\":\"Snake Create\",\"category\":\"tools\","
                         + "\"image_url\":\"https://example.com/tool.png\","
-                        + "\"available_stock\":100,"
                         + "\"max_quantity_per_order\":10,"
                         + "\"minimum_stock\":20}"))
         .andExpect(status().isCreated())
@@ -192,7 +197,7 @@ class ProductControllerTest {
         .thenAnswer(
             inv -> {
               Pageable p = inv.getArgument(3);
-              return new PageImpl<>(java.util.List.of(sampleProduct), p, 25);
+              return new PageImpl<>(java.util.List.of(sampleProductResponse), p, 25);
             });
     mockMvc
         .perform(get("/products").param("page", "1").param("size", "10"))

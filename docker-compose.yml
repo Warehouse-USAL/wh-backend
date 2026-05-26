@@ -4,6 +4,7 @@ services:
     ports:
       - "8080:8080"
     environment:
+      SERVER_PORT: 8080
       SPRING_MONGODB_URI: mongodb://mongodb:27017/smartwarehouse
       REDPANDA_BOOTSTRAP_SERVERS: redpanda:9092
       JWT_SECRET: dev-secret-change-in-prod-min-32-chars
@@ -28,12 +29,16 @@ services:
       - ./data/mongodb:/data/db
     networks:
       - wh-network
+    command: ["--replSet", "rs0", "--bind_ip_all"]
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      test: |
+        mongosh --eval "
+          try { rs.status().ok } catch(e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'mongodb:27017'}]}) }
+        " --quiet
       interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
     restart: unless-stopped
 
   mongo-express:

@@ -6,8 +6,14 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.usal.whbackend.domain.Line;
 import com.usal.whbackend.domain.UserRole;
+import com.usal.whbackend.domain.Zone;
+import com.usal.whbackend.repository.LineRepository;
+import com.usal.whbackend.repository.PositionRepository;
 import com.usal.whbackend.repository.UserRepository;
+import com.usal.whbackend.repository.ZoneRepository;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -19,26 +25,40 @@ class DataInitializerTest {
 
   @Mock UserRepository userRepository;
   @Mock PasswordEncoder passwordEncoder;
+  @Mock ZoneRepository zoneRepository;
+  @Mock LineRepository lineRepository;
+  @Mock PositionRepository positionRepository;
+
+  private DataInitializer initializer(String email, String password) {
+    return new DataInitializer(
+        userRepository,
+        passwordEncoder,
+        email,
+        password,
+        zoneRepository,
+        lineRepository,
+        positionRepository);
+  }
 
   @Test
-  void run_whenAdminAlreadyExists_doesNotSave() throws Exception {
-    DataInitializer initializer =
-        new DataInitializer(userRepository, passwordEncoder, "admin@test.com", "pass");
+  void run_whenAdminAlreadyExists_doesNotSaveUser() throws Exception {
+    DataInitializer di = initializer("admin@test.com", "pass");
     when(userRepository.existsByRole(UserRole.ADMIN_SYSTEM)).thenReturn(true);
+    when(zoneRepository.findAll()).thenReturn(List.of(new Zone()));
 
-    initializer.run(null);
+    di.run(null);
 
     verify(userRepository, never()).save(any());
   }
 
   @Test
   void run_whenNoAdminAndEnvVarsSet_savesAdminUser() throws Exception {
-    DataInitializer initializer =
-        new DataInitializer(userRepository, passwordEncoder, "admin@test.com", "secret");
+    DataInitializer di = initializer("admin@test.com", "secret");
     when(userRepository.existsByRole(UserRole.ADMIN_SYSTEM)).thenReturn(false);
     when(passwordEncoder.encode("secret")).thenReturn("$2a$hash");
+    when(zoneRepository.findAll()).thenReturn(List.of(new Zone()));
 
-    initializer.run(null);
+    di.run(null);
 
     verify(userRepository)
         .save(
@@ -51,12 +71,47 @@ class DataInitializerTest {
   }
 
   @Test
-  void run_whenNoAdminAndEnvVarsMissing_doesNotSave() throws Exception {
-    DataInitializer initializer = new DataInitializer(userRepository, passwordEncoder, null, null);
+  void run_whenNoAdminAndEnvVarsMissing_doesNotSaveUser() throws Exception {
+    DataInitializer di = initializer(null, null);
     when(userRepository.existsByRole(UserRole.ADMIN_SYSTEM)).thenReturn(false);
+    when(zoneRepository.findAll()).thenReturn(List.of(new Zone()));
 
-    initializer.run(null);
+    di.run(null);
 
     verify(userRepository, never()).save(any());
+  }
+
+  @Test
+  void run_whenNoZonesExist_seedsWarehouseStructure() throws Exception {
+    DataInitializer di = initializer("admin@test.com", "pass");
+    when(userRepository.existsByRole(UserRole.ADMIN_SYSTEM)).thenReturn(true);
+    when(zoneRepository.findAll()).thenReturn(List.of());
+
+    Zone savedZone = new Zone();
+    savedZone.setId("zone-a-id");
+    when(zoneRepository.save(any(Zone.class))).thenReturn(savedZone);
+
+    Line savedLine = new Line();
+    savedLine.setId("line-1-id");
+    when(lineRepository.save(any(Line.class))).thenReturn(savedLine);
+
+    di.run(null);
+
+    verify(zoneRepository).save(argThat(z -> "A".equals(z.getZoneCode()) && z.isActive()));
+    verify(lineRepository).save(argThat(l -> l.getNumberLine() == 1 && l.isActive()));
+    verify(positionRepository, org.mockito.Mockito.times(2)).save(any());
+  }
+
+  @Test
+  void run_whenZonesAlreadyExist_doesNotSeedWarehouse() throws Exception {
+    DataInitializer di = initializer("admin@test.com", "pass");
+    when(userRepository.existsByRole(UserRole.ADMIN_SYSTEM)).thenReturn(true);
+    when(zoneRepository.findAll()).thenReturn(List.of(new Zone()));
+
+    di.run(null);
+
+    verify(zoneRepository, never()).save(any());
+    verify(lineRepository, never()).save(any());
+    verify(positionRepository, never()).save(any());
   }
 }

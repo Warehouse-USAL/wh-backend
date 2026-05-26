@@ -1,13 +1,13 @@
 package com.usal.whbackend.api.product;
 
 import com.usal.whbackend.api.Pagination;
-import com.usal.whbackend.domain.Product;
 import com.usal.whbackend.service.ProductService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import java.util.Map;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -55,10 +55,10 @@ public class ProductController {
           int page,
       @Parameter(description = "Page size (max 50)") @RequestParam(defaultValue = "10") int size) {
     Pageable pageable = PageRequest.of(Math.max(page, 0), Math.max(Math.min(size, 50), 1));
-    Page<Product> result = productService.getProducts(category, search, isActive, pageable);
+    Page<ProductResponse> result = productService.getProducts(category, search, isActive, pageable);
     return ResponseEntity.ok(
         Map.of(
-            "products", result.getContent().stream().map(ProductResponse::from).toList(),
+            "products", result.getContent(),
             "pagination", Pagination.from(result)));
   }
 
@@ -71,23 +71,22 @@ public class ProductController {
       @Parameter(description = "Include inactive products when false")
           @RequestParam(required = false)
           Boolean isActive) {
-    return ResponseEntity.ok(
-        Map.of("product", ProductResponse.from(productService.getProduct(id, isActive))));
+    return ResponseEntity.ok(Map.of("product", productService.getProduct(id, isActive)));
   }
 
   @Operation(
       summary = "Create product",
       description = "Requires ADMIN_WAREHOUSE or ADMIN_SALES role")
   @ApiResponse(responseCode = "201", description = "Product created")
-  @ApiResponse(responseCode = "400", description = "MISSING_REQUIRED_FIELDS")
+  @ApiResponse(responseCode = "400", description = "Validation failed — field constraints not met")
   @ApiResponse(responseCode = "409", description = "SKU_ALREADY_EXISTS")
   @ApiResponse(responseCode = "403", description = "Insufficient role")
   @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_WAREHOUSE', 'ADMIN_SALES')")
   @PostMapping
   public ResponseEntity<Map<String, ProductResponse>> createProduct(
-      @RequestBody CreateProductRequest request) {
+      @Valid @RequestBody CreateProductRequest request) {
     return ResponseEntity.status(HttpStatus.CREATED)
-        .body(Map.of("product", ProductResponse.from(productService.createProduct(request))));
+        .body(Map.of("product", productService.createProduct(request)));
   }
 
   @Operation(
@@ -100,9 +99,8 @@ public class ProductController {
   @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_WAREHOUSE', 'ADMIN_SALES')")
   @PatchMapping("/{id}")
   public ResponseEntity<Map<String, ProductResponse>> updateProduct(
-      @PathVariable String id, @RequestBody UpdateProductRequest request) {
-    return ResponseEntity.ok(
-        Map.of("product", ProductResponse.from(productService.updateProduct(id, request))));
+      @PathVariable String id, @Valid @RequestBody UpdateProductRequest request) {
+    return ResponseEntity.ok(Map.of("product", productService.updateProduct(id, request)));
   }
 
   @Operation(
@@ -116,5 +114,15 @@ public class ProductController {
   public ResponseEntity<Void> deleteProduct(@PathVariable String id) {
     productService.deleteProduct(id);
     return ResponseEntity.noContent().build();
+  }
+
+  @Operation(
+      summary = "Get product locations",
+      description = "Returns positions where this product is stored")
+  @ApiResponse(responseCode = "200", description = "Product locations found")
+  @ApiResponse(responseCode = "404", description = "PRODUCT_NOT_FOUND")
+  @GetMapping("/{id}/location")
+  public ResponseEntity<Map<String, Object>> getProductLocation(@PathVariable String id) {
+    return ResponseEntity.ok(Map.of("locations", productService.getProductLocation(id)));
   }
 }

@@ -54,6 +54,8 @@ class OrderRepositoryTest {
     orderRepository.save(order);
 
     verify(mongo).save(order);
+    // Kafka publish is async — wait briefly for the background thread to fire
+    Thread.sleep(100);
     verify(kafka).send(eq("order.dispatch"), anyString());
   }
 
@@ -68,6 +70,8 @@ class OrderRepositoryTest {
     orderRepository.cancel(order, "Cancelado por el usuario");
 
     verify(mongo).save(order);
+    // Kafka publish is async — wait briefly for the background thread to fire
+    Thread.sleep(100);
     verify(kafka).send(eq("order.cancel"), anyString());
   }
 

@@ -44,13 +44,13 @@ public class StockAlertWebSocketHandler extends TextWebSocketHandler
   }
 
   @Override
-  public void broadcastStockAlert(Product product) {
+  public void broadcastStockAlert(Product product, int currentStock) {
     Map<String, Object> payload =
         Map.of(
             "product_id", product.getId(),
             "sku", product.getSku(),
             "name", product.getName(),
-            "current_stock", product.getAvailableStock(),
+            "current_stock", currentStock,
             "minimum_stock", product.getMinimumStock());
     broadcast(serialize(Map.of("event", "stock.alert", "payload", payload)));
   }

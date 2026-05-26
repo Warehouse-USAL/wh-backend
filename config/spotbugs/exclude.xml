@@ -3,6 +3,6 @@
     <!-- Spring constructor injection stores service references, not mutable data -->
     <Match>
         <Bug pattern="EI_EXPOSE_REP2"/>
-        <Class name="~.*(Controller|Config|Repository|Service)"/>
+        <Class name="~.*(Controller|Config|Repository|Service|Consumer)"/>
     </Match>
 </FindBugsFilter>

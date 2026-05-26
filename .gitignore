@@ -65,6 +65,8 @@ data/
 
 # ─── Superpowers internal docs ────────────────────────────────────────────────
 docs/superpowers/
+docs/plans/
+docs/specs/
 
 # ─── Java ─────────────────────────────────────────────────────────────────────
 *.class

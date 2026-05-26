@@ -12,17 +12,14 @@ public record ProductResponse(
     String imageUrl,
     Stock stock,
     OrderConstraints orderConstraints,
-    Location location,
     boolean active,
     Instant createdAt) {
 
-  public record Stock(int available, int reserved, int minimumStock) {}
+  public record Stock(int available, int reserved, int min) {}
 
   public record OrderConstraints(int maxQuantityPerOrder) {}
 
-  public record Location(String zone, String line, String position, String height) {}
-
-  public static ProductResponse from(Product product) {
+  public static ProductResponse from(Product product, int availableStock, int reservedStock) {
     return new ProductResponse(
         product.getId(),
         product.getSku(),
@@ -30,11 +27,8 @@ public record ProductResponse(
         product.getDescription(),
         product.getCategory(),
         product.getImageUrl(),
-        new Stock(
-            product.getAvailableStock(), product.getReservedStock(), product.getMinimumStock()),
+        new Stock(availableStock, reservedStock, product.getMinimumStock()),
         new OrderConstraints(product.getMaxQuantityPerOrder()),
-        new Location(
-            product.getZone(), product.getLine(), product.getPosition(), product.getHeight()),
         product.isActive(),
         product.getCreatedAt());
   }

@@ -30,6 +30,7 @@ class OrderServiceTest {
 
   @Mock OrderRepository orderRepository;
   @Mock ProductRepository productRepository;
+  @Mock ProductService productService;
   @Mock OrderEventPublisher orderEventPublisher;
   @Mock StockEventPublisher stockEventPublisher;
   OrderService orderService;
@@ -40,6 +41,7 @@ class OrderServiceTest {
         new OrderService(
             orderRepository,
             productRepository,
+            productService,
             List.of(orderEventPublisher),
             List.of(stockEventPublisher));
   }
@@ -170,10 +172,11 @@ class OrderServiceTest {
     p.setId("prod-1");
     p.setSku("SKU-001");
     p.setActive(true);
-    p.setAvailableStock(10);
     p.setMaxQuantityPerOrder(5);
     p.setMinimumStock(2);
     when(productRepository.findById("prod-1")).thenReturn(Optional.of(p));
+    when(productService.computeAvailableStock("prod-1")).thenReturn(10);
+    when(productService.computeReservedStock("prod-1")).thenReturn(0);
     Order saved = new Order();
     saved.setId("ord-new");
     when(orderRepository.save(any())).thenReturn(saved);
@@ -185,23 +188,6 @@ class OrderServiceTest {
     assertEquals("ord-new", result.getId());
     verify(orderRepository).save(any());
     verify(orderEventPublisher).broadcastOrderUpdate(saved);
-  }
-
-  @Test
-  void createOrder_insufficientStock_throws400() {
-    Product p = new Product();
-    p.setId("prod-1");
-    p.setActive(true);
-    p.setAvailableStock(1);
-    p.setMaxQuantityPerOrder(5);
-    when(productRepository.findById("prod-1")).thenReturn(Optional.of(p));
-
-    assertThrows(
-        ResponseStatusException.class,
-        () ->
-            orderService.createOrder(
-                new CreateOrderRequest(List.of(new OrderItemRequest("prod-1", 3)), "AREA-A"),
-                "user-1"));
   }
 
   // ── cancelOrder ────────────────────────────────────────────────────────────
@@ -293,31 +279,26 @@ class OrderServiceTest {
   }
 
   @Test
-  void createOrder_stockBelowMinimum_triggersStockAlert() {
+  void createOrder_insufficientStock_throws400() {
     Product p = new Product();
     p.setId("prod-1");
     p.setSku("SKU-001");
     p.setActive(true);
-    p.setAvailableStock(5);
-    p.setMaxQuantityPerOrder(10);
-    p.setMinimumStock(3);
+    p.setMaxQuantityPerOrder(20);
+    p.setMinimumStock(2);
+    when(productRepository.findById("prod-1")).thenReturn(Optional.of(p));
+    when(productService.computeAvailableStock("prod-1")).thenReturn(5);
+    when(productService.computeReservedStock("prod-1")).thenReturn(0);
 
-    // After stock update, available stock drops to 2 (below minimumStock of 3)
-    Product updatedProduct = new Product();
-    updatedProduct.setId("prod-1");
-    updatedProduct.setAvailableStock(2);
-    updatedProduct.setMinimumStock(3);
+    ResponseStatusException ex =
+        assertThrows(
+            ResponseStatusException.class,
+            () ->
+                orderService.createOrder(
+                    new CreateOrderRequest(List.of(new OrderItemRequest("prod-1", 10)), "AREA-A"),
+                    "user-1"));
 
-    when(productRepository.findById("prod-1"))
-        .thenReturn(Optional.of(p))
-        .thenReturn(Optional.of(updatedProduct));
-    Order saved = new Order();
-    saved.setId("ord-new");
-    when(orderRepository.save(any())).thenReturn(saved);
-
-    orderService.createOrder(
-        new CreateOrderRequest(List.of(new OrderItemRequest("prod-1", 3)), "AREA-A"), "user-1");
-
-    verify(stockEventPublisher).broadcastStockAlert(updatedProduct);
+    assertEquals(400, ex.getStatusCode().value());
+    assertEquals("INSUFFICIENT_STOCK", ex.getReason());
   }
 }
