@@ -112,20 +112,9 @@ public class OrderService {
         throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "QUANTITY_EXCEEDS_LIMIT");
       }
 
-      if (product.getAvailableStock() < itemRequest.quantity()) {
-        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "INSUFFICIENT_STOCK");
-      }
+      // TODO(task-10): stock availability check will use computed stock from positions
+      // Stock deduction from positions will also be implemented in task-10
 
-      productRepository.updateStock(
-          product.getId(), -itemRequest.quantity(), itemRequest.quantity());
-      productRepository
-          .findById(product.getId())
-          .ifPresent(
-              updated -> {
-                if (updated.getAvailableStock() < updated.getMinimumStock()) {
-                  stockEventPublishers.forEach(p -> p.broadcastStockAlert(updated));
-                }
-              });
       items.add(new OrderItem(product.getId(), product.getSku(), itemRequest.quantity()));
     }
 
@@ -152,11 +141,7 @@ public class OrderService {
       throw new ResponseStatusException(HttpStatus.CONFLICT, "ORDER_NOT_CANCELLABLE");
     }
 
-    if (order.getItems() != null) {
-      for (OrderItem item : order.getItems()) {
-        productRepository.updateStock(item.getProductId(), item.getQuantity(), -item.getQuantity());
-      }
-    }
+    // TODO(task-10): stock restoration from positions will be implemented in task-10
 
     Order cancelled = orderRepository.cancel(order, reason);
     orderEventPublishers.forEach(p -> p.broadcastOrderUpdate(cancelled));

@@ -11,7 +11,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 import com.usal.whbackend.api.error.GlobalExceptionHandler;
 import com.usal.whbackend.config.JwtService;
-import com.usal.whbackend.domain.Product;
 import com.usal.whbackend.service.ProductService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -32,6 +31,20 @@ class ProductControllerSecurityTest {
   @MockitoBean ProductService productService;
   @MockitoBean JwtService jwtService;
 
+  private static ProductResponse emptyProductResponse() {
+    return new ProductResponse(
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        new ProductResponse.Stock(0, 0, 0),
+        new ProductResponse.OrderConstraints(0),
+        true,
+        null);
+  }
+
   @Test
   @WithMockUser(roles = "PROVIDER")
   void createProduct_withUnauthorizedRole_returns403() throws Exception {
@@ -47,7 +60,7 @@ class ProductControllerSecurityTest {
   @Test
   @WithMockUser(roles = "ADMIN_WAREHOUSE")
   void createProduct_withAdminWarehouse_returns201() throws Exception {
-    when(productService.createProduct(any())).thenReturn(new Product());
+    when(productService.createProduct(any())).thenReturn(emptyProductResponse());
     mockMvc
         .perform(
             post("/products")
@@ -75,7 +88,7 @@ class ProductControllerSecurityTest {
   @Test
   @WithMockUser(roles = "SUPERADMIN")
   void createProduct_withSuperadmin_returns201() throws Exception {
-    when(productService.createProduct(any())).thenReturn(new Product());
+    when(productService.createProduct(any())).thenReturn(emptyProductResponse());
     mockMvc
         .perform(
             post("/products")
@@ -87,7 +100,7 @@ class ProductControllerSecurityTest {
   @Test
   @WithMockUser(roles = "SUPERADMIN")
   void updateProduct_withSuperadmin_returns200() throws Exception {
-    when(productService.updateProduct(anyString(), any())).thenReturn(new Product());
+    when(productService.updateProduct(anyString(), any())).thenReturn(emptyProductResponse());
     mockMvc
         .perform(
             patch("/products/prod-1")

@@ -19,14 +19,8 @@ public class Product {
   private String description;
   private String category;
   private String imageUrl;
-  private int availableStock;
-  private int reservedStock;
   private int maxQuantityPerOrder;
   private int minimumStock;
-  private String zone;
-  private String line;
-  private String position;
-  private String height;
   private boolean active;
   private Instant createdAt;
 
@@ -80,22 +74,6 @@ public class Product {
     this.imageUrl = imageUrl;
   }
 
-  public int getAvailableStock() {
-    return availableStock;
-  }
-
-  public void setAvailableStock(int availableStock) {
-    this.availableStock = availableStock;
-  }
-
-  public int getReservedStock() {
-    return reservedStock;
-  }
-
-  public void setReservedStock(int reservedStock) {
-    this.reservedStock = reservedStock;
-  }
-
   public int getMaxQuantityPerOrder() {
     return maxQuantityPerOrder;
   }
@@ -110,38 +88,6 @@ public class Product {
 
   public void setMinimumStock(int minimumStock) {
     this.minimumStock = minimumStock;
-  }
-
-  public String getZone() {
-    return zone;
-  }
-
-  public void setZone(String zone) {
-    this.zone = zone;
-  }
-
-  public String getLine() {
-    return line;
-  }
-
-  public void setLine(String line) {
-    this.line = line;
-  }
-
-  public String getPosition() {
-    return position;
-  }
-
-  public void setPosition(String position) {
-    this.position = position;
-  }
-
-  public String getHeight() {
-    return height;
-  }
-
-  public void setHeight(String height) {
-    this.height = height;
   }
 
   public boolean isActive() {

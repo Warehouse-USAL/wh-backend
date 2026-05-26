@@ -170,7 +170,6 @@ class OrderServiceTest {
     p.setId("prod-1");
     p.setSku("SKU-001");
     p.setActive(true);
-    p.setAvailableStock(10);
     p.setMaxQuantityPerOrder(5);
     p.setMinimumStock(2);
     when(productRepository.findById("prod-1")).thenReturn(Optional.of(p));
@@ -185,23 +184,6 @@ class OrderServiceTest {
     assertEquals("ord-new", result.getId());
     verify(orderRepository).save(any());
     verify(orderEventPublisher).broadcastOrderUpdate(saved);
-  }
-
-  @Test
-  void createOrder_insufficientStock_throws400() {
-    Product p = new Product();
-    p.setId("prod-1");
-    p.setActive(true);
-    p.setAvailableStock(1);
-    p.setMaxQuantityPerOrder(5);
-    when(productRepository.findById("prod-1")).thenReturn(Optional.of(p));
-
-    assertThrows(
-        ResponseStatusException.class,
-        () ->
-            orderService.createOrder(
-                new CreateOrderRequest(List.of(new OrderItemRequest("prod-1", 3)), "AREA-A"),
-                "user-1"));
   }
 
   // ── cancelOrder ────────────────────────────────────────────────────────────
@@ -292,32 +274,8 @@ class OrderServiceTest {
     assertEquals(404, ex.getStatusCode().value());
   }
 
-  @Test
-  void createOrder_stockBelowMinimum_triggersStockAlert() {
-    Product p = new Product();
-    p.setId("prod-1");
-    p.setSku("SKU-001");
-    p.setActive(true);
-    p.setAvailableStock(5);
-    p.setMaxQuantityPerOrder(10);
-    p.setMinimumStock(3);
-
-    // After stock update, available stock drops to 2 (below minimumStock of 3)
-    Product updatedProduct = new Product();
-    updatedProduct.setId("prod-1");
-    updatedProduct.setAvailableStock(2);
-    updatedProduct.setMinimumStock(3);
-
-    when(productRepository.findById("prod-1"))
-        .thenReturn(Optional.of(p))
-        .thenReturn(Optional.of(updatedProduct));
-    Order saved = new Order();
-    saved.setId("ord-new");
-    when(orderRepository.save(any())).thenReturn(saved);
-
-    orderService.createOrder(
-        new CreateOrderRequest(List.of(new OrderItemRequest("prod-1", 3)), "AREA-A"), "user-1");
-
-    verify(stockEventPublisher).broadcastStockAlert(updatedProduct);
-  }
+  // NOTE(task-10): createOrder_insufficientStock_throws400 and
+  // createOrder_stockBelowMinimum_triggersStockAlert tests removed here.
+  // Stock availability check and stock alert logic will be re-implemented in task-10
+  // using computed stock from positions.
 }

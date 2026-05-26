@@ -140,9 +140,8 @@ class WebSocketHandlersTest {
     product.setId("p-1");
     product.setSku("SKU-001");
     product.setName("Test Product");
-    product.setAvailableStock(3);
     product.setMinimumStock(10);
-    handler.broadcastStockAlert(product);
+    handler.broadcastStockAlert(product, 3);
 
     verify(session).sendMessage(any(TextMessage.class));
   }
