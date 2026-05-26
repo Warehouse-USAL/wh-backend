@@ -5,8 +5,10 @@ import com.usal.whbackend.api.product.ProductResponse;
 import com.usal.whbackend.api.product.UpdateProductRequest;
 import com.usal.whbackend.domain.Position;
 import com.usal.whbackend.domain.Product;
+import com.usal.whbackend.repository.LineRepository;
 import com.usal.whbackend.repository.PositionRepository;
 import com.usal.whbackend.repository.ProductRepository;
+import com.usal.whbackend.repository.ZoneRepository;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -22,6 +24,7 @@ import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
@@ -30,14 +33,20 @@ public class ProductService {
   private final ProductRepository productRepository;
   private final PositionRepository positionRepository;
   private final MongoTemplate mongoTemplate;
+  private final LineRepository lineRepository;
+  private final ZoneRepository zoneRepository;
 
   public ProductService(
       ProductRepository productRepository,
       PositionRepository positionRepository,
-      MongoTemplate mongoTemplate) {
+      MongoTemplate mongoTemplate,
+      LineRepository lineRepository,
+      ZoneRepository zoneRepository) {
     this.productRepository = productRepository;
     this.positionRepository = positionRepository;
     this.mongoTemplate = mongoTemplate;
+    this.lineRepository = lineRepository;
+    this.zoneRepository = zoneRepository;
   }
 
   // ── Stock computation ──────────────────────────────────────────────────────
@@ -171,6 +180,7 @@ public class ProductService {
     return ProductResponse.from(saved, computeAvailableStock(id), computeReservedStock(id));
   }
 
+  @Transactional
   public void deleteProduct(String id) {
     Product product =
         productRepository
@@ -195,7 +205,19 @@ public class ProductService {
         .findById(id)
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "PRODUCT_NOT_FOUND"));
     return positionRepository.findByProductIdIn(List.of(id)).stream()
-        .map(ProductLocationEntry::from)
+        .map(
+            p -> {
+              var line = lineRepository.findById(p.getIdLine()).orElse(null);
+              var zone = zoneRepository.findById(p.getIdZone()).orElse(null);
+              return new ProductLocationEntry(
+                  p.getId(),
+                  p.getPositionName(),
+                  p.getCurrentStock(),
+                  p.getIdLine(),
+                  line != null ? line.getNumberLine() : 0,
+                  p.getIdZone(),
+                  zone != null ? zone.getZoneCode() : null);
+            })
         .toList();
   }
 
@@ -206,10 +228,11 @@ public class ProductService {
   private record ProductStockSum(String id, int total) {}
 
   public record ProductLocationEntry(
-      String idPosition, String positionName, int currentStock, String idLine, String idZone) {
-    public static ProductLocationEntry from(Position p) {
-      return new ProductLocationEntry(
-          p.getId(), p.getPositionName(), p.getCurrentStock(), p.getIdLine(), p.getIdZone());
-    }
-  }
+      String idPosition,
+      String positionName,
+      int currentStock,
+      String idLine,
+      int numberLine,
+      String idZone,
+      String zoneCode) {}
 }

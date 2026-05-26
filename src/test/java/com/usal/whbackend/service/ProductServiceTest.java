@@ -8,8 +8,10 @@ import com.usal.whbackend.api.product.CreateProductRequest;
 import com.usal.whbackend.api.product.ProductResponse;
 import com.usal.whbackend.api.product.UpdateProductRequest;
 import com.usal.whbackend.domain.Product;
+import com.usal.whbackend.repository.LineRepository;
 import com.usal.whbackend.repository.PositionRepository;
 import com.usal.whbackend.repository.ProductRepository;
+import com.usal.whbackend.repository.ZoneRepository;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -33,6 +35,8 @@ class ProductServiceTest {
   @Mock ProductRepository productRepository;
   @Mock PositionRepository positionRepository;
   @Mock MongoTemplate mongoTemplate;
+  @Mock LineRepository lineRepository;
+  @Mock ZoneRepository zoneRepository;
   @InjectMocks ProductService productService;
 
   private Product activeProduct(String id) {
