@@ -17,6 +17,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
@@ -24,16 +25,19 @@ public class OrderService {
 
   private final OrderRepository orderRepository;
   private final ProductRepository productRepository;
+  private final ProductService productService;
   private final List<OrderEventPublisher> orderEventPublishers;
   private final List<StockEventPublisher> stockEventPublishers;
 
   public OrderService(
       OrderRepository orderRepository,
       ProductRepository productRepository,
+      ProductService productService,
       List<OrderEventPublisher> orderEventPublishers,
       List<StockEventPublisher> stockEventPublishers) {
     this.orderRepository = orderRepository;
     this.productRepository = productRepository;
+    this.productService = productService;
     this.orderEventPublishers = List.copyOf(orderEventPublishers);
     this.stockEventPublishers = List.copyOf(stockEventPublishers);
   }
@@ -76,6 +80,7 @@ public class OrderService {
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "ORDER_NOT_FOUND"));
   }
 
+  @Transactional
   public Order createOrder(CreateOrderRequest request, String userId) {
     if (request.destinationArea() == null || request.destinationArea().isBlank()) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "DESTINATION_AREA_REQUIRED");
@@ -112,8 +117,11 @@ public class OrderService {
         throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "QUANTITY_EXCEEDS_LIMIT");
       }
 
-      // TODO(task-10): stock availability check will use computed stock from positions
-      // Stock deduction from positions will also be implemented in task-10
+      int available = productService.computeAvailableStock(product.getId());
+      int reserved = productService.computeReservedStock(product.getId());
+      if (available - reserved < itemRequest.quantity()) {
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "INSUFFICIENT_STOCK");
+      }
 
       items.add(new OrderItem(product.getId(), product.getSku(), itemRequest.quantity()));
     }
@@ -140,8 +148,6 @@ public class OrderService {
     if (order.getStatus() == OrderStatus.COMPLETED || order.getStatus() == OrderStatus.CANCELLED) {
       throw new ResponseStatusException(HttpStatus.CONFLICT, "ORDER_NOT_CANCELLABLE");
     }
-
-    // TODO(task-10): stock restoration from positions will be implemented in task-10
 
     Order cancelled = orderRepository.cancel(order, reason);
     orderEventPublishers.forEach(p -> p.broadcastOrderUpdate(cancelled));

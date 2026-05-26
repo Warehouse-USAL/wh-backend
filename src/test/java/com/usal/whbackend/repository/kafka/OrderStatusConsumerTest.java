@@ -9,7 +9,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.usal.whbackend.domain.Order;
 import com.usal.whbackend.domain.OrderStatus;
 import com.usal.whbackend.repository.OrderMongoRepository;
+import com.usal.whbackend.repository.PositionRepository;
+import com.usal.whbackend.repository.ProductRepository;
 import com.usal.whbackend.service.OrderEventPublisher;
+import com.usal.whbackend.service.StockEventPublisher;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
@@ -24,11 +27,20 @@ class OrderStatusConsumerTest {
 
   @Mock OrderMongoRepository orderMongoRepository;
   @Mock OrderEventPublisher orderEventPublisher;
+  @Mock PositionRepository positionRepository;
+  @Mock ProductRepository productRepository;
+  @Mock StockEventPublisher stockEventPublisher;
   OrderStatusConsumer consumer;
 
   @BeforeEach
   void setUp() {
-    consumer = new OrderStatusConsumer(orderMongoRepository, List.of(orderEventPublisher));
+    consumer =
+        new OrderStatusConsumer(
+            orderMongoRepository,
+            List.of(orderEventPublisher),
+            positionRepository,
+            productRepository,
+            List.of(stockEventPublisher));
   }
 
   @Test
@@ -59,6 +71,7 @@ class OrderStatusConsumerTest {
     Order order = new Order();
     order.setId("ord-1");
     order.setStatus(OrderStatus.IN_PROGRESS);
+    order.setItems(List.of());
     when(orderMongoRepository.findById("ord-1")).thenReturn(Optional.of(order));
     when(orderMongoRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
