@@ -26,7 +26,7 @@ public record ProductResponse(
         product.getName(),
         product.getDescription(),
         product.getCategory(),
-        product.getImageUrl(),
+        null, // TODO(task-2): replace with images list
         new Stock(availableStock, reservedStock, product.getMinimumStock()),
         new OrderConstraints(product.getMaxQuantityPerOrder()),
         product.isActive(),

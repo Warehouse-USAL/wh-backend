@@ -146,7 +146,7 @@ public class ProductService {
     product.setName(request.name());
     product.setDescription(request.description());
     product.setCategory(request.category());
-    product.setImageUrl(request.imageUrl());
+    // TODO(task-2): product.setImages(request.images());
     product.setMaxQuantityPerOrder(
         request.maxQuantityPerOrder() != null ? request.maxQuantityPerOrder() : 0);
     product.setMinimumStock(request.minimumStock() != null ? request.minimumStock() : 0);
@@ -172,7 +172,7 @@ public class ProductService {
     if (request.name() != null) product.setName(request.name());
     if (request.description() != null) product.setDescription(request.description());
     if (request.category() != null) product.setCategory(request.category());
-    if (request.imageUrl() != null) product.setImageUrl(request.imageUrl());
+    // TODO(task-2): if (request.images() != null) product.setImages(request.images());
     if (request.maxQuantityPerOrder() != null)
       product.setMaxQuantityPerOrder(request.maxQuantityPerOrder());
     if (request.minimumStock() != null) product.setMinimumStock(request.minimumStock());
