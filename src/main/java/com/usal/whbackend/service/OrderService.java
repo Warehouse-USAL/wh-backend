@@ -113,7 +113,8 @@ public class OrderService {
         throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "PRODUCT_INACTIVE");
       }
 
-      if (itemRequest.quantity() > product.getMaxQuantityPerOrder()) {
+      if (product.getMaxQuantityPerOrder() > 0
+          && itemRequest.quantity() > product.getMaxQuantityPerOrder()) {
         throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "QUANTITY_EXCEEDS_LIMIT");
       }
 

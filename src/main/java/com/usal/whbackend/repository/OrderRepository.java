@@ -9,6 +9,7 @@ import com.usal.whbackend.repository.kafka.OrderDispatchMessage;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
@@ -105,25 +106,29 @@ public class OrderRepository {
             items,
             order.getDestinationArea(),
             Instant.now().toString());
-    send("order.dispatch", msg);
+    sendAsync("order.dispatch", msg);
   }
 
   private void publishCancel(Order order, String reason) {
     OrderCancelMessage msg =
         new OrderCancelMessage("order.cancel", order.getId(), reason, Instant.now().toString());
-    send("order.cancel", msg);
+    sendAsync("order.cancel", msg);
   }
 
-  private void send(String topic, Object payload) {
+  private void sendAsync(String topic, Object payload) {
     try {
-      kafka
-          .send(topic, objectMapper.writeValueAsString(payload))
-          .whenComplete(
-              (result, ex) -> {
-                if (ex != null) {
-                  log.error("Failed to publish to Kafka topic {}: {}", topic, ex.getMessage());
-                }
-              });
+      String json = objectMapper.writeValueAsString(payload);
+      CompletableFuture.runAsync(
+          () ->
+              kafka
+                  .send(topic, json)
+                  .whenComplete(
+                      (result, ex) -> {
+                        if (ex != null) {
+                          log.error(
+                              "Failed to publish to Kafka topic {}: {}", topic, ex.getMessage());
+                        }
+                      }));
     } catch (JsonProcessingException e) {
       throw new RuntimeException("Failed to serialize Kafka message for topic " + topic, e);
     }
