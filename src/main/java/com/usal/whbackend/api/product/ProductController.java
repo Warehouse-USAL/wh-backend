@@ -80,7 +80,7 @@ public class ProductController {
       summary = "Create product",
       description = "Requires ADMIN_WAREHOUSE or ADMIN_SALES role")
   @ApiResponse(responseCode = "201", description = "Product created")
-  @ApiResponse(responseCode = "400", description = "MISSING_REQUIRED_FIELDS")
+  @ApiResponse(responseCode = "400", description = "Validation failed — field constraints not met")
   @ApiResponse(responseCode = "409", description = "SKU_ALREADY_EXISTS")
   @ApiResponse(responseCode = "403", description = "Insufficient role")
   @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_WAREHOUSE', 'ADMIN_SALES')")

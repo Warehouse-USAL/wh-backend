@@ -62,15 +62,6 @@ public class ProductService {
   }
 
   public Product createProduct(CreateProductRequest request) {
-    if (request.sku() == null
-        || request.sku().isBlank()
-        || request.name() == null
-        || request.name().isBlank()
-        || request.category() == null
-        || request.category().isBlank()) {
-      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "MISSING_REQUIRED_FIELDS");
-    }
-
     if (productRepository.findBySku(request.sku()).isPresent()) {
       throw new ResponseStatusException(HttpStatus.CONFLICT, "SKU_ALREADY_EXISTS");
     }

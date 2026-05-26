@@ -151,15 +151,6 @@ class ProductServiceTest {
   }
 
   @Test
-  void createProduct_missingSku_throws400() {
-    assertThrows(
-        ResponseStatusException.class,
-        () ->
-            productService.createProduct(
-                new CreateProductRequest(null, "Name", null, "cat", null, null, null)));
-  }
-
-  @Test
   void createProduct_duplicateSku_throws409() {
     when(productRepository.findBySku("SKU-001")).thenReturn(Optional.of(activeProduct("1")));
     ResponseStatusException ex =
