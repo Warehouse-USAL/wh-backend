@@ -1,6 +1,7 @@
 package com.usal.whbackend.domain;
 
 import java.time.Instant;
+import java.util.List;
 import org.springframework.data.annotation.Id;
 import org.springframework.data.mongodb.core.index.CompoundIndex;
 import org.springframework.data.mongodb.core.index.Indexed;
@@ -18,13 +19,17 @@ public class Product {
   private String name;
   private String description;
   private String category;
-  private String imageUrl;
+  private List<ProductImage> images;
+  private Price price;
+  private List<Spec> specs;
   private int maxQuantityPerOrder;
   private int minimumStock;
   private boolean active;
   private Instant createdAt;
 
   public Product() {}
+
+  // ── Core getters/setters ───────────────────────────────────────────────────
 
   public String getId() {
     return id;
@@ -66,12 +71,28 @@ public class Product {
     this.category = category;
   }
 
-  public String getImageUrl() {
-    return imageUrl;
+  public List<ProductImage> getImages() {
+    return images;
   }
 
-  public void setImageUrl(String imageUrl) {
-    this.imageUrl = imageUrl;
+  public void setImages(List<ProductImage> images) {
+    this.images = images;
+  }
+
+  public Price getPrice() {
+    return price;
+  }
+
+  public void setPrice(Price price) {
+    this.price = price;
+  }
+
+  public List<Spec> getSpecs() {
+    return specs;
+  }
+
+  public void setSpecs(List<Spec> specs) {
+    this.specs = specs;
   }
 
   public int getMaxQuantityPerOrder() {
@@ -104,5 +125,135 @@ public class Product {
 
   public void setCreatedAt(Instant createdAt) {
     this.createdAt = createdAt;
+  }
+
+  // ── Embedded value objects ─────────────────────────────────────────────────
+
+  public static class ProductImage {
+    private String url;
+    private String alt;
+    private boolean primary;
+
+    public ProductImage() {}
+
+    public String getUrl() {
+      return url;
+    }
+
+    public void setUrl(String url) {
+      this.url = url;
+    }
+
+    public String getAlt() {
+      return alt;
+    }
+
+    public void setAlt(String alt) {
+      this.alt = alt;
+    }
+
+    public boolean isPrimary() {
+      return primary;
+    }
+
+    public void setPrimary(boolean primary) {
+      this.primary = primary;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+      if (this == o) return true;
+      if (!(o instanceof ProductImage that)) return false;
+      return primary == that.primary
+          && java.util.Objects.equals(url, that.url)
+          && java.util.Objects.equals(alt, that.alt);
+    }
+
+    @Override
+    public int hashCode() {
+      return java.util.Objects.hash(url, alt, primary);
+    }
+  }
+
+  public static class Price {
+    private long amountCents;
+    private String currency;
+    private boolean taxIncluded;
+
+    public Price() {}
+
+    public long getAmountCents() {
+      return amountCents;
+    }
+
+    public void setAmountCents(long amountCents) {
+      this.amountCents = amountCents;
+    }
+
+    public String getCurrency() {
+      return currency;
+    }
+
+    public void setCurrency(String currency) {
+      this.currency = currency;
+    }
+
+    public boolean isTaxIncluded() {
+      return taxIncluded;
+    }
+
+    public void setTaxIncluded(boolean taxIncluded) {
+      this.taxIncluded = taxIncluded;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+      if (this == o) return true;
+      if (!(o instanceof Price that)) return false;
+      return amountCents == that.amountCents
+          && taxIncluded == that.taxIncluded
+          && java.util.Objects.equals(currency, that.currency);
+    }
+
+    @Override
+    public int hashCode() {
+      return java.util.Objects.hash(amountCents, currency, taxIncluded);
+    }
+  }
+
+  public static class Spec {
+    private String label;
+    private String value;
+
+    public Spec() {}
+
+    public String getLabel() {
+      return label;
+    }
+
+    public void setLabel(String label) {
+      this.label = label;
+    }
+
+    public String getValue() {
+      return value;
+    }
+
+    public void setValue(String value) {
+      this.value = value;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+      if (this == o) return true;
+      if (!(o instanceof Spec that)) return false;
+      return java.util.Objects.equals(label, that.label)
+          && java.util.Objects.equals(value, that.value);
+    }
+
+    @Override
+    public int hashCode() {
+      return java.util.Objects.hash(label, value);
+    }
   }
 }
