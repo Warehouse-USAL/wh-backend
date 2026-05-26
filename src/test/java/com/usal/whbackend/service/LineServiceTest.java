@@ -30,6 +30,7 @@ class LineServiceTest {
     Zone z = new Zone();
     z.setId(id);
     z.setZoneCode("A");
+    z.setActive(true);
     return z;
   }
 

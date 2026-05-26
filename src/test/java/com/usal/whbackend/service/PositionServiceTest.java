@@ -11,6 +11,7 @@ import com.usal.whbackend.domain.Position;
 import com.usal.whbackend.domain.StockSize;
 import com.usal.whbackend.repository.LineRepository;
 import com.usal.whbackend.repository.PositionRepository;
+import com.usal.whbackend.repository.ProductRepository;
 import com.usal.whbackend.service.exception.LineNotFoundException;
 import com.usal.whbackend.service.exception.PositionAlreadyOccupiedException;
 import com.usal.whbackend.service.exception.StockExceedsCapacityException;
@@ -27,12 +28,14 @@ class PositionServiceTest {
 
   @Mock PositionRepository positionRepository;
   @Mock LineRepository lineRepository;
+  @Mock ProductRepository productRepository;
   @InjectMocks PositionService positionService;
 
   private Line line(String id, String zoneId) {
     Line l = new Line();
     l.setId(id);
     l.setIdZone(zoneId);
+    l.setActive(true);
     return l;
   }
 

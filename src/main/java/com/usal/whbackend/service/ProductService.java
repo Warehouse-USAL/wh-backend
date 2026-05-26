@@ -12,6 +12,7 @@ import com.usal.whbackend.repository.ZoneRepository;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.domain.Page;
@@ -52,7 +53,7 @@ public class ProductService {
   // ── Stock computation ──────────────────────────────────────────────────────
 
   public int computeAvailableStock(String productId) {
-    return positionRepository.findByProductIdIn(List.of(productId)).stream()
+    return positionRepository.findByProductIdInAndIsActiveTrue(List.of(productId)).stream()
         .mapToInt(Position::getCurrentStock)
         .sum();
   }
@@ -70,7 +71,7 @@ public class ProductService {
   }
 
   private Map<String, Integer> bulkAvailableStock(List<String> productIds) {
-    return positionRepository.findByProductIdIn(productIds).stream()
+    return positionRepository.findByProductIdInAndIsActiveTrue(productIds).stream()
         .collect(
             Collectors.groupingBy(
                 Position::getProductId, Collectors.summingInt(Position::getCurrentStock)));
@@ -201,14 +202,32 @@ public class ProductService {
   }
 
   public List<ProductLocationEntry> getProductLocation(String id) {
-    productRepository
-        .findById(id)
-        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "PRODUCT_NOT_FOUND"));
-    return positionRepository.findByProductIdIn(List.of(id)).stream()
+    Product product =
+        productRepository
+            .findById(id)
+            .orElseThrow(
+                () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "PRODUCT_NOT_FOUND"));
+    if (!product.isActive()) {
+      throw new ResponseStatusException(HttpStatus.NOT_FOUND, "PRODUCT_NOT_FOUND");
+    }
+
+    List<Position> positions = positionRepository.findByProductIdInAndIsActiveTrue(List.of(id));
+
+    // Bulk-fetch lines and zones — 2 queries instead of 2 × N.
+    List<String> lineIds = positions.stream().map(Position::getIdLine).distinct().toList();
+    List<String> zoneIds = positions.stream().map(Position::getIdZone).distinct().toList();
+    Map<String, com.usal.whbackend.domain.Line> lineMap =
+        lineRepository.findAllById(lineIds).stream()
+            .collect(Collectors.toMap(com.usal.whbackend.domain.Line::getId, Function.identity()));
+    Map<String, com.usal.whbackend.domain.Zone> zoneMap =
+        zoneRepository.findAllById(zoneIds).stream()
+            .collect(Collectors.toMap(com.usal.whbackend.domain.Zone::getId, Function.identity()));
+
+    return positions.stream()
         .map(
             p -> {
-              var line = lineRepository.findById(p.getIdLine()).orElse(null);
-              var zone = zoneRepository.findById(p.getIdZone()).orElse(null);
+              var line = lineMap.get(p.getIdLine());
+              var zone = zoneMap.get(p.getIdZone());
               return new ProductLocationEntry(
                   p.getId(),
                   p.getPositionName(),

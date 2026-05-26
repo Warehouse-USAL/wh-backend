@@ -10,7 +10,9 @@ import com.usal.whbackend.service.exception.LineNumberAlreadyExistsException;
 import com.usal.whbackend.service.exception.ZoneNotFoundException;
 import java.time.Instant;
 import java.util.List;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class LineService {
@@ -33,7 +35,10 @@ public class LineService {
   }
 
   public Line createLine(String zoneId, CreateLineRequest request) {
-    zoneRepository.findById(zoneId).orElseThrow(() -> new ZoneNotFoundException(zoneId));
+    var zone = zoneRepository.findById(zoneId).orElseThrow(() -> new ZoneNotFoundException(zoneId));
+    if (!zone.isActive()) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "ZONE_INACTIVE");
+    }
     if (lineRepository.findByIdZoneAndNumberLine(zoneId, request.numberLine()).isPresent()) {
       throw new LineNumberAlreadyExistsException(request.numberLine(), zoneId);
     }

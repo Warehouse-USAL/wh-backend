@@ -78,7 +78,7 @@ class ProductServiceTest {
     Product p = activeProduct("1");
     when(mongoTemplate.count(any(Query.class), eq(Product.class))).thenReturn(1L);
     when(mongoTemplate.find(any(Query.class), eq(Product.class))).thenReturn(List.of(p));
-    when(positionRepository.findByProductIdIn(any())).thenReturn(List.of());
+    when(positionRepository.findByProductIdInAndIsActiveTrue(any())).thenReturn(List.of());
     mockZeroBulkReservedStock();
 
     Page<ProductResponse> result = productService.getProducts(null, null, null, pageable);
@@ -94,7 +94,7 @@ class ProductServiceTest {
     Product p = activeProduct("1");
     when(mongoTemplate.count(any(Query.class), eq(Product.class))).thenReturn(1L);
     when(mongoTemplate.find(any(Query.class), eq(Product.class))).thenReturn(List.of(p));
-    when(positionRepository.findByProductIdIn(any())).thenReturn(List.of());
+    when(positionRepository.findByProductIdInAndIsActiveTrue(any())).thenReturn(List.of());
     mockZeroBulkReservedStock();
 
     Page<ProductResponse> result = productService.getProducts("electronics", null, null, pageable);
@@ -110,7 +110,7 @@ class ProductServiceTest {
     when(mongoTemplate.count(any(Query.class), eq(Product.class))).thenReturn(1L);
     when(mongoTemplate.find(any(Query.class), eq(Product.class)))
         .thenReturn(List.of(activeProduct("1")));
-    when(positionRepository.findByProductIdIn(any())).thenReturn(List.of());
+    when(positionRepository.findByProductIdInAndIsActiveTrue(any())).thenReturn(List.of());
     mockZeroBulkReservedStock();
 
     Page<ProductResponse> result = productService.getProducts(null, "widget", null, pageable);
@@ -127,7 +127,7 @@ class ProductServiceTest {
     inactive.setActive(false);
     when(mongoTemplate.count(any(Query.class), eq(Product.class))).thenReturn(1L);
     when(mongoTemplate.find(any(Query.class), eq(Product.class))).thenReturn(List.of(inactive));
-    when(positionRepository.findByProductIdIn(any())).thenReturn(List.of());
+    when(positionRepository.findByProductIdInAndIsActiveTrue(any())).thenReturn(List.of());
     mockZeroBulkReservedStock();
 
     Page<ProductResponse> result = productService.getProducts(null, null, false, pageable);
@@ -141,7 +141,7 @@ class ProductServiceTest {
     when(mongoTemplate.count(any(Query.class), eq(Product.class))).thenReturn(10L);
     when(mongoTemplate.find(any(Query.class), eq(Product.class)))
         .thenReturn(List.of(activeProduct("6"), activeProduct("7")));
-    when(positionRepository.findByProductIdIn(any())).thenReturn(List.of());
+    when(positionRepository.findByProductIdInAndIsActiveTrue(any())).thenReturn(List.of());
     mockZeroBulkReservedStock();
 
     Page<ProductResponse> result = productService.getProducts(null, null, null, pageable);
@@ -157,7 +157,7 @@ class ProductServiceTest {
   void getProduct_existingActiveProduct_returnsIt() {
     Product p = activeProduct("1");
     when(productRepository.findById("1")).thenReturn(Optional.of(p));
-    when(positionRepository.findByProductIdIn(any())).thenReturn(List.of());
+    when(positionRepository.findByProductIdInAndIsActiveTrue(any())).thenReturn(List.of());
     mockZeroSingleReservedStock();
 
     assertEquals("1", productService.getProduct("1", null).id());
@@ -225,7 +225,7 @@ class ProductServiceTest {
     Product p = activeProduct("1");
     when(productRepository.findById("1")).thenReturn(Optional.of(p));
     when(productRepository.save(any())).thenReturn(p);
-    when(positionRepository.findByProductIdIn(any())).thenReturn(List.of());
+    when(positionRepository.findByProductIdInAndIsActiveTrue(any())).thenReturn(List.of());
     mockZeroSingleReservedStock();
 
     productService.updateProduct(

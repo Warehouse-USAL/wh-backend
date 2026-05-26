@@ -51,7 +51,11 @@ public class GlobalExceptionHandler {
               "DUPLICATE_PRODUCT_IN_ORDER",
               "No se puede incluir el mismo producto más de una vez en la orden."),
           Map.entry("MISSING_REQUIRED_FIELDS", "Los campos sku, name y category son obligatorios."),
-          Map.entry("SKU_ALREADY_EXISTS", "Ya existe un producto con ese SKU."));
+          Map.entry("SKU_ALREADY_EXISTS", "Ya existe un producto con ese SKU."),
+          Map.entry("ZONE_INACTIVE", "La zona no está activa y no puede recibir nuevas líneas."),
+          Map.entry(
+              "LINE_INACTIVE",
+              "La línea no está activa y no puede recibir nuevas posiciones."));
 
   @ExceptionHandler(AccessDeniedException.class)
   public ResponseEntity<ErrorResponse> handleAccessDenied(AccessDeniedException ex) {

@@ -10,5 +10,12 @@ public interface PositionRepository extends MongoRepository<Position, String> {
   List<Position> findByProductIdAndCurrentStockGreaterThanOrderByCreatedAtAsc(
       String productId, int minStock);
 
+  /** FIFO drain — only drain active positions. */
+  List<Position> findByProductIdAndIsActiveTrueAndCurrentStockGreaterThanOrderByCreatedAtAsc(
+      String productId, int minStock);
+
   List<Position> findByProductIdIn(List<String> productIds);
+
+  /** Stock computation — only count active positions. */
+  List<Position> findByProductIdInAndIsActiveTrue(List<String> productIds);
 }

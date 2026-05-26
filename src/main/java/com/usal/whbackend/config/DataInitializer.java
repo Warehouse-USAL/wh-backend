@@ -13,6 +13,7 @@ import com.usal.whbackend.repository.ZoneRepository;
 import java.time.Instant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
@@ -77,6 +78,15 @@ public class DataInitializer implements ApplicationRunner {
 
   private void seedWarehouse() {
     if (!zoneRepository.findAll().isEmpty()) return;
+    try {
+      doSeedWarehouse();
+    } catch (DuplicateKeyException e) {
+      // Another instance seeded concurrently — safe to ignore.
+      log.info("Warehouse structure already seeded by another instance — skipping.");
+    }
+  }
+
+  private void doSeedWarehouse() {
 
     // Zone A
     Zone zoneA = new Zone();

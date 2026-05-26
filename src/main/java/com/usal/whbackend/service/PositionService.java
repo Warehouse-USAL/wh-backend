@@ -5,23 +5,31 @@ import com.usal.whbackend.api.warehouse.position.UpdatePositionRequest;
 import com.usal.whbackend.domain.Position;
 import com.usal.whbackend.repository.LineRepository;
 import com.usal.whbackend.repository.PositionRepository;
+import com.usal.whbackend.repository.ProductRepository;
 import com.usal.whbackend.service.exception.LineNotFoundException;
 import com.usal.whbackend.service.exception.PositionAlreadyOccupiedException;
 import com.usal.whbackend.service.exception.PositionNotFoundException;
 import com.usal.whbackend.service.exception.StockExceedsCapacityException;
 import java.time.Instant;
 import java.util.List;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class PositionService {
 
   private final PositionRepository positionRepository;
   private final LineRepository lineRepository;
+  private final ProductRepository productRepository;
 
-  public PositionService(PositionRepository positionRepository, LineRepository lineRepository) {
+  public PositionService(
+      PositionRepository positionRepository,
+      LineRepository lineRepository,
+      ProductRepository productRepository) {
     this.positionRepository = positionRepository;
     this.lineRepository = lineRepository;
+    this.productRepository = productRepository;
   }
 
   public List<Position> getPositionsByLine(String lineId) {
@@ -35,6 +43,9 @@ public class PositionService {
 
   public Position createPosition(String lineId, CreatePositionRequest request) {
     var line = lineRepository.findById(lineId).orElseThrow(() -> new LineNotFoundException(lineId));
+    if (!line.isActive()) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "LINE_INACTIVE");
+    }
     Position position = new Position();
     position.setIdLine(lineId);
     position.setIdZone(line.getIdZone());
@@ -63,6 +74,9 @@ public class PositionService {
         throw new PositionAlreadyOccupiedException(id);
       }
       if (request.productId() != null) {
+        if (!productRepository.existsById(request.productId())) {
+          throw new ResponseStatusException(HttpStatus.NOT_FOUND, "PRODUCT_NOT_FOUND");
+        }
         position.setProductId(request.productId());
       }
 
