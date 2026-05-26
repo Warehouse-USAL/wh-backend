@@ -18,6 +18,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -46,12 +49,17 @@ class ProductControllerTest {
   @Test
   @WithMockUser
   void getProducts_returns200() throws Exception {
-    when(productService.getProducts(any(), any(), any()))
-        .thenReturn(java.util.List.of(sampleProduct));
+    Pageable pageable = PageRequest.of(0, 10);
+    when(productService.getProducts(any(), any(), any(), any(Pageable.class)))
+        .thenReturn(new PageImpl<>(java.util.List.of(sampleProduct), pageable, 1));
     mockMvc
         .perform(get("/products"))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.products").isArray());
+        .andExpect(jsonPath("$.products").isArray())
+        .andExpect(jsonPath("$.pagination.total_elements").value(1))
+        .andExpect(jsonPath("$.pagination.page").value(0))
+        .andExpect(jsonPath("$.pagination.size").value(10))
+        .andExpect(jsonPath("$.pagination.total_pages").value(1));
   }
 
   @Test
@@ -96,5 +104,130 @@ class ProductControllerTest {
   void deleteProduct_returns204() throws Exception {
     doNothing().when(productService).deleteProduct(anyString());
     mockMvc.perform(delete("/products/prod-1")).andExpect(status().isNoContent());
+  }
+
+  @Test
+  @WithMockUser
+  void getProduct_responseBodyUsesSnakeCaseKeys() throws Exception {
+    // Regression: API must serialize responses with snake_case field names so that
+    // consumers sending image_url / available_stock / max_quantity_per_order / minimum_stock
+    // receive them back under the same snake_case keys.
+    Product product = new Product();
+    product.setId("prod-snake");
+    product.setSku("SKU-SNAKE");
+    product.setName("Snake Product");
+    product.setCategory("electronics");
+    product.setActive(true);
+    product.setImageUrl("https://example.com/img.png");
+    product.setAvailableStock(50);
+    product.setMaxQuantityPerOrder(5);
+    product.setMinimumStock(10);
+    product.setCreatedAt(java.time.Instant.parse("2026-01-01T00:00:00Z"));
+
+    when(productService.getProduct(anyString(), any())).thenReturn(product);
+
+    mockMvc
+        .perform(get("/products/prod-snake"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.product.image_url").value("https://example.com/img.png"))
+        .andExpect(jsonPath("$.product.created_at").exists())
+        .andExpect(jsonPath("$.product.stock.minimum_stock").value(10))
+        .andExpect(jsonPath("$.product.order_constraints.max_quantity_per_order").value(5))
+        .andExpect(jsonPath("$.product.stock.available").value(50));
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void createProduct_acceptsSnakeCaseRequestBody() throws Exception {
+    // Regression: fields sent as snake_case must be deserialized, not silently dropped.
+    Product stored = new Product();
+    stored.setId("prod-sc");
+    stored.setSku("SKU-SC");
+    stored.setName("Snake Create");
+    stored.setCategory("tools");
+    stored.setImageUrl("https://example.com/tool.png");
+    stored.setAvailableStock(100);
+    stored.setMaxQuantityPerOrder(10);
+    stored.setMinimumStock(20);
+    stored.setActive(true);
+    stored.setCreatedAt(java.time.Instant.parse("2026-01-01T00:00:00Z"));
+
+    when(productService.createProduct(any())).thenReturn(stored);
+
+    mockMvc
+        .perform(
+            post("/products")
+                .contentType("application/json")
+                .content(
+                    "{\"sku\":\"SKU-SC\",\"name\":\"Snake Create\",\"category\":\"tools\","
+                        + "\"image_url\":\"https://example.com/tool.png\","
+                        + "\"available_stock\":100,"
+                        + "\"max_quantity_per_order\":10,"
+                        + "\"minimum_stock\":20}"))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.product.image_url").value("https://example.com/tool.png"))
+        .andExpect(jsonPath("$.product.stock.available").value(100))
+        .andExpect(jsonPath("$.product.order_constraints.max_quantity_per_order").value(10));
+  }
+
+  @Test
+  @WithMockUser
+  void getProducts_sizeExceedsMax_clampsTo50() throws Exception {
+    when(productService.getProducts(any(), any(), any(), any(Pageable.class)))
+        .thenAnswer(
+            inv -> {
+              Pageable p = inv.getArgument(3);
+              return new PageImpl<>(java.util.List.of(), p, 0);
+            });
+    mockMvc
+        .perform(get("/products").param("size", "200"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pagination.size").value(50));
+  }
+
+  @Test
+  @WithMockUser
+  void getProducts_explicitPage_passedThrough() throws Exception {
+    when(productService.getProducts(any(), any(), any(), any(Pageable.class)))
+        .thenAnswer(
+            inv -> {
+              Pageable p = inv.getArgument(3);
+              return new PageImpl<>(java.util.List.of(sampleProduct), p, 25);
+            });
+    mockMvc
+        .perform(get("/products").param("page", "1").param("size", "10"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pagination.page").value(1))
+        .andExpect(jsonPath("$.pagination.total_pages").value(3));
+  }
+
+  @Test
+  @WithMockUser
+  void getProducts_negativePage_clampsToZero() throws Exception {
+    when(productService.getProducts(any(), any(), any(), any(Pageable.class)))
+        .thenAnswer(
+            inv -> {
+              Pageable p = inv.getArgument(3);
+              return new PageImpl<>(java.util.List.of(), p, 0);
+            });
+    mockMvc
+        .perform(get("/products").param("page", "-1"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pagination.page").value(0));
+  }
+
+  @Test
+  @WithMockUser
+  void getProducts_zeroSize_clampsToOne() throws Exception {
+    when(productService.getProducts(any(), any(), any(), any(Pageable.class)))
+        .thenAnswer(
+            inv -> {
+              Pageable p = inv.getArgument(3);
+              return new PageImpl<>(java.util.List.of(), p, 0);
+            });
+    mockMvc
+        .perform(get("/products").param("size", "0"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pagination.size").value(1));
   }
 }

@@ -1,13 +1,17 @@
 package com.usal.whbackend.api.product;
 
+import com.usal.whbackend.api.Pagination;
+import com.usal.whbackend.domain.Product;
 import com.usal.whbackend.service.ProductService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import java.util.List;
 import java.util.Map;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -33,21 +37,29 @@ public class ProductController {
     this.productService = productService;
   }
 
-  @Operation(summary = "List products", description = "Returns active products by default, optionally filtered")
-  @ApiResponse(responseCode = "200", description = "Product list")
+  @Operation(
+      summary = "List products",
+      description = "Returns paginated products, optionally filtered")
+  @ApiResponse(responseCode = "200", description = "Paginated product list")
   @GetMapping
-  public ResponseEntity<Map<String, List<ProductResponse>>> getProducts(
-      @Parameter(description = "Filter by category")
-      @RequestParam(required = false) String category,
+  public ResponseEntity<Map<String, Object>> getProducts(
+      @Parameter(description = "Filter by category") @RequestParam(required = false)
+          String category,
       @Parameter(description = "Search by name or SKU (case-insensitive)")
-      @RequestParam(required = false) String search,
+          @RequestParam(required = false)
+          String search,
       @Parameter(description = "Filter by active status (default: true)")
-      @RequestParam(required = false) Boolean isActive) {
-    List<ProductResponse> products =
-        productService.getProducts(category, search, isActive).stream()
-            .map(ProductResponse::from)
-            .toList();
-    return ResponseEntity.ok(Map.of("products", products));
+          @RequestParam(required = false)
+          Boolean isActive,
+      @Parameter(description = "Zero-indexed page number") @RequestParam(defaultValue = "0")
+          int page,
+      @Parameter(description = "Page size (max 50)") @RequestParam(defaultValue = "10") int size) {
+    Pageable pageable = PageRequest.of(Math.max(page, 0), Math.max(Math.min(size, 50), 1));
+    Page<Product> result = productService.getProducts(category, search, isActive, pageable);
+    return ResponseEntity.ok(
+        Map.of(
+            "products", result.getContent().stream().map(ProductResponse::from).toList(),
+            "pagination", Pagination.from(result)));
   }
 
   @Operation(summary = "Get product by ID")
@@ -57,16 +69,20 @@ public class ProductController {
   public ResponseEntity<Map<String, ProductResponse>> getProduct(
       @PathVariable String id,
       @Parameter(description = "Include inactive products when false")
-      @RequestParam(required = false) Boolean isActive) {
+          @RequestParam(required = false)
+          Boolean isActive) {
     return ResponseEntity.ok(
         Map.of("product", ProductResponse.from(productService.getProduct(id, isActive))));
   }
 
-  @Operation(summary = "Create product", description = "Requires ADMIN_WAREHOUSE or ADMIN_SALES role")
+  @Operation(
+      summary = "Create product",
+      description = "Requires ADMIN_WAREHOUSE or ADMIN_SALES role")
   @ApiResponse(responseCode = "201", description = "Product created")
-  @ApiResponse(responseCode = "400", description = "MISSING_REQUIRED_FIELDS or SKU_ALREADY_EXISTS")
+  @ApiResponse(responseCode = "400", description = "MISSING_REQUIRED_FIELDS")
+  @ApiResponse(responseCode = "409", description = "SKU_ALREADY_EXISTS")
   @ApiResponse(responseCode = "403", description = "Insufficient role")
-  @PreAuthorize("hasAnyRole('ADMIN_WAREHOUSE', 'ADMIN_SALES')")
+  @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_WAREHOUSE', 'ADMIN_SALES')")
   @PostMapping
   public ResponseEntity<Map<String, ProductResponse>> createProduct(
       @RequestBody CreateProductRequest request) {
@@ -74,11 +90,14 @@ public class ProductController {
         .body(Map.of("product", ProductResponse.from(productService.createProduct(request))));
   }
 
-  @Operation(summary = "Update product", description = "Partial update — only provided fields are changed. Requires ADMIN_WAREHOUSE or ADMIN_SALES role.")
+  @Operation(
+      summary = "Update product",
+      description =
+          "Partial update — only provided fields are changed. Requires ADMIN_WAREHOUSE or ADMIN_SALES role.")
   @ApiResponse(responseCode = "200", description = "Product updated")
   @ApiResponse(responseCode = "403", description = "Insufficient role")
   @ApiResponse(responseCode = "404", description = "PRODUCT_NOT_FOUND")
-  @PreAuthorize("hasAnyRole('ADMIN_WAREHOUSE', 'ADMIN_SALES')")
+  @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_WAREHOUSE', 'ADMIN_SALES')")
   @PatchMapping("/{id}")
   public ResponseEntity<Map<String, ProductResponse>> updateProduct(
       @PathVariable String id, @RequestBody UpdateProductRequest request) {
@@ -86,11 +105,13 @@ public class ProductController {
         Map.of("product", ProductResponse.from(productService.updateProduct(id, request))));
   }
 
-  @Operation(summary = "Delete product (soft delete)", description = "Sets active=false. Requires ADMIN_WAREHOUSE role.")
+  @Operation(
+      summary = "Delete product (soft delete)",
+      description = "Sets active=false. Requires ADMIN_WAREHOUSE role.")
   @ApiResponse(responseCode = "204", description = "Product deleted")
   @ApiResponse(responseCode = "403", description = "Insufficient role")
   @ApiResponse(responseCode = "404", description = "PRODUCT_NOT_FOUND")
-  @PreAuthorize("hasRole('ADMIN_WAREHOUSE')")
+  @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_WAREHOUSE')")
   @DeleteMapping("/{id}")
   public ResponseEntity<Void> deleteProduct(@PathVariable String id) {
     productService.deleteProduct(id);

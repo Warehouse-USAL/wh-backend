@@ -3,7 +3,8 @@ package com.usal.whbackend.service;
 import com.usal.whbackend.api.vehicle.RegisterVehicleRequest;
 import com.usal.whbackend.domain.Vehicle;
 import com.usal.whbackend.repository.VehicleRepository;
-import java.util.List;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 
 @Service
@@ -15,8 +16,8 @@ public class VehicleService {
     this.vehicleRepository = vehicleRepository;
   }
 
-  public List<Vehicle> getVehicles() {
-    throw new UnsupportedOperationException("not implemented");
+  public Page<Vehicle> getVehicles(Pageable pageable) {
+    return vehicleRepository.findAll(pageable);
   }
 
   public Vehicle getVehicle(String id) {

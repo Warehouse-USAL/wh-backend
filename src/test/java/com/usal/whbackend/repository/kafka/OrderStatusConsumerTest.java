@@ -39,8 +39,11 @@ class OrderStatusConsumerTest {
     when(orderMongoRepository.findById("ord-1")).thenReturn(Optional.of(order));
     when(orderMongoRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-    String message = new ObjectMapper().writeValueAsString(
-        new OrderStatusMessage("order.status", "ord-1", "vhc-1", "in_progress", "2026-05-01T10:00:00Z"));
+    String message =
+        new ObjectMapper()
+            .writeValueAsString(
+                new OrderStatusMessage(
+                    "order.status", "ord-1", "vhc-1", "in_progress", "2026-05-01T10:00:00Z"));
 
     consumer.consume(message);
 
@@ -59,8 +62,11 @@ class OrderStatusConsumerTest {
     when(orderMongoRepository.findById("ord-1")).thenReturn(Optional.of(order));
     when(orderMongoRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-    String message = new ObjectMapper().writeValueAsString(
-        new OrderStatusMessage("order.status", "ord-1", "vhc-1", "completed", "2026-05-01T10:05:00Z"));
+    String message =
+        new ObjectMapper()
+            .writeValueAsString(
+                new OrderStatusMessage(
+                    "order.status", "ord-1", "vhc-1", "completed", "2026-05-01T10:05:00Z"));
 
     consumer.consume(message);
 

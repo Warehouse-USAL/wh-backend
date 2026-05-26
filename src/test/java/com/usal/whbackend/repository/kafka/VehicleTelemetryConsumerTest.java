@@ -37,11 +37,16 @@ class VehicleTelemetryConsumerTest {
     when(vehicleRepository.findById("vhc-1")).thenReturn(Optional.of(vehicle));
     when(vehicleRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-    String message = new ObjectMapper().writeValueAsString(
-        new VehicleTelemetryMessage(
-            "vehicle.telemetry", "vhc-1",
-            new VehicleTelemetryMessage.Position(14.2, 9.1),
-            79, "busy", "2026-05-01T10:00:00Z"));
+    String message =
+        new ObjectMapper()
+            .writeValueAsString(
+                new VehicleTelemetryMessage(
+                    "vehicle.telemetry",
+                    "vhc-1",
+                    new VehicleTelemetryMessage.Position(14.2, 9.1),
+                    79,
+                    "busy",
+                    "2026-05-01T10:00:00Z"));
 
     consumer.consume(message);
 

@@ -49,6 +49,7 @@ logs/
 # ─── Config / properties (ignore actuals, keep examples) ──────────────────────
 *.properties
 !gradle/wrapper/gradle-wrapper.properties
+!src/test/resources/application.properties
 *.yml
 *.yaml
 !*.example.properties
@@ -79,3 +80,4 @@ coverage/
 
 # ─── Bruno ────────────────────────────────────────────────────────────────────
 docs/bruno/collection.bru
+docs/superpowers/

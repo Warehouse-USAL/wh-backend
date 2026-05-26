@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.PropertyNamingStrategies;
 import com.usal.whbackend.api.error.GlobalExceptionHandler;
 import com.usal.whbackend.config.JwtService;
 import com.usal.whbackend.domain.User;
@@ -24,10 +25,14 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.server.ResponseStatusException;
 
 @WebMvcTest(controllers = UserController.class)
 @Import(GlobalExceptionHandler.class)
@@ -36,9 +41,7 @@ class UserControllerTest {
 
   @Autowired MockMvc mockMvc;
   private final ObjectMapper objectMapper =
-      new ObjectMapper()
-          .setPropertyNamingStrategy(
-              com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE);
+      new ObjectMapper().setPropertyNamingStrategy(PropertyNamingStrategies.SNAKE_CASE);
   @MockitoBean UserService userService;
   @MockitoBean JwtService jwtService;
 
@@ -54,13 +57,106 @@ class UserControllerTest {
   }
 
   @Test
-  void getUsers_returns200WithList() throws Exception {
-    when(userService.getUsers(null, null)).thenReturn(List.of(sample()));
+  void getUsers_returns200WithEnvelope() throws Exception {
+    Pageable pageable = PageRequest.of(0, 10);
+    when(userService.getUsers(any(), any(), any(Pageable.class)))
+        .thenReturn(new PageImpl<>(List.of(sample()), pageable, 1));
+
     mockMvc
         .perform(get("/users"))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$[0].id").value("USR-001"))
-        .andExpect(jsonPath("$[0].role").value("ADMIN_SYSTEM"));
+        .andExpect(jsonPath("$.users[0].id").value("USR-001"))
+        .andExpect(jsonPath("$.users[0].role").value("ADMIN_SYSTEM"))
+        .andExpect(jsonPath("$.pagination.total_elements").value(1))
+        .andExpect(jsonPath("$.pagination.page").value(0))
+        .andExpect(jsonPath("$.pagination.size").value(10))
+        .andExpect(jsonPath("$.pagination.total_pages").value(1));
+  }
+
+  @Test
+  void getUsers_withRoleFilter_returns200() throws Exception {
+    Pageable pageable = PageRequest.of(0, 10);
+    when(userService.getUsers(eq("ADMIN_SYSTEM"), any(), any(Pageable.class)))
+        .thenReturn(new PageImpl<>(List.of(sample()), pageable, 1));
+
+    mockMvc
+        .perform(get("/users").param("role", "ADMIN_SYSTEM"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.users[0].role").value("ADMIN_SYSTEM"))
+        .andExpect(jsonPath("$.pagination.total_elements").value(1));
+  }
+
+  @Test
+  void getUsers_sizeExceedsMax_clampsTo50() throws Exception {
+    when(userService.getUsers(any(), any(), any(Pageable.class)))
+        .thenAnswer(
+            inv -> {
+              Pageable p = inv.getArgument(2);
+              return new PageImpl<>(List.of(), p, 0);
+            });
+
+    mockMvc
+        .perform(get("/users").param("size", "200"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pagination.size").value(50));
+  }
+
+  @Test
+  void getUsers_explicitPageAndSize_passedThrough() throws Exception {
+    when(userService.getUsers(any(), any(), any(Pageable.class)))
+        .thenAnswer(
+            inv -> {
+              Pageable p = inv.getArgument(2);
+              return new PageImpl<>(List.of(sample()), p, 11);
+            });
+
+    mockMvc
+        .perform(get("/users").param("page", "1").param("size", "5"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pagination.page").value(1))
+        .andExpect(jsonPath("$.pagination.size").value(5))
+        .andExpect(jsonPath("$.pagination.total_elements").value(11))
+        .andExpect(jsonPath("$.pagination.total_pages").value(3));
+  }
+
+  @Test
+  void getUsers_negativePage_clampsToZero() throws Exception {
+    when(userService.getUsers(any(), any(), any(Pageable.class)))
+        .thenAnswer(
+            inv -> {
+              Pageable p = inv.getArgument(2);
+              return new PageImpl<>(List.of(), p, 0);
+            });
+
+    mockMvc
+        .perform(get("/users").param("page", "-1"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pagination.page").value(0));
+  }
+
+  @Test
+  void getUsers_zeroSize_clampsToOne() throws Exception {
+    when(userService.getUsers(any(), any(), any(Pageable.class)))
+        .thenAnswer(
+            inv -> {
+              Pageable p = inv.getArgument(2);
+              return new PageImpl<>(List.of(), p, 0);
+            });
+
+    mockMvc
+        .perform(get("/users").param("size", "0"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.pagination.size").value(1));
+  }
+
+  @Test
+  void getUsers_invalidRole_returns400() throws Exception {
+    when(userService.getUsers(any(), any(), any(Pageable.class)))
+        .thenThrow(
+            new ResponseStatusException(
+                org.springframework.http.HttpStatus.BAD_REQUEST, "INVALID_ROLE"));
+
+    mockMvc.perform(get("/users").param("role", "FAKE_ROLE")).andExpect(status().isBadRequest());
   }
 
   @Test
@@ -129,14 +225,5 @@ class UserControllerTest {
                     objectMapper.writeValueAsString(
                         new CreateUserRequest("dup@test.com", "Name", "ADMIN_SALES", "pass"))))
         .andExpect(status().isConflict());
-  }
-
-  @Test
-  void getUsers_withRoleFilter_returns200() throws Exception {
-    when(userService.getUsers("ADMIN_SYSTEM", null)).thenReturn(List.of(sample()));
-    mockMvc
-        .perform(get("/users").param("role", "ADMIN_SYSTEM"))
-        .andExpect(status().isOk())
-        .andExpect(jsonPath("$[0].role").value("ADMIN_SYSTEM"));
   }
 }
