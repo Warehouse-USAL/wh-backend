@@ -81,11 +81,18 @@ jobs:
           docker build -t "${IMAGE}:${{ steps.tag.outputs.tag }}" .
           docker push "${IMAGE}:${{ steps.tag.outputs.tag }}"
 
-      - name: Create pre-release
+      - name: Create pre-release draft (upload assets before publishing)
         uses: softprops/action-gh-release@v2
+        id: release
         with:
           tag_name: ${{ steps.tag.outputs.tag }}
           name: Pre-release ${{ steps.tag.outputs.tag }}
           prerelease: true
+          draft: true
           files: build/libs/*.jar
           generate_release_notes: true
+
+      - name: Publish pre-release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${{ steps.tag.outputs.tag }}" --draft=false --repo "${{ github.repository }}"
