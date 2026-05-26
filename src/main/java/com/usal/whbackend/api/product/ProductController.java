@@ -8,6 +8,7 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import java.util.Map;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -85,7 +86,7 @@ public class ProductController {
   @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_WAREHOUSE', 'ADMIN_SALES')")
   @PostMapping
   public ResponseEntity<Map<String, ProductResponse>> createProduct(
-      @RequestBody CreateProductRequest request) {
+      @Valid @RequestBody CreateProductRequest request) {
     return ResponseEntity.status(HttpStatus.CREATED)
         .body(Map.of("product", ProductResponse.from(productService.createProduct(request))));
   }
@@ -100,7 +101,7 @@ public class ProductController {
   @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_WAREHOUSE', 'ADMIN_SALES')")
   @PatchMapping("/{id}")
   public ResponseEntity<Map<String, ProductResponse>> updateProduct(
-      @PathVariable String id, @RequestBody UpdateProductRequest request) {
+      @PathVariable String id, @Valid @RequestBody UpdateProductRequest request) {
     return ResponseEntity.ok(
         Map.of("product", ProductResponse.from(productService.updateProduct(id, request))));
   }

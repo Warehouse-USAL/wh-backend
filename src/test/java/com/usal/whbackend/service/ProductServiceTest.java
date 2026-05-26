@@ -144,8 +144,7 @@ class ProductServiceTest {
 
     Product result =
         productService.createProduct(
-            new CreateProductRequest(
-                "SKU-001", "Widget", "A widget", "tools", null, 10, 5, 2, null, null, null, null));
+            new CreateProductRequest("SKU-001", "Widget", "A widget", "tools", null, 10, 5));
 
     assertNotNull(result);
     verify(productRepository).save(any());
@@ -157,8 +156,7 @@ class ProductServiceTest {
         ResponseStatusException.class,
         () ->
             productService.createProduct(
-                new CreateProductRequest(
-                    null, "Name", null, "cat", null, null, null, null, null, null, null, null)));
+                new CreateProductRequest(null, "Name", null, "cat", null, null, null)));
   }
 
   @Test
@@ -169,9 +167,7 @@ class ProductServiceTest {
             ResponseStatusException.class,
             () ->
                 productService.createProduct(
-                    new CreateProductRequest(
-                        "SKU-001", "Widget", null, "tools", null, 10, 5, 2, null, null, null,
-                        null)));
+                    new CreateProductRequest("SKU-001", "Widget", null, "tools", null, 10, 5)));
     assertEquals(409, ex.getStatusCode().value());
   }
 
@@ -184,9 +180,7 @@ class ProductServiceTest {
             ResponseStatusException.class,
             () ->
                 productService.createProduct(
-                    new CreateProductRequest(
-                        "SKU-002", "Widget", null, "tools", null, 10, 5, 2, null, null, null,
-                        null)));
+                    new CreateProductRequest("SKU-002", "Widget", null, "tools", null, 10, 5)));
     assertEquals(409, ex.getStatusCode().value());
   }
 
@@ -199,8 +193,7 @@ class ProductServiceTest {
     when(productRepository.save(any())).thenReturn(p);
 
     productService.updateProduct(
-        "1",
-        new UpdateProductRequest("NewName", null, null, null, null, null, null, null, null, null));
+        "1", new UpdateProductRequest("NewName", null, null, null, null, null, null));
 
     verify(productRepository).save(any());
   }
@@ -212,9 +205,7 @@ class ProductServiceTest {
         ResponseStatusException.class,
         () ->
             productService.updateProduct(
-                "none",
-                new UpdateProductRequest(
-                    null, null, null, null, null, null, null, null, null, null)));
+                "none", new UpdateProductRequest(null, null, null, null, null, null, null)));
   }
 
   // ── deleteProduct ──────────────────────────────────────────────────────────
