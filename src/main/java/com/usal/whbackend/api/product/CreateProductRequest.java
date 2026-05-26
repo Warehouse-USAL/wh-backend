@@ -20,6 +20,11 @@ public record CreateProductRequest(
     @Min(0) @Schema(description = "Minimum stock threshold for restock alert")
         Integer minimumStock) {
 
+  public CreateProductRequest {
+    images = images == null ? null : List.copyOf(images);
+    specs = specs == null ? null : List.copyOf(specs);
+  }
+
   public record ImageRequest(String url, String alt, boolean isPrimary) {}
 
   public record PriceRequest(long amountCents, String currency, boolean taxIncluded) {}

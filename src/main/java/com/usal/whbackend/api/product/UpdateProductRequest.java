@@ -12,4 +12,10 @@ public record UpdateProductRequest(
     List<CreateProductRequest.SpecRequest> specs,
     @Min(0) Integer maxQuantityPerOrder,
     @Min(0) Integer minimumStock,
-    Boolean isActive) {}
+    Boolean isActive) {
+
+  public UpdateProductRequest {
+    images = images == null ? null : List.copyOf(images);
+    specs = specs == null ? null : List.copyOf(specs);
+  }
+}

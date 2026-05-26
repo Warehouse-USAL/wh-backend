@@ -5,4 +5,15 @@
         <Bug pattern="EI_EXPOSE_REP2"/>
         <Class name="~.*(Controller|Config|Repository|Service|Consumer)"/>
     </Match>
+    <!-- Product is an intentionally mutable MongoDB document class; defensive copies on
+         embedded value objects (Price, ProductImage, Spec) would conflict with Spring Data
+         MongoDB's reflective field-setting during deserialization. -->
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP"/>
+        <Class name="~com\.usal\.whbackend\.domain\.Product(\$.*)?"/>
+    </Match>
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+        <Class name="~com\.usal\.whbackend\.domain\.Product(\$.*)?"/>
+    </Match>
 </FindBugsFilter>

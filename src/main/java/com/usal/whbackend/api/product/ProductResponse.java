@@ -18,6 +18,11 @@ public record ProductResponse(
     boolean active,
     Instant createdAt) {
 
+  public ProductResponse {
+    images = images == null ? null : List.copyOf(images);
+    specs = specs == null ? null : List.copyOf(specs);
+  }
+
   public record Image(String url, String alt, boolean isPrimary) {}
 
   public record Price(long amountCents, String currency, boolean taxIncluded) {}
