@@ -57,11 +57,28 @@ class ZoneServiceTest {
   }
 
   @Test
+  void getZone_byId_returnsZone() {
+    Zone z = zone("z1", "A");
+    when(zoneRepository.findById("z1")).thenReturn(Optional.of(z));
+    assertEquals("A", zoneService.getZone("z1").getZoneCode());
+  }
+
+  @Test
   void updateZone_notFound_throwsZoneNotFound() {
     when(zoneRepository.findById("missing")).thenReturn(Optional.empty());
     assertThrows(
         ZoneNotFoundException.class,
         () -> zoneService.updateZone("missing", new UpdateZoneRequest(null, null, null)));
+  }
+
+  @Test
+  void updateZone_duplicateCode_throwsZoneCodeAlreadyExists() {
+    Zone existing = zone("z1", "A");
+    when(zoneRepository.findById("z1")).thenReturn(Optional.of(existing));
+    when(zoneRepository.findByZoneCode("B")).thenReturn(Optional.of(zone("z2", "B")));
+    assertThrows(
+        ZoneCodeAlreadyExistsException.class,
+        () -> zoneService.updateZone("z1", new UpdateZoneRequest("B", null, null)));
   }
 
   @Test

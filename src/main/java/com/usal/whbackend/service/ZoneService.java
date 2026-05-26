@@ -41,7 +41,13 @@ public class ZoneService {
 
   public Zone updateZone(String id, UpdateZoneRequest request) {
     Zone zone = zoneRepository.findById(id).orElseThrow(() -> new ZoneNotFoundException(id));
-    if (request.zoneCode() != null) zone.setZoneCode(request.zoneCode());
+    if (request.zoneCode() != null) {
+      if (!zone.getZoneCode().equals(request.zoneCode())
+          && zoneRepository.findByZoneCode(request.zoneCode()).isPresent()) {
+        throw new ZoneCodeAlreadyExistsException(request.zoneCode());
+      }
+      zone.setZoneCode(request.zoneCode());
+    }
     if (request.maxAllowedLines() != null) zone.setMaxAllowedLines(request.maxAllowedLines());
     if (request.isActive() != null) zone.setActive(request.isActive());
     return zoneRepository.save(zone);
