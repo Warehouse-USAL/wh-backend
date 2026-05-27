@@ -57,23 +57,23 @@ public class DataInitializer implements ApplicationRunner {
   }
 
   private void seedAdminUser() {
-    if (userRepository.existsByRole(UserRole.ADMIN_SYSTEM)) {
+    if (userRepository.existsByRole(UserRole.SUPERADMIN)) {
       return;
     }
     if (adminEmail == null || adminPassword == null) {
       log.warn(
-          "No admin_system user exists and ADMIN_EMAIL/ADMIN_PASSWORD are not set — skipping seed.");
+          "No superadmin user exists and ADMIN_EMAIL/ADMIN_PASSWORD are not set — skipping seed.");
       return;
     }
     User admin = new User();
     admin.setEmail(adminEmail);
     admin.setName("System Admin");
-    admin.setRole(UserRole.ADMIN_SYSTEM);
+    admin.setRole(UserRole.SUPERADMIN);
     admin.setPasswordHash(passwordEncoder.encode(adminPassword));
     admin.setActive(true);
     admin.setCreatedAt(Instant.now());
     userRepository.save(admin);
-    log.info("Seeded initial admin_system user: {}", adminEmail);
+    log.info("Seeded initial superadmin user: {}", adminEmail);
   }
 
   private void seedWarehouse() {
