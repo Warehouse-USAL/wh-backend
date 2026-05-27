@@ -43,7 +43,7 @@ class DataInitializerTest {
   @Test
   void run_whenAdminAlreadyExists_doesNotSaveUser() throws Exception {
     DataInitializer di = initializer("admin@test.com", "pass");
-    when(userRepository.existsByRole(UserRole.ADMIN_SYSTEM)).thenReturn(true);
+    when(userRepository.existsByRole(UserRole.SUPERADMIN)).thenReturn(true);
     when(zoneRepository.findAll()).thenReturn(List.of(new Zone()));
 
     di.run(null);
@@ -54,7 +54,7 @@ class DataInitializerTest {
   @Test
   void run_whenNoAdminAndEnvVarsSet_savesAdminUser() throws Exception {
     DataInitializer di = initializer("admin@test.com", "secret");
-    when(userRepository.existsByRole(UserRole.ADMIN_SYSTEM)).thenReturn(false);
+    when(userRepository.existsByRole(UserRole.SUPERADMIN)).thenReturn(false);
     when(passwordEncoder.encode("secret")).thenReturn("$2a$hash");
     when(zoneRepository.findAll()).thenReturn(List.of(new Zone()));
 
@@ -65,7 +65,7 @@ class DataInitializerTest {
             argThat(
                 user ->
                     "admin@test.com".equals(user.getEmail())
-                        && UserRole.ADMIN_SYSTEM.equals(user.getRole())
+                        && UserRole.SUPERADMIN.equals(user.getRole())
                         && user.isActive()
                         && "$2a$hash".equals(user.getPasswordHash())));
   }
@@ -73,7 +73,7 @@ class DataInitializerTest {
   @Test
   void run_whenNoAdminAndEnvVarsMissing_doesNotSaveUser() throws Exception {
     DataInitializer di = initializer(null, null);
-    when(userRepository.existsByRole(UserRole.ADMIN_SYSTEM)).thenReturn(false);
+    when(userRepository.existsByRole(UserRole.SUPERADMIN)).thenReturn(false);
     when(zoneRepository.findAll()).thenReturn(List.of(new Zone()));
 
     di.run(null);
@@ -84,7 +84,7 @@ class DataInitializerTest {
   @Test
   void run_whenNoZonesExist_seedsWarehouseStructure() throws Exception {
     DataInitializer di = initializer("admin@test.com", "pass");
-    when(userRepository.existsByRole(UserRole.ADMIN_SYSTEM)).thenReturn(true);
+    when(userRepository.existsByRole(UserRole.SUPERADMIN)).thenReturn(true);
     when(zoneRepository.findAll()).thenReturn(List.of());
 
     Zone savedZone = new Zone();
@@ -105,7 +105,7 @@ class DataInitializerTest {
   @Test
   void run_whenZonesAlreadyExist_doesNotSeedWarehouse() throws Exception {
     DataInitializer di = initializer("admin@test.com", "pass");
-    when(userRepository.existsByRole(UserRole.ADMIN_SYSTEM)).thenReturn(true);
+    when(userRepository.existsByRole(UserRole.SUPERADMIN)).thenReturn(true);
     when(zoneRepository.findAll()).thenReturn(List.of(new Zone()));
 
     di.run(null);
