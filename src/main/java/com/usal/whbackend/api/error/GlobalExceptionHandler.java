@@ -11,6 +11,7 @@ import com.usal.whbackend.service.exception.StockExceedsCapacityException;
 import com.usal.whbackend.service.exception.UserNotFoundException;
 import com.usal.whbackend.service.exception.ZoneCodeAlreadyExistsException;
 import com.usal.whbackend.service.exception.ZoneNotFoundException;
+import com.usal.whbackend.service.storage.StorageException;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,6 +22,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.server.ResponseStatusException;
 
 @RestControllerAdvice
@@ -161,5 +163,22 @@ public class GlobalExceptionHandler {
       StockExceedsCapacityException ex) {
     return ResponseEntity.status(HttpStatus.BAD_REQUEST)
         .body(ErrorResponse.of("STOCK_EXCEEDS_CAPACITY", ex.getMessage()));
+  }
+
+  @ExceptionHandler(StorageException.class)
+  public ResponseEntity<ErrorResponse> handleStorage(StorageException ex) {
+    String code = ex.getMessage() != null && ex.getMessage().startsWith("El archivo no existe")
+        ? "FILE_NOT_FOUND" : "STORAGE_ERROR";
+    HttpStatus status = "FILE_NOT_FOUND".equals(code)
+        ? HttpStatus.NOT_FOUND : HttpStatus.INTERNAL_SERVER_ERROR;
+    log.warn("Storage operation failed: {}", ex.getMessage());
+    return ResponseEntity.status(status)
+        .body(ErrorResponse.of(code, ex.getMessage()));
+  }
+
+  @ExceptionHandler(MaxUploadSizeExceededException.class)
+  public ResponseEntity<ErrorResponse> handleMaxUploadSize(MaxUploadSizeExceededException ex) {
+    return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
+        .body(ErrorResponse.of("PAYLOAD_TOO_LARGE", "El archivo supera el tamaño máximo de 5MB."));
   }
 }

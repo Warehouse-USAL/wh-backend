@@ -12,10 +12,14 @@ services:
       SPRING_PROFILES_ACTIVE: dev,docker
       ADMIN_EMAIL: ${ADMIN_EMAIL}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
     depends_on:
       mongodb:
         condition: service_healthy
       redpanda:
+        condition: service_healthy
+      minio:
         condition: service_healthy
     networks:
       - wh-network
@@ -102,6 +106,27 @@ services:
       - wh-network
     profiles:
       - dev
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
+    volumes:
+      - ./data/minio:/data
+    networks:
+      - wh-network
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     restart: unless-stopped
 
 networks:
