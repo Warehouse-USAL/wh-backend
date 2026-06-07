@@ -13,6 +13,8 @@ class OrderResponseTest {
   void recordAccessors() {
     Instant now = Instant.now();
     OrderResponse.OrderItemResponse item = new OrderResponse.OrderItemResponse("p-1", "SKU-1", 2);
+    OrderResponse.AddressResponse address =
+        new OrderResponse.AddressResponse("Av. Corrientes 1234", "4A", "4", "C1043");
     OrderResponse response =
         new OrderResponse(
             "id-1",
@@ -21,6 +23,7 @@ class OrderResponseTest {
             List.of(item),
             "zone-A",
             "vehicle-1",
+            address,
             new OrderResponse.Timestamps(now, now, now),
             "cancelled");
 
@@ -30,6 +33,10 @@ class OrderResponseTest {
     assertEquals(1, response.items().size());
     assertEquals("zone-A", response.destinationArea());
     assertEquals("vehicle-1", response.assignedVehicleId());
+    assertEquals("Av. Corrientes 1234", response.address().street());
+    assertEquals("4A", response.address().department());
+    assertEquals("4", response.address().floor());
+    assertEquals("C1043", response.address().postalCode());
     assertEquals(now, response.timestamps().createdAt());
     assertEquals(now, response.timestamps().startedAt());
     assertEquals(now, response.timestamps().completedAt());

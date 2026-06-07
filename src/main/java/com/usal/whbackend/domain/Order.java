@@ -19,6 +19,7 @@ public class Order {
   private Instant startedAt;
   private Instant completedAt;
   private String cancelReason;
+  private Address address;
 
   public Order() {}
 
@@ -100,5 +101,13 @@ public class Order {
 
   public void setCancelReason(String cancelReason) {
     this.cancelReason = cancelReason;
+  }
+
+  public Address getAddress() {
+    return address == null ? null : new Address(address);
+  }
+
+  public void setAddress(Address address) {
+    this.address = address == null ? null : new Address(address);
   }
 }

@@ -54,8 +54,12 @@ public class GlobalExceptionHandler {
           Map.entry("SKU_ALREADY_EXISTS", "Ya existe un producto con ese SKU."),
           Map.entry("ZONE_INACTIVE", "La zona no está activa y no puede recibir nuevas líneas."),
           Map.entry(
-              "LINE_INACTIVE",
-              "La línea no está activa y no puede recibir nuevas posiciones."));
+              "LINE_INACTIVE", "La línea no está activa y no puede recibir nuevas posiciones."),
+          Map.entry("MISSING_ADDRESS", "La dirección de entrega es obligatoria."),
+          Map.entry("MISSING_ADDRESS_STREET", "El campo calle (street) es obligatorio."),
+          Map.entry(
+              "MISSING_ADDRESS_POSTAL_CODE",
+              "El campo código postal (postal_code) es obligatorio."));
 
   @ExceptionHandler(AccessDeniedException.class)
   public ResponseEntity<ErrorResponse> handleAccessDenied(AccessDeniedException ex) {

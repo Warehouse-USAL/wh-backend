@@ -54,9 +54,7 @@ public class StockDrainService implements StockDrainPort {
       }
 
       int totalStock =
-          positionRepository
-              .findByProductIdInAndIsActiveTrue(List.of(item.getProductId()))
-              .stream()
+          positionRepository.findByProductIdInAndIsActiveTrue(List.of(item.getProductId())).stream()
               .mapToInt(Position::getCurrentStock)
               .sum();
 

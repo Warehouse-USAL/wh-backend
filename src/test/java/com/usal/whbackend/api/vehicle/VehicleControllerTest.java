@@ -139,9 +139,7 @@ class VehicleControllerTest {
 
     mockMvc
         .perform(
-            post("/vehicles")
-                .contentType("application/json")
-                .content("{\"name\":\"Rover-03\"}"))
+            post("/vehicles").contentType("application/json").content("{\"name\":\"Rover-03\"}"))
         .andExpect(status().isCreated())
         .andExpect(jsonPath("$.id").value("550e8400-e29b-41d4-a716-446655440000"))
         .andExpect(jsonPath("$.name").value("Rover-03"))

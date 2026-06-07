@@ -99,12 +99,23 @@ public class OrderRepository {
                             i.getProductId(), i.getSku(), i.getQuantity()))
                 .toList();
 
+    OrderDispatchMessage.Address address = null;
+    if (order.getAddress() != null) {
+      address =
+          new OrderDispatchMessage.Address(
+              order.getAddress().getStreet(),
+              order.getAddress().getDepartment(),
+              order.getAddress().getFloor(),
+              order.getAddress().getPostalCode());
+    }
+
     OrderDispatchMessage msg =
         new OrderDispatchMessage(
             "order.dispatch",
             order.getId(),
             items,
             order.getDestinationArea(),
+            address,
             Instant.now().toString());
     sendAsync("order.dispatch", msg);
   }
