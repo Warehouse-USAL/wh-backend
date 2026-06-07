@@ -79,19 +79,19 @@ public class UserService {
     userRepository.save(user);
   }
 
-  public void changeMyPassword(String email, com.usal.whbackend.api.user.ChangePasswordRequest request) {
-    User user = userRepository.findByEmail(email)
-        .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "USER_NOT_FOUND"));
+  public void changeMyPassword(String userId, com.usal.whbackend.api.user.ChangePasswordRequest request) {
+  User user = userRepository.findById(userId)
+      .orElseThrow(() -> new UserNotFoundException(userId));
 
-    if (!passwordEncoder.matches(request.currentPassword(), user.getPasswordHash())) {
-      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "WRONG_CURRENT_PASSWORD");
-    }
+  if (!passwordEncoder.matches(request.currentPassword(), user.getPasswordHash())) {
+    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "WRONG_CURRENT_PASSWORD");
+  }
 
-    if (passwordEncoder.matches(request.newPassword(), user.getPasswordHash())) {
-      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "SAME_PASSWORD");
-    }
+  if (passwordEncoder.matches(request.newPassword(), user.getPasswordHash())) {
+    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "SAME_PASSWORD");
+  }
 
-    user.setPasswordHash(passwordEncoder.encode(request.newPassword()));
-    userRepository.save(user);
-}
+  user.setPasswordHash(passwordEncoder.encode(request.newPassword()));
+  userRepository.save(user);
+  } 
 }
