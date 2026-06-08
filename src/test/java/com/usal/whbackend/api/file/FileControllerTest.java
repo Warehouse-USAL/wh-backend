@@ -74,4 +74,28 @@ class FileControllerTest {
         .perform(delete("/api/v1/files/images/test.jpg"))
         .andExpect(status().isNoContent());
   }
+
+  // ── Path traversal protection ──────────────────────────────────────────────
+
+  @Test
+  void serve_withPathTraversal_returnsBadRequest() throws Exception {
+    mockMvc
+        .perform(get("/api/v1/files/%2e%2e/test.jpg"))
+        .andExpect(status().isBadRequest());
+  }
+
+  @Test
+  void serve_withEncodedSlash_returnsBadRequest() throws Exception {
+    mockMvc
+        .perform(get("/api/v1/files/images/test%2ejpg"))
+        .andExpect(status().isBadRequest());
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void delete_withPathTraversal_returnsBadRequest() throws Exception {
+    mockMvc
+        .perform(delete("/api/v1/files/%2e%2e/test.jpg"))
+        .andExpect(status().isBadRequest());
+  }
 }

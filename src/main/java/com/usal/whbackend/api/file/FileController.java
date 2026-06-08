@@ -1,5 +1,6 @@
 package com.usal.whbackend.api.file;
 
+import com.usal.whbackend.service.storage.MinioStorageService;
 import com.usal.whbackend.service.storage.StorageService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -50,6 +51,8 @@ public class FileController {
   public ResponseEntity<InputStreamResource> serve(
       @PathVariable String path,
       @PathVariable String filename) {
+    MinioStorageService.sanitizePathSegment(path);
+    MinioStorageService.sanitizePathSegment(filename);
     String key = path + "/" + filename;
     StorageService.StoredObject obj = storageService.getObject(key);
     return ResponseEntity.ok()
@@ -66,6 +69,8 @@ public class FileController {
   public ResponseEntity<Void> delete(
       @PathVariable String path,
       @PathVariable String filename) {
+    MinioStorageService.sanitizePathSegment(path);
+    MinioStorageService.sanitizePathSegment(filename);
     storageService.delete(path + "/" + filename);
     return ResponseEntity.noContent().build();
   }

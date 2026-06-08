@@ -15,6 +15,8 @@ import java.io.InputStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.MediaType;
@@ -34,7 +36,9 @@ class MinioStorageServiceTest {
   @Test
   void upload_validImage_returnsUrl() throws Exception {
     MockMultipartFile file = new MockMultipartFile(
-        "file", "test.jpg", MediaType.IMAGE_JPEG_VALUE, "fake-image-content".getBytes());
+        "file", "test.jpg", MediaType.IMAGE_JPEG_VALUE,
+        new byte[]{(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, (byte) 0xE0, 0, 0x10, 0x4A, 0x46,
+            0x49, 0x46, 0, 1, 1, 0, 0, 1, 0, 1, 0, 0});
 
     String result = storageService.upload(file, "images");
 
@@ -109,6 +113,76 @@ class MinioStorageServiceTest {
     String key = MinioStorageService.extractKey("images/uuid.jpg", "/api/v1/files/");
 
     assertEquals("images/uuid.jpg", key);
+  }
+
+  // ── sanitizePathSegment ──────────────────────────────────────────────────
+
+  @Test
+  void sanitizePathSegment_valid_returnsSegment() {
+    assertEquals("images", MinioStorageService.sanitizePathSegment("images"));
+    assertEquals("avatar123", MinioStorageService.sanitizePathSegment("avatar123"));
+    assertEquals("my-photo.jpg", MinioStorageService.sanitizePathSegment("my-photo.jpg"));
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"..", "../etc", "foo/bar", "foo\\bar", "", " ", "../"})
+  void sanitizePathSegment_invalid_throwsIllegalArgument(String segment) {
+    assertThrows(IllegalArgumentException.class,
+        () -> MinioStorageService.sanitizePathSegment(segment));
+  }
+
+  @Test
+  void sanitizePathSegment_null_throwsNullPointer() {
+    assertThrows(NullPointerException.class,
+        () -> MinioStorageService.sanitizePathSegment(null));
+  }
+
+  // ── Magic bytes validation via upload ─────────────────────────────────────
+
+  @Test
+  void upload_mismatchedMagicBytes_throwsIllegalArgument() throws Exception {
+    // Declares JPEG but contains PNG magic bytes
+    byte[] pngBytes = {(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0, 0, 0, 0, 0};
+    MockMultipartFile file = new MockMultipartFile(
+        "file", "test.jpg", MediaType.IMAGE_JPEG_VALUE, pngBytes);
+
+    assertThrows(IllegalArgumentException.class, () -> storageService.upload(file, "images"));
+    verify(minioClient, never()).putObject(any(PutObjectArgs.class));
+  }
+
+  @Test
+  void upload_invalidMagicBytes_throwsIllegalArgument() throws Exception {
+    byte[] garbage = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+    MockMultipartFile file = new MockMultipartFile(
+        "file", "test.jpg", MediaType.IMAGE_JPEG_VALUE, garbage);
+
+    assertThrows(IllegalArgumentException.class, () -> storageService.upload(file, "images"));
+    verify(minioClient, never()).putObject(any(PutObjectArgs.class));
+  }
+
+  @Test
+  void upload_validPngMagicBytes_succeeds() throws Exception {
+    byte[] pngBytes = {(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0, 0x49, 0x48,
+        0x44, 0x52};
+    MockMultipartFile file = new MockMultipartFile(
+        "file", "test.png", MediaType.IMAGE_PNG_VALUE, pngBytes);
+
+    String result = storageService.upload(file, "images");
+
+    assertTrue(result.endsWith(".png"));
+    verify(minioClient).putObject(any(PutObjectArgs.class));
+  }
+
+  @Test
+  void upload_validWebpMagicBytes_succeeds() throws Exception {
+    byte[] webpBytes = {'R', 'I', 'F', 'F', 0, 0, 0, 0, 'W', 'E', 'B', 'P', 'V', 'P', '8', ' '};
+    MockMultipartFile file = new MockMultipartFile(
+        "file", "test.webp", "image/webp", webpBytes);
+
+    String result = storageService.upload(file, "images");
+
+    assertTrue(result.endsWith(".webp"));
+    verify(minioClient).putObject(any(PutObjectArgs.class));
   }
 
   @Test
