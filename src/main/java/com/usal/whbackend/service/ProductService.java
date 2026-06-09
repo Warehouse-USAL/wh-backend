@@ -113,12 +113,13 @@ public class ProductService {
       query.addCriteria(Criteria.where("category").is(upperCategory));
     }
     if (search != null && !search.isBlank()) {
+      String safeSearch = java.util.regex.Pattern.quote(search);
       query.addCriteria(
           new Criteria()
               .orOperator(
-                  Criteria.where("name").regex(search, "i"),
-                  Criteria.where("sku").regex(search, "i"),
-                  Criteria.where("description").regex(search, "i")));
+                  Criteria.where("name").regex(safeSearch, "i"),
+                  Criteria.where("sku").regex(safeSearch, "i"),
+                  Criteria.where("description").regex(safeSearch, "i")));
     }
     long total = mongoTemplate.count(query, Product.class);
     List<Product> items = mongoTemplate.find(query.with(pageable), Product.class);
