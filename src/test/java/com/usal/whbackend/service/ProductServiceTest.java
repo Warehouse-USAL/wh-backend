@@ -286,8 +286,8 @@ class ProductServiceTest {
 
     productService.deleteProduct("1");
 
-    verify(storageService).delete("images/img1.jpg");
-    verify(storageService).delete("images/img2.jpg");
+    verify(storageService).deleteByUrl("/api/v1/files/images/img1.jpg");
+    verify(storageService).deleteByUrl("/api/v1/files/images/img2.jpg");
   }
 
   @Test
@@ -299,7 +299,7 @@ class ProductServiceTest {
 
     productService.deleteProduct("1");
 
-    verify(storageService, never()).delete(any());
+    verify(storageService, never()).deleteByUrl(any());
   }
 
   // ── updateProduct cleanup ───────────────────────────────────────────
@@ -325,8 +325,8 @@ class ProductServiceTest {
 
     productService.updateProduct("1", update);
 
-    verify(storageService).delete("images/remove.jpg");
-    verify(storageService, never()).delete("images/keep.jpg");
+    verify(storageService).deleteByUrl("/api/v1/files/images/remove.jpg");
+    verify(storageService, never()).deleteByUrl("/api/v1/files/images/keep.jpg");
     verify(productRepository).save(any());
   }
 
@@ -343,6 +343,6 @@ class ProductServiceTest {
 
     productService.updateProduct("1", update);
 
-    verify(storageService, never()).delete(any());
+    verify(storageService, never()).deleteByUrl(any());
   }
 }
