@@ -345,6 +345,8 @@ class ProductServiceTest {
     productService.updateProduct("1", update);
 
     verify(storageService, never()).deleteByUrl(any());
+  }
+
   // ── INVALID_CATEGORY ───────────────────────────────────────────────────────
 
   @Test
