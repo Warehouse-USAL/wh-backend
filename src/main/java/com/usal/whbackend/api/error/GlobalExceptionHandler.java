@@ -11,6 +11,7 @@ import com.usal.whbackend.service.exception.StockExceedsCapacityException;
 import com.usal.whbackend.service.exception.UserNotFoundException;
 import com.usal.whbackend.service.exception.ZoneCodeAlreadyExistsException;
 import com.usal.whbackend.service.exception.ZoneNotFoundException;
+import com.usal.whbackend.service.storage.FileNotFoundException;
 import com.usal.whbackend.service.storage.StorageException;
 import java.util.Map;
 import org.slf4j.Logger;
@@ -165,15 +166,18 @@ public class GlobalExceptionHandler {
         .body(ErrorResponse.of("STOCK_EXCEEDS_CAPACITY", ex.getMessage()));
   }
 
+  @ExceptionHandler(FileNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleFileNotFound(FileNotFoundException ex) {
+    log.warn("File not found in storage: {}", ex.getMessage());
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(ErrorResponse.of("FILE_NOT_FOUND", ex.getMessage()));
+  }
+
   @ExceptionHandler(StorageException.class)
   public ResponseEntity<ErrorResponse> handleStorage(StorageException ex) {
-    String code = ex.getMessage() != null && ex.getMessage().startsWith("El archivo no existe")
-        ? "FILE_NOT_FOUND" : "STORAGE_ERROR";
-    HttpStatus status = "FILE_NOT_FOUND".equals(code)
-        ? HttpStatus.NOT_FOUND : HttpStatus.INTERNAL_SERVER_ERROR;
     log.warn("Storage operation failed: {}", ex.getMessage());
-    return ResponseEntity.status(status)
-        .body(ErrorResponse.of(code, ex.getMessage()));
+    return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+        .body(ErrorResponse.of("STORAGE_ERROR", ex.getMessage()));
   }
 
   @ExceptionHandler(MaxUploadSizeExceededException.class)

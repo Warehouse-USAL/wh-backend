@@ -101,7 +101,7 @@ public class MinioStorageService implements StorageService {
       log.info("Deleted file: {}", key);
     } catch (ErrorResponseException e) {
       if ("NoSuchKey".equals(e.errorResponse().code())) {
-        throw new StorageException("El archivo no existe: " + key);
+        throw new FileNotFoundException(key);
       }
       throw new StorageException("Error al eliminar archivo: " + key, e);
     } catch (Exception e) {
@@ -129,7 +129,7 @@ public class MinioStorageService implements StorageService {
       return new StoredObject(response, contentType, contentLength);
     } catch (ErrorResponseException e) {
       if ("NoSuchKey".equals(e.errorResponse().code())) {
-        throw new StorageException("El archivo no existe: " + key);
+        throw new FileNotFoundException(key);
       }
       throw new StorageException("Error al leer archivo: " + key, e);
     } catch (Exception e) {
