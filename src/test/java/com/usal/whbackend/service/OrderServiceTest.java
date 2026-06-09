@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
 import com.usal.whbackend.api.order.CreateOrderRequest;
+import com.usal.whbackend.api.order.CreateOrderRequest.AddressRequest;
 import com.usal.whbackend.api.order.CreateOrderRequest.OrderItemRequest;
 import com.usal.whbackend.domain.Order;
 import com.usal.whbackend.domain.OrderStatus;
@@ -152,18 +153,54 @@ class OrderServiceTest {
     assertEquals(404, ex.getStatusCode().value());
   }
 
+  private static AddressRequest validAddress() {
+    return new AddressRequest("Av. Corrientes 1234", null, null, "C1043");
+  }
+
   // ── createOrder ────────────────────────────────────────────────────────────
 
   @Test
   void createOrder_missingDestination_throws400() {
-    CreateOrderRequest req = new CreateOrderRequest(List.of(), null);
+    CreateOrderRequest req = new CreateOrderRequest(List.of(), null, null);
     assertThrows(ResponseStatusException.class, () -> orderService.createOrder(req, "user-1"));
   }
 
   @Test
   void createOrder_emptyItems_throws400() {
-    CreateOrderRequest req = new CreateOrderRequest(List.of(), "AREA-A");
+    CreateOrderRequest req = new CreateOrderRequest(List.of(), "AREA-A", null);
     assertThrows(ResponseStatusException.class, () -> orderService.createOrder(req, "user-1"));
+  }
+
+  @Test
+  void createOrder_missingAddress_throws400() {
+    CreateOrderRequest req =
+        new CreateOrderRequest(List.of(new OrderItemRequest("prod-1", 1)), "AREA-A", null);
+    ResponseStatusException ex =
+        assertThrows(ResponseStatusException.class, () -> orderService.createOrder(req, "user-1"));
+    assertEquals(400, ex.getStatusCode().value());
+    assertEquals("MISSING_ADDRESS", ex.getReason());
+  }
+
+  @Test
+  void createOrder_missingAddressStreet_throws400() {
+    AddressRequest addr = new AddressRequest(null, null, null, "C1043");
+    CreateOrderRequest req =
+        new CreateOrderRequest(List.of(new OrderItemRequest("prod-1", 1)), "AREA-A", addr);
+    ResponseStatusException ex =
+        assertThrows(ResponseStatusException.class, () -> orderService.createOrder(req, "user-1"));
+    assertEquals(400, ex.getStatusCode().value());
+    assertEquals("MISSING_ADDRESS_STREET", ex.getReason());
+  }
+
+  @Test
+  void createOrder_missingAddressPostalCode_throws400() {
+    AddressRequest addr = new AddressRequest("Av. Corrientes 1234", null, null, null);
+    CreateOrderRequest req =
+        new CreateOrderRequest(List.of(new OrderItemRequest("prod-1", 1)), "AREA-A", addr);
+    ResponseStatusException ex =
+        assertThrows(ResponseStatusException.class, () -> orderService.createOrder(req, "user-1"));
+    assertEquals(400, ex.getStatusCode().value());
+    assertEquals("MISSING_ADDRESS_POSTAL_CODE", ex.getReason());
   }
 
   @Test
@@ -183,7 +220,9 @@ class OrderServiceTest {
 
     Order result =
         orderService.createOrder(
-            new CreateOrderRequest(List.of(new OrderItemRequest("prod-1", 2)), "AREA-A"), "user-1");
+            new CreateOrderRequest(
+                List.of(new OrderItemRequest("prod-1", 2)), "AREA-A", validAddress()),
+            "user-1");
 
     assertEquals("ord-new", result.getId());
     verify(orderRepository).save(any());
@@ -241,7 +280,8 @@ class OrderServiceTest {
             ResponseStatusException.class,
             () ->
                 orderService.createOrder(
-                    new CreateOrderRequest(List.of(new OrderItemRequest("prod-1", 0)), "AREA-A"),
+                    new CreateOrderRequest(
+                        List.of(new OrderItemRequest("prod-1", 0)), "AREA-A", validAddress()),
                     "user-1"));
 
     assertEquals(400, ex.getStatusCode().value());
@@ -257,7 +297,8 @@ class OrderServiceTest {
                     new CreateOrderRequest(
                         List.of(
                             new OrderItemRequest("prod-1", 1), new OrderItemRequest("prod-1", 2)),
-                        "AREA-A"),
+                        "AREA-A",
+                        validAddress()),
                     "user-1"));
 
     assertEquals(400, ex.getStatusCode().value());
@@ -272,7 +313,8 @@ class OrderServiceTest {
             ResponseStatusException.class,
             () ->
                 orderService.createOrder(
-                    new CreateOrderRequest(List.of(new OrderItemRequest("missing", 1)), "AREA-A"),
+                    new CreateOrderRequest(
+                        List.of(new OrderItemRequest("missing", 1)), "AREA-A", validAddress()),
                     "user-1"));
 
     assertEquals(404, ex.getStatusCode().value());
@@ -295,7 +337,8 @@ class OrderServiceTest {
             ResponseStatusException.class,
             () ->
                 orderService.createOrder(
-                    new CreateOrderRequest(List.of(new OrderItemRequest("prod-1", 10)), "AREA-A"),
+                    new CreateOrderRequest(
+                        List.of(new OrderItemRequest("prod-1", 10)), "AREA-A", validAddress()),
                     "user-1"));
 
     assertEquals(400, ex.getStatusCode().value());
