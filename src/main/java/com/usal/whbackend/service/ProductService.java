@@ -5,6 +5,7 @@ import com.usal.whbackend.api.product.ProductResponse;
 import com.usal.whbackend.api.product.UpdateProductRequest;
 import com.usal.whbackend.domain.Position;
 import com.usal.whbackend.domain.Product;
+import com.usal.whbackend.domain.ProductCategory;
 import com.usal.whbackend.repository.LineRepository;
 import com.usal.whbackend.repository.PositionRepository;
 import com.usal.whbackend.repository.ProductRepository;
@@ -92,11 +93,20 @@ public class ProductService {
 
   // ── Product CRUD ───────────────────────────────────────────────────────────
 
+  private void validateCategory(String category) {
+    try {
+      ProductCategory.valueOf(category);
+    } catch (IllegalArgumentException e) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "INVALID_CATEGORY");
+    }
+  }
+
   public Page<ProductResponse> getProducts(
       String category, String search, Boolean active, Pageable pageable) {
     Query query = new Query();
     query.addCriteria(Criteria.where("active").is(active != null ? active : true));
     if (category != null) {
+      validateCategory(category);
       query.addCriteria(Criteria.where("category").is(category));
     }
     if (search != null && !search.isBlank()) {
@@ -141,6 +151,7 @@ public class ProductService {
     if (productRepository.findBySku(request.sku()).isPresent()) {
       throw new ResponseStatusException(HttpStatus.CONFLICT, "SKU_ALREADY_EXISTS");
     }
+    validateCategory(request.category());
     Product product = new Product();
     product.setSku(request.sku());
     product.setName(request.name());
@@ -204,7 +215,10 @@ public class ProductService {
     }
     if (request.name() != null) product.setName(request.name());
     if (request.description() != null) product.setDescription(request.description());
-    if (request.category() != null) product.setCategory(request.category());
+    if (request.category() != null) {
+      validateCategory(request.category());
+      product.setCategory(request.category());
+    }
     if (request.images() != null) {
       product.setImages(
           request.images().stream()

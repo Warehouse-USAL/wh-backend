@@ -45,7 +45,7 @@ class ProductControllerTest {
             "SKU-001",
             "Test Product",
             null,
-            "electronics",
+            "TECNOLOGIA",
             List.of(),
             null,
             List.of(),
@@ -89,7 +89,7 @@ class ProductControllerTest {
         .perform(
             post("/products")
                 .contentType("application/json")
-                .content("{\"sku\":\"SKU-001\",\"name\":\"Test\",\"category\":\"electronics\"}"))
+                .content("{\"sku\":\"SKU-001\",\"name\":\"Test\",\"category\":\"TECNOLOGIA\"}"))
         .andExpect(status().isCreated())
         .andExpect(jsonPath("$.product").exists())
         .andExpect(jsonPath("$.product.sku").value("SKU-001"));
@@ -127,7 +127,7 @@ class ProductControllerTest {
             "SKU-SNAKE",
             "Snake Product",
             null,
-            "electronics",
+            "TECNOLOGIA",
             List.of(new ProductResponse.Image("https://example.com/img.png", "Front", true)),
             new ProductResponse.Price(4999900L, "ARS", false),
             List.of(new ProductResponse.Spec("Peso", "250 g")),
@@ -167,7 +167,7 @@ class ProductControllerTest {
             "SKU-SC",
             "Snake Create",
             null,
-            "tools",
+            "HERRAMIENTAS",
             List.of(new ProductResponse.Image("https://example.com/tool.png", null, true)),
             new ProductResponse.Price(1500000L, "ARS", false),
             List.of(new ProductResponse.Spec("Marca", "Acme")),
@@ -185,7 +185,7 @@ class ProductControllerTest {
             post("/products")
                 .contentType("application/json")
                 .content(
-                    "{\"sku\":\"SKU-SC\",\"name\":\"Snake Create\",\"category\":\"tools\","
+                    "{\"sku\":\"SKU-SC\",\"name\":\"Snake Create\",\"category\":\"HERRAMIENTAS\","
                         + "\"images\":[{\"url\":\"https://example.com/tool.png\",\"alt\":null,"
                         + "\"is_primary\":true}],"
                         + "\"price\":{\"amount_cents\":1500000,\"currency\":\"ARS\","
