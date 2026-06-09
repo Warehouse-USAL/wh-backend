@@ -1,7 +1,7 @@
 package com.usal.whbackend.repository;
 
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import com.usal.whbackend.domain.Order;
 import com.usal.whbackend.domain.OrderStatus;
 import com.usal.whbackend.repository.kafka.OrderCancelMessage;
@@ -29,15 +29,17 @@ public class OrderRepository {
   private final OrderMongoRepository mongo;
   private final KafkaTemplate<String, String> kafka;
   private final MongoTemplate mongoTemplate;
-  private final ObjectMapper objectMapper = new ObjectMapper();
+  private final ObjectMapper objectMapper;
 
   public OrderRepository(
       OrderMongoRepository mongo,
       KafkaTemplate<String, String> kafka,
-      MongoTemplate mongoTemplate) {
+      MongoTemplate mongoTemplate,
+      ObjectMapper objectMapper) {
     this.mongo = mongo;
     this.kafka = kafka;
     this.mongoTemplate = mongoTemplate;
+    this.objectMapper = objectMapper;
   }
 
   public Order save(Order order) {
@@ -140,7 +142,7 @@ public class OrderRepository {
                               "Failed to publish to Kafka topic {}: {}", topic, ex.getMessage());
                         }
                       }));
-    } catch (JsonProcessingException e) {
+    } catch (JacksonException e) {
       throw new RuntimeException("Failed to serialize Kafka message for topic " + topic, e);
     }
   }

@@ -59,7 +59,8 @@ public class GlobalExceptionHandler {
           Map.entry("MISSING_ADDRESS_STREET", "El campo calle (street) es obligatorio."),
           Map.entry(
               "MISSING_ADDRESS_POSTAL_CODE",
-              "El campo código postal (postal_code) es obligatorio."));
+              "El campo código postal (postal_code) es obligatorio."),
+          Map.entry("INVALID_CATEGORY", "La categoría indicada no existe."));
 
   @ExceptionHandler(AccessDeniedException.class)
   public ResponseEntity<ErrorResponse> handleAccessDenied(AccessDeniedException ex) {
