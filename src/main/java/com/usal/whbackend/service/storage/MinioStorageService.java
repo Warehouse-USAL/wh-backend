@@ -125,8 +125,8 @@ public class MinioStorageService implements StorageService {
       if (hdrs != null && hdrs.get("Content-Length") != null) {
         try { contentLength = Long.parseLong(hdrs.get("Content-Length")); } catch (NumberFormatException ignored) {}
       }
-      String contentType = hdrs != null ? hdrs.get("Content-Type") : null;
-if (contentType == null) contentType = inferContentType(key);
+      if (contentType == null) contentType = inferContentType(key);
+      return new StoredObject(response, contentType, contentLength);
     } catch (ErrorResponseException e) {
       if ("NoSuchKey".equals(e.errorResponse().code())) {
         throw new StorageException("El archivo no existe: " + key);
@@ -135,6 +135,11 @@ if (contentType == null) contentType = inferContentType(key);
     } catch (Exception e) {
       throw new StorageException("Error al leer archivo: " + key, e);
     }
+  }
+
+  @Override
+  public void deleteByUrl(String url) {
+    delete(extractKey(url, requestBase));
   }
 
   @Override

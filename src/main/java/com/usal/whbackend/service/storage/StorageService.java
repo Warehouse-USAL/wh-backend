@@ -8,6 +8,8 @@ public interface StorageService {
 
   void delete(String key);
 
+  void deleteByUrl(String url);
+
   StoredObject getObject(String key);
 
   String getUrl(String key);

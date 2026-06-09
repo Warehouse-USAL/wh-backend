@@ -9,7 +9,6 @@ import com.usal.whbackend.repository.LineRepository;
 import com.usal.whbackend.repository.PositionRepository;
 import com.usal.whbackend.repository.ProductRepository;
 import com.usal.whbackend.repository.ZoneRepository;
-import com.usal.whbackend.service.storage.MinioStorageService;
 import com.usal.whbackend.service.storage.StorageService;
 import java.time.Instant;
 import java.util.List;
@@ -344,8 +343,7 @@ public class ProductService {
 
   private void deleteImageUrl(String url) {
     try {
-      String key = MinioStorageService.extractKey(url, "/api/v1/files/");
-      storageService.delete(key);
+      storageService.deleteByUrl(url);
     } catch (Exception e) {
       // Log but don't fail the transaction — image cleanup is best-effort
       org.slf4j.LoggerFactory.getLogger(getClass())
