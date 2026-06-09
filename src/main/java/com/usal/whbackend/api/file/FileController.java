@@ -41,7 +41,7 @@ public class FileController {
   public ResponseEntity<FileUploadResponse> upload(
       @RequestParam("file") MultipartFile file) {
     String url = storageService.upload(file, IMAGES_PATH);
-    String key = url.substring(REQUEST_BASE.length());
+    String key = MinioStorageService.extractKey(url, REQUEST_BASE);
     return ResponseEntity.ok(new FileUploadResponse(url, key));
   }
 
