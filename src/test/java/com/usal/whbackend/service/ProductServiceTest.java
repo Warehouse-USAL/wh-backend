@@ -13,6 +13,7 @@ import com.usal.whbackend.repository.LineRepository;
 import com.usal.whbackend.repository.PositionRepository;
 import com.usal.whbackend.repository.ProductRepository;
 import com.usal.whbackend.repository.ZoneRepository;
+import com.usal.whbackend.service.storage.StorageService;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -38,6 +39,7 @@ class ProductServiceTest {
   @Mock MongoTemplate mongoTemplate;
   @Mock LineRepository lineRepository;
   @Mock ZoneRepository zoneRepository;
+  @Mock StorageService storageService;
   @InjectMocks ProductService productService;
 
   private Product activeProduct(String id) {
@@ -268,6 +270,81 @@ class ProductServiceTest {
   void deleteProduct_unknownId_throws404() {
     when(productRepository.findById("none")).thenReturn(Optional.empty());
     assertThrows(ResponseStatusException.class, () -> productService.deleteProduct("none"));
+  }
+
+  @Test
+  void deleteProduct_withImages_deletesFromStorage() {
+    Product p = activeProduct("1");
+    Product.ProductImage img1 = new Product.ProductImage();
+    img1.setUrl("/api/v1/files/images/img1.jpg");
+    Product.ProductImage img2 = new Product.ProductImage();
+    img2.setUrl("/api/v1/files/images/img2.jpg");
+    p.setImages(List.of(img1, img2));
+
+    when(productRepository.findById("1")).thenReturn(Optional.of(p));
+    when(productRepository.save(any())).thenReturn(p);
+    when(positionRepository.findByProductIdIn(any())).thenReturn(List.of());
+
+    productService.deleteProduct("1");
+
+    verify(storageService).deleteByUrl("/api/v1/files/images/img1.jpg");
+    verify(storageService).deleteByUrl("/api/v1/files/images/img2.jpg");
+  }
+
+  @Test
+  void deleteProduct_withoutImages_doesNotCallStorage() {
+    Product p = activeProduct("1");
+    when(productRepository.findById("1")).thenReturn(Optional.of(p));
+    when(productRepository.save(any())).thenReturn(p);
+    when(positionRepository.findByProductIdIn(any())).thenReturn(List.of());
+
+    productService.deleteProduct("1");
+
+    verify(storageService, never()).deleteByUrl(any());
+  }
+
+  // ── updateProduct cleanup ───────────────────────────────────────────
+
+  @Test
+  void updateProduct_removesImage_deletesOrphanFromStorage() {
+    Product p = activeProduct("1");
+    Product.ProductImage img1 = new Product.ProductImage();
+    img1.setUrl("/api/v1/files/images/keep.jpg");
+    Product.ProductImage img2 = new Product.ProductImage();
+    img2.setUrl("/api/v1/files/images/remove.jpg");
+    p.setImages(List.of(img1, img2));
+
+    when(productRepository.findById("1")).thenReturn(Optional.of(p));
+    when(productRepository.save(any())).thenReturn(p);
+    when(positionRepository.findByProductIdInAndIsActiveTrue(any())).thenReturn(List.of());
+    mockZeroSingleReservedStock();
+
+    var update = new UpdateProductRequest(
+        null, null, null,
+        List.of(new CreateProductRequest.ImageRequest("/api/v1/files/images/keep.jpg", null, true)),
+        null, null, null, null, null);
+
+    productService.updateProduct("1", update);
+
+    verify(storageService).deleteByUrl("/api/v1/files/images/remove.jpg");
+    verify(storageService, never()).deleteByUrl("/api/v1/files/images/keep.jpg");
+    verify(productRepository).save(any());
+  }
+
+  @Test
+  void updateProduct_imagesNull_doesNotTouchStorage() {
+    Product p = activeProduct("1");
+    when(productRepository.findById("1")).thenReturn(Optional.of(p));
+    when(productRepository.save(any())).thenReturn(p);
+    when(positionRepository.findByProductIdInAndIsActiveTrue(any())).thenReturn(List.of());
+    mockZeroSingleReservedStock();
+
+    var update = new UpdateProductRequest(
+        "NewName", null, null, null, null, null, null, null, null);
+
+    productService.updateProduct("1", update);
+
+    verify(storageService, never()).deleteByUrl(any());
   }
 
   // ── INVALID_CATEGORY ───────────────────────────────────────────────────────

@@ -10,9 +10,12 @@ import com.usal.whbackend.repository.LineRepository;
 import com.usal.whbackend.repository.PositionRepository;
 import com.usal.whbackend.repository.ProductRepository;
 import com.usal.whbackend.repository.ZoneRepository;
+import com.usal.whbackend.service.storage.StorageService;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.springframework.dao.DuplicateKeyException;
@@ -37,18 +40,21 @@ public class ProductService {
   private final MongoTemplate mongoTemplate;
   private final LineRepository lineRepository;
   private final ZoneRepository zoneRepository;
+  private final StorageService storageService;
 
   public ProductService(
       ProductRepository productRepository,
       PositionRepository positionRepository,
       MongoTemplate mongoTemplate,
       LineRepository lineRepository,
-      ZoneRepository zoneRepository) {
+      ZoneRepository zoneRepository,
+      StorageService storageService) {
     this.productRepository = productRepository;
     this.positionRepository = positionRepository;
     this.mongoTemplate = mongoTemplate;
     this.lineRepository = lineRepository;
     this.zoneRepository = zoneRepository;
+    this.storageService = storageService;
   }
 
   // ── Stock computation ──────────────────────────────────────────────────────
@@ -225,6 +231,22 @@ public class ProductService {
       product.setCategory(upperCategory);
     }
     if (request.images() != null) {
+      Set<String> oldUrls = product.getImages() != null
+          ? product.getImages().stream()
+              .map(Product.ProductImage::getUrl)
+              .filter(Objects::nonNull)
+              .collect(Collectors.toSet())
+          : Set.of();
+      Set<String> newUrls = request.images().stream()
+          .filter(Objects::nonNull)
+          .map(CreateProductRequest.ImageRequest::url)
+          .filter(Objects::nonNull)
+          .collect(Collectors.toSet());
+
+      oldUrls.stream()
+          .filter(url -> !newUrls.contains(url))
+          .forEach(this::deleteImageUrl);
+
       product.setImages(
           request.images().stream()
               .filter(java.util.Objects::nonNull)
@@ -273,6 +295,9 @@ public class ProductService {
             .findById(id)
             .orElseThrow(
                 () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "PRODUCT_NOT_FOUND"));
+
+    deleteImagesFromStorage(product.getImages());
+
     product.setActive(false);
     productRepository.save(product);
     // Clear all position assignments for this product (cascade effect)
@@ -323,6 +348,26 @@ public class ProductService {
                   zone != null ? zone.getZoneCode() : null);
             })
         .toList();
+  }
+
+  // ── Image cleanup helpers ──────────────────────────────────────────────────
+
+  private void deleteImagesFromStorage(java.util.List<Product.ProductImage> images) {
+    if (images == null) return;
+    images.stream()
+        .map(Product.ProductImage::getUrl)
+        .filter(Objects::nonNull)
+        .forEach(this::deleteImageUrl);
+  }
+
+  private void deleteImageUrl(String url) {
+    try {
+      storageService.deleteByUrl(url);
+    } catch (Exception e) {
+      // Log but don't fail the transaction — image cleanup is best-effort
+      org.slf4j.LoggerFactory.getLogger(getClass())
+          .warn("Failed to delete image from storage: {}", url, e);
+    }
   }
 
   // ── Inner helpers ──────────────────────────────────────────────────────────

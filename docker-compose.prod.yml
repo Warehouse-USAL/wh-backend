@@ -18,6 +18,9 @@ services:
   redpanda:
     restart: always
 
+  minio:
+    restart: always
+
 networks:
   wh-network:
     driver: bridge
