@@ -274,4 +274,17 @@ class ProductControllerTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.pagination.size").value(1));
   }
+
+  @Test
+  @WithMockUser
+  void getProducts_invalidCategory_returns400() throws Exception {
+    when(productService.getProducts(org.mockito.ArgumentMatchers.eq("INVALID_CAT"), any(), any(), any(Pageable.class)))
+        .thenThrow(new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "INVALID_CATEGORY"));
+
+    mockMvc
+        .perform(get("/products").param("category", "INVALID_CAT"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.error.code").value("INVALID_CATEGORY"))
+        .andExpect(jsonPath("$.error.message").value("La categoría indicada no existe."));
+  }
 }

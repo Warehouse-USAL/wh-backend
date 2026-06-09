@@ -312,4 +312,39 @@ class ProductServiceTest {
     assertEquals(400, ex.getStatusCode().value());
     assertEquals("INVALID_CATEGORY", ex.getReason());
   }
+
+  @Test
+  void getProducts_validCategoryLowercase_filtersAndReturns() {
+    Pageable pageable = PageRequest.of(0, 10);
+    Product p = activeProduct("1");
+    when(mongoTemplate.count(any(Query.class), eq(Product.class))).thenReturn(1L);
+    when(mongoTemplate.find(any(Query.class), eq(Product.class))).thenReturn(List.of(p));
+    when(positionRepository.findByProductIdInAndIsActiveTrue(any())).thenReturn(List.of());
+    mockZeroBulkReservedStock();
+
+    Page<ProductResponse> result = productService.getProducts("tecnologia", null, null, pageable);
+
+    assertEquals(1, result.getContent().size());
+    verify(mongoTemplate).count(argThat(query -> 
+      "TECNOLOGIA".equals(query.getQueryObject().get("category"))
+    ), eq(Product.class));
+  }
+
+  @Test
+  void getProducts_searchAndCategoryCombined_filtersBoth() {
+    Pageable pageable = PageRequest.of(0, 10);
+    Product p = activeProduct("1");
+    when(mongoTemplate.count(any(Query.class), eq(Product.class))).thenReturn(1L);
+    when(mongoTemplate.find(any(Query.class), eq(Product.class))).thenReturn(List.of(p));
+    when(positionRepository.findByProductIdInAndIsActiveTrue(any())).thenReturn(List.of());
+    mockZeroBulkReservedStock();
+
+    Page<ProductResponse> result = productService.getProducts("HERRAMIENTAS", "widget", null, pageable);
+
+    assertEquals(1, result.getContent().size());
+    verify(mongoTemplate).count(argThat(query -> {
+      var obj = query.getQueryObject();
+      return "HERRAMIENTAS".equals(obj.get("category")) && obj.containsKey("$or");
+    }), eq(Product.class));
+  }
 }

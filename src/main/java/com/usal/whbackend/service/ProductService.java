@@ -93,9 +93,12 @@ public class ProductService {
 
   // ── Product CRUD ───────────────────────────────────────────────────────────
 
-  private void validateCategory(String category) {
+  private String validateCategory(String category) {
+    if (category == null || category.isBlank()) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "INVALID_CATEGORY");
+    }
     try {
-      ProductCategory.valueOf(category);
+      return ProductCategory.valueOf(category.toUpperCase()).name();
     } catch (IllegalArgumentException e) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "INVALID_CATEGORY");
     }
@@ -105,16 +108,17 @@ public class ProductService {
       String category, String search, Boolean active, Pageable pageable) {
     Query query = new Query();
     query.addCriteria(Criteria.where("active").is(active != null ? active : true));
-    if (category != null) {
-      validateCategory(category);
-      query.addCriteria(Criteria.where("category").is(category));
+    if (category != null && !category.isBlank()) {
+      String upperCategory = validateCategory(category);
+      query.addCriteria(Criteria.where("category").is(upperCategory));
     }
     if (search != null && !search.isBlank()) {
       query.addCriteria(
           new Criteria()
               .orOperator(
                   Criteria.where("name").regex(search, "i"),
-                  Criteria.where("sku").regex(search, "i")));
+                  Criteria.where("sku").regex(search, "i"),
+                  Criteria.where("description").regex(search, "i")));
     }
     long total = mongoTemplate.count(query, Product.class);
     List<Product> items = mongoTemplate.find(query.with(pageable), Product.class);
@@ -151,12 +155,12 @@ public class ProductService {
     if (productRepository.findBySku(request.sku()).isPresent()) {
       throw new ResponseStatusException(HttpStatus.CONFLICT, "SKU_ALREADY_EXISTS");
     }
-    validateCategory(request.category());
+    String upperCategory = validateCategory(request.category());
     Product product = new Product();
     product.setSku(request.sku());
     product.setName(request.name());
     product.setDescription(request.description());
-    product.setCategory(request.category());
+    product.setCategory(upperCategory);
     if (request.images() != null) {
       product.setImages(
           request.images().stream()
@@ -216,8 +220,8 @@ public class ProductService {
     if (request.name() != null) product.setName(request.name());
     if (request.description() != null) product.setDescription(request.description());
     if (request.category() != null) {
-      validateCategory(request.category());
-      product.setCategory(request.category());
+      String upperCategory = validateCategory(request.category());
+      product.setCategory(upperCategory);
     }
     if (request.images() != null) {
       product.setImages(
