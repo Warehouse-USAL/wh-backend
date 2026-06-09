@@ -1,6 +1,7 @@
 package com.usal.whbackend.service;
 
 import com.usal.whbackend.api.order.CreateOrderRequest;
+import com.usal.whbackend.domain.Address;
 import com.usal.whbackend.domain.Order;
 import com.usal.whbackend.domain.OrderItem;
 import com.usal.whbackend.domain.OrderStatus;
@@ -104,6 +105,15 @@ public class OrderService {
     if (request.items() == null || request.items().isEmpty()) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "ITEMS_REQUIRED");
     }
+    if (request.address() == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "MISSING_ADDRESS");
+    }
+    if (request.address().street() == null || request.address().street().isBlank()) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "MISSING_ADDRESS_STREET");
+    }
+    if (request.address().postalCode() == null || request.address().postalCode().isBlank()) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "MISSING_ADDRESS_POSTAL_CODE");
+    }
 
     Set<String> seenProductIds = new HashSet<>();
     for (CreateOrderRequest.OrderItemRequest itemRequest : request.items()) {
@@ -147,11 +157,18 @@ public class OrderService {
         }
       }
 
+      Address address = new Address();
+      address.setStreet(request.address().street());
+      address.setDepartment(request.address().department());
+      address.setFloor(request.address().floor());
+      address.setPostalCode(request.address().postalCode());
+
       Order order = new Order();
       order.setStatus(OrderStatus.PENDING);
       order.setRequestedByUserId(userId);
       order.setItems(items);
       order.setDestinationArea(request.destinationArea());
+      order.setAddress(address);
       order.setCreatedAt(Instant.now());
 
       Order saved = orderRepository.save(order);

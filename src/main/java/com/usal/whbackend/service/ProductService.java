@@ -5,6 +5,7 @@ import com.usal.whbackend.api.product.ProductResponse;
 import com.usal.whbackend.api.product.UpdateProductRequest;
 import com.usal.whbackend.domain.Position;
 import com.usal.whbackend.domain.Product;
+import com.usal.whbackend.domain.ProductCategory;
 import com.usal.whbackend.repository.LineRepository;
 import com.usal.whbackend.repository.PositionRepository;
 import com.usal.whbackend.repository.ProductRepository;
@@ -98,19 +99,33 @@ public class ProductService {
 
   // ── Product CRUD ───────────────────────────────────────────────────────────
 
+  private String validateCategory(String category) {
+    if (category == null || category.isBlank()) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "INVALID_CATEGORY");
+    }
+    try {
+      return ProductCategory.valueOf(category.toUpperCase()).name();
+    } catch (IllegalArgumentException e) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "INVALID_CATEGORY");
+    }
+  }
+
   public Page<ProductResponse> getProducts(
       String category, String search, Boolean active, Pageable pageable) {
     Query query = new Query();
     query.addCriteria(Criteria.where("active").is(active != null ? active : true));
-    if (category != null) {
-      query.addCriteria(Criteria.where("category").is(category));
+    if (category != null && !category.isBlank()) {
+      String upperCategory = validateCategory(category);
+      query.addCriteria(Criteria.where("category").is(upperCategory));
     }
     if (search != null && !search.isBlank()) {
+      String safeSearch = java.util.regex.Pattern.quote(search);
       query.addCriteria(
           new Criteria()
               .orOperator(
-                  Criteria.where("name").regex(search, "i"),
-                  Criteria.where("sku").regex(search, "i")));
+                  Criteria.where("name").regex(safeSearch, "i"),
+                  Criteria.where("sku").regex(safeSearch, "i"),
+                  Criteria.where("description").regex(safeSearch, "i")));
     }
     long total = mongoTemplate.count(query, Product.class);
     List<Product> items = mongoTemplate.find(query.with(pageable), Product.class);
@@ -147,11 +162,12 @@ public class ProductService {
     if (productRepository.findBySku(request.sku()).isPresent()) {
       throw new ResponseStatusException(HttpStatus.CONFLICT, "SKU_ALREADY_EXISTS");
     }
+    String upperCategory = validateCategory(request.category());
     Product product = new Product();
     product.setSku(request.sku());
     product.setName(request.name());
     product.setDescription(request.description());
-    product.setCategory(request.category());
+    product.setCategory(upperCategory);
     if (request.images() != null) {
       product.setImages(
           request.images().stream()
@@ -210,7 +226,10 @@ public class ProductService {
     }
     if (request.name() != null) product.setName(request.name());
     if (request.description() != null) product.setDescription(request.description());
-    if (request.category() != null) product.setCategory(request.category());
+    if (request.category() != null) {
+      String upperCategory = validateCategory(request.category());
+      product.setCategory(upperCategory);
+    }
     if (request.images() != null) {
       Set<String> oldUrls = product.getImages() != null
           ? product.getImages().stream()

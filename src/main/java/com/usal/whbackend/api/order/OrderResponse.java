@@ -13,6 +13,7 @@ public record OrderResponse(
     List<OrderItemResponse> items,
     String destinationArea,
     String assignedVehicleId,
+    AddressResponse address,
     Timestamps timestamps,
     String cancelReason) {
 
@@ -21,6 +22,9 @@ public record OrderResponse(
   }
 
   public record OrderItemResponse(String productId, String sku, int quantity) {}
+
+  public record AddressResponse(
+      String street, String department, String floor, String postalCode) {}
 
   public record Timestamps(Instant createdAt, Instant startedAt, Instant completedAt) {}
 
@@ -33,6 +37,16 @@ public record OrderResponse(
                 .map(i -> new OrderItemResponse(i.getProductId(), i.getSku(), i.getQuantity()))
                 .toList();
 
+    AddressResponse address = null;
+    if (order.getAddress() != null) {
+      address =
+          new AddressResponse(
+              order.getAddress().getStreet(),
+              order.getAddress().getDepartment(),
+              order.getAddress().getFloor(),
+              order.getAddress().getPostalCode());
+    }
+
     return new OrderResponse(
         order.getId(),
         order.getStatus(),
@@ -40,6 +54,7 @@ public record OrderResponse(
         items,
         order.getDestinationArea(),
         order.getAssignedVehicleId(),
+        address,
         new Timestamps(order.getCreatedAt(), order.getStartedAt(), order.getCompletedAt()),
         order.getCancelReason());
   }

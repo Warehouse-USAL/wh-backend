@@ -95,7 +95,8 @@ class VehicleServiceTest {
     Vehicle result = vehicleService.registerVehicle(request);
 
     assertNotNull(result.getId());
-    assertTrue(result.getId().matches("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"));
+    assertTrue(
+        result.getId().matches("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"));
     assertEquals("Rover-03", result.getName());
     assertEquals(VehicleStatus.OFFLINE, result.getStatus());
     verify(vehicleRepository).save(any(Vehicle.class));

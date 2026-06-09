@@ -118,4 +118,17 @@ public class UserController {
         user.isActive(),
         user.getCreatedAt());
   }
+
+ @Operation(summary = "Self-service change password")
+@ApiResponse(responseCode = "200", description = "Contraseña actualizada correctamente.")
+@ApiResponse(responseCode = "400", description = "WRONG_CURRENT_PASSWORD or SAME_PASSWORD")
+@ApiResponse(responseCode = "401", description = "Unauthorized")
+@PostMapping("/me/change-password")
+public ResponseEntity<Map<String, String>> changePassword(
+    @Valid @RequestBody ChangePasswordRequest request,
+    org.springframework.security.core.Authentication authentication
+) {
+  userService.changeMyPassword(authentication.getName(), request);
+  return ResponseEntity.ok(Map.of("message", "Contraseña actualizada correctamente."));
+}
 }
