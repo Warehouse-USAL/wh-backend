@@ -41,7 +41,7 @@ public class WebSocketConfig implements WebSocketConfigurer {
         .addHandler(orderWebSocketHandler, "/ws/v1/orders")
         .addInterceptors(
             new JwtHandshakeInterceptor(
-                jwtService, Set.of("ADMIN_SYSTEM", "ADMIN_WAREHOUSE", "ADMIN_SALES")))
+                jwtService, Set.of("SUPERADMIN", "ADMIN_SYSTEM", "ADMIN_WAREHOUSE", "ADMIN_SALES")))
         .setAllowedOrigins("*");
 
     registry
@@ -52,14 +52,15 @@ public class WebSocketConfig implements WebSocketConfigurer {
     registry
         .addHandler(vehicleWebSocketHandler, "/ws/v1/vehicles")
         .addInterceptors(
-            new JwtHandshakeInterceptor(jwtService, Set.of("ADMIN_SYSTEM", "ADMIN_WAREHOUSE")))
+            new JwtHandshakeInterceptor(
+                jwtService, Set.of("SUPERADMIN", "ADMIN_SYSTEM", "ADMIN_WAREHOUSE")))
         .setAllowedOrigins("*");
 
     registry
         .addHandler(stockAlertWebSocketHandler, "/ws/v1/stock/alerts")
         .addInterceptors(
             new JwtHandshakeInterceptor(
-                jwtService, Set.of("ADMIN_SYSTEM", "ADMIN_WAREHOUSE", "ADMIN_SALES")))
+                jwtService, Set.of("SUPERADMIN", "ADMIN_SYSTEM", "ADMIN_WAREHOUSE", "ADMIN_SALES")))
         .setAllowedOrigins("*");
   }
 }
