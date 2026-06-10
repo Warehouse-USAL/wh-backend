@@ -8,3 +8,4 @@ spring:
 
 minio:
   endpoint: http://minio:9000
+  bucket: ${MINIO_BUCKET:wh-images}
