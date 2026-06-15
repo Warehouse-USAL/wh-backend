@@ -1,4 +1,4 @@
-.PHONY: help up-dev run up-prod up-infra down build test test-coverage lint format format-fix pr-checks logs clean
+.PHONY: help up-dev run up-prod up-infra deploy down build test test-coverage lint format format-fix pr-checks logs clean
 
 .DEFAULT_GOAL := help
 
@@ -25,6 +25,7 @@ up-dev: ## Start all services in dev mode (app + MongoDB + Redpanda + UI tools)
 	@echo "  Swagger UI:       http://localhost:8080/swagger-ui.html"
 	@echo "  MongoDB Express:  http://localhost:8081"
 	@echo "  Redpanda Console: http://localhost:8082"
+	@echo "  MinIO Console:    http://localhost:9001"
 	@echo ""
 
 run: up-dev ## Alias for up-dev
@@ -33,12 +34,19 @@ up-prod: ## Start services in production mode (requires env vars set)
 	docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 	@echo "Production services started on port 8080"
 
-up-infra: ## Start only MongoDB and Redpanda (for local Gradle development)
-	docker compose up mongodb redpanda -d
+deploy: ## Pull the newest backend image and restart ONLY the backend (data services untouched)
+	docker compose -f docker-compose.yml -f docker-compose.prod.yml pull backend
+	docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d backend
+	@echo "Backend redeployed"
+
+up-infra: ## Start only MongoDB, Redpanda and MinIO (for local Gradle development)
+	docker compose up mongodb redpanda minio -d
 	@echo ""
 	@echo "Infrastructure started:"
-	@echo "  MongoDB:  localhost:27017"
-	@echo "  Redpanda: localhost:19092"
+	@echo "  MongoDB:         localhost:27017"
+	@echo "  Redpanda:        localhost:19092"
+	@echo "  MinIO API:       http://localhost:9000"
+	@echo "  MinIO Console:   http://localhost:9001"
 	@echo ""
 	@echo "Run the app with: make build && make run"
 

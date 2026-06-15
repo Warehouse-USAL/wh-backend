@@ -1,0 +1,69 @@
+name: Deploy
+
+on:
+  release:
+    types: [published]
+
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy backend to server
+    if: github.event.release.prerelease == false
+    runs-on: [self-hosted, prod]
+    environment: production
+    permissions:
+      contents: read
+      packages: read
+      pull-requests: write
+      issues: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+      TAG: ${{ github.event.release.tag_name }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Resolve merged PR for this release commit
+        id: pr
+        run: |
+          num=$(curl -fsS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO/commits/${{ github.sha }}/pulls" | jq -r '.[0].number // empty')
+          echo "number=$num" >> "$GITHUB_OUTPUT"
+          echo "Associated PR: ${num:-none}"
+
+      - name: Comment — deploy started
+        if: steps.pr.outputs.number != ''
+        run: |
+          body=$(printf '🚀 **Deploy started** — `%s` → server.\n\n[Watch the run](%s)' "$TAG" "$RUN_URL")
+          jq -nc --arg b "$body" '{body:$b}' | curl -fsS -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/$REPO/issues/${{ steps.pr.outputs.number }}/comments" -d @-
+
+      - name: Deploy released tag
+        id: deploy
+        run: |
+          cd /opt/wh/wh-backend
+          git fetch --tags --force origin
+          git checkout "$TAG"
+          set -o pipefail
+          make deploy 2>&1 | tee /tmp/wh-deploy.log
+
+      - name: Comment — deploy succeeded
+        if: success() && steps.pr.outputs.number != ''
+        run: |
+          img=$(docker inspect -f '{{.Image}}' wh-backend-backend-1 2>/dev/null || echo unknown)
+          body=$(printf '✅ **Deploy succeeded** — `%s` is live.\nBackend image: `%s`\n\n[Run](%s)' "$TAG" "$img" "$RUN_URL")
+          jq -nc --arg b "$body" '{body:$b}' | curl -fsS -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/$REPO/issues/${{ steps.pr.outputs.number }}/comments" -d @-
+
+      - name: Comment — deploy failed
+        if: failure() && steps.pr.outputs.number != ''
+        run: |
+          log=$(tail -c 2500 /tmp/wh-deploy.log 2>/dev/null || echo 'no deploy log captured')
+          body=$(printf '❌ **Deploy FAILED** — `%s`.\n\n```\n%s\n```\n\n[Run](%s)' "$TAG" "$log" "$RUN_URL")
+          jq -nc --arg b "$body" '{body:$b}' | curl -fsS -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/$REPO/issues/${{ steps.pr.outputs.number }}/comments" -d @-

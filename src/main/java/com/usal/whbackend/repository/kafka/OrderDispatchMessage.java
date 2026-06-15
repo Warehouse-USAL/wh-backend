@@ -8,6 +8,7 @@ public record OrderDispatchMessage(
     @JsonProperty("order_id") String orderId,
     List<Item> items,
     @JsonProperty("destination_area") String destinationArea,
+    Address address,
     @JsonProperty("published_at") String publishedAt) {
 
   public OrderDispatchMessage {
@@ -15,4 +16,10 @@ public record OrderDispatchMessage(
   }
 
   public record Item(@JsonProperty("product_id") String productId, String sku, int quantity) {}
+
+  public record Address(
+      String street,
+      String department,
+      String floor,
+      @JsonProperty("postal_code") String postalCode) {}
 }

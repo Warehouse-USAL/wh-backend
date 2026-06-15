@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 import com.usal.whbackend.domain.Order;
 import com.usal.whbackend.domain.OrderItem;
 import com.usal.whbackend.domain.OrderStatus;
+import tools.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -37,7 +38,7 @@ class OrderRepositoryTest {
 
   @BeforeEach
   void setUp() {
-    orderRepository = new OrderRepository(mongo, kafka, mongoTemplate);
+    orderRepository = new OrderRepository(mongo, kafka, mongoTemplate, new ObjectMapper());
     @SuppressWarnings("unchecked")
     CompletableFuture<SendResult<String, String>> future = CompletableFuture.completedFuture(null);
     lenient().when(kafka.send(anyString(), anyString())).thenReturn(future);

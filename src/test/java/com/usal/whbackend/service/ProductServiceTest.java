@@ -8,10 +8,12 @@ import com.usal.whbackend.api.product.CreateProductRequest;
 import com.usal.whbackend.api.product.ProductResponse;
 import com.usal.whbackend.api.product.UpdateProductRequest;
 import com.usal.whbackend.domain.Product;
+import com.usal.whbackend.domain.ProductCategory;
 import com.usal.whbackend.repository.LineRepository;
 import com.usal.whbackend.repository.PositionRepository;
 import com.usal.whbackend.repository.ProductRepository;
 import com.usal.whbackend.repository.ZoneRepository;
+import com.usal.whbackend.service.storage.StorageService;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -37,6 +39,7 @@ class ProductServiceTest {
   @Mock MongoTemplate mongoTemplate;
   @Mock LineRepository lineRepository;
   @Mock ZoneRepository zoneRepository;
+  @Mock StorageService storageService;
   @InjectMocks ProductService productService;
 
   private Product activeProduct(String id) {
@@ -44,7 +47,7 @@ class ProductServiceTest {
     p.setId(id);
     p.setName("Product " + id);
     p.setSku("SKU-" + id);
-    p.setCategory("electronics");
+    p.setCategory(ProductCategory.TECNOLOGIA.name());
     p.setActive(true);
     return p;
   }
@@ -97,7 +100,7 @@ class ProductServiceTest {
     when(positionRepository.findByProductIdInAndIsActiveTrue(any())).thenReturn(List.of());
     mockZeroBulkReservedStock();
 
-    Page<ProductResponse> result = productService.getProducts("electronics", null, null, pageable);
+    Page<ProductResponse> result = productService.getProducts("TECNOLOGIA", null, null, pageable);
 
     assertEquals(1, result.getContent().size());
     verify(mongoTemplate).count(any(Query.class), eq(Product.class));
@@ -188,7 +191,7 @@ class ProductServiceTest {
     ProductResponse result =
         productService.createProduct(
             new CreateProductRequest(
-                "SKU-001", "Widget", "A widget", "tools", null, null, null, 10, 5));
+                "SKU-001", "Widget", "A widget", "HERRAMIENTAS", null, null, null, 10, 5));
 
     assertNotNull(result);
     verify(productRepository).save(any());
@@ -203,7 +206,7 @@ class ProductServiceTest {
             () ->
                 productService.createProduct(
                     new CreateProductRequest(
-                        "SKU-001", "Widget", null, "tools", null, null, null, 10, 5)));
+                        "SKU-001", "Widget", null, "HERRAMIENTAS", null, null, null, 10, 5)));
     assertEquals(409, ex.getStatusCode().value());
   }
 
@@ -217,7 +220,7 @@ class ProductServiceTest {
             () ->
                 productService.createProduct(
                     new CreateProductRequest(
-                        "SKU-002", "Widget", null, "tools", null, null, null, 10, 5)));
+                        "SKU-002", "Widget", null, "HERRAMIENTAS", null, null, null, 10, 5)));
     assertEquals(409, ex.getStatusCode().value());
   }
 
@@ -267,5 +270,158 @@ class ProductServiceTest {
   void deleteProduct_unknownId_throws404() {
     when(productRepository.findById("none")).thenReturn(Optional.empty());
     assertThrows(ResponseStatusException.class, () -> productService.deleteProduct("none"));
+  }
+
+  @Test
+  void deleteProduct_withImages_deletesFromStorage() {
+    Product p = activeProduct("1");
+    Product.ProductImage img1 = new Product.ProductImage();
+    img1.setUrl("/api/v1/files/images/img1.jpg");
+    Product.ProductImage img2 = new Product.ProductImage();
+    img2.setUrl("/api/v1/files/images/img2.jpg");
+    p.setImages(List.of(img1, img2));
+
+    when(productRepository.findById("1")).thenReturn(Optional.of(p));
+    when(productRepository.save(any())).thenReturn(p);
+    when(positionRepository.findByProductIdIn(any())).thenReturn(List.of());
+
+    productService.deleteProduct("1");
+
+    verify(storageService).deleteByUrl("/api/v1/files/images/img1.jpg");
+    verify(storageService).deleteByUrl("/api/v1/files/images/img2.jpg");
+  }
+
+  @Test
+  void deleteProduct_withoutImages_doesNotCallStorage() {
+    Product p = activeProduct("1");
+    when(productRepository.findById("1")).thenReturn(Optional.of(p));
+    when(productRepository.save(any())).thenReturn(p);
+    when(positionRepository.findByProductIdIn(any())).thenReturn(List.of());
+
+    productService.deleteProduct("1");
+
+    verify(storageService, never()).deleteByUrl(any());
+  }
+
+  // ── updateProduct cleanup ───────────────────────────────────────────
+
+  @Test
+  void updateProduct_removesImage_deletesOrphanFromStorage() {
+    Product p = activeProduct("1");
+    Product.ProductImage img1 = new Product.ProductImage();
+    img1.setUrl("/api/v1/files/images/keep.jpg");
+    Product.ProductImage img2 = new Product.ProductImage();
+    img2.setUrl("/api/v1/files/images/remove.jpg");
+    p.setImages(List.of(img1, img2));
+
+    when(productRepository.findById("1")).thenReturn(Optional.of(p));
+    when(productRepository.save(any())).thenReturn(p);
+    when(positionRepository.findByProductIdInAndIsActiveTrue(any())).thenReturn(List.of());
+    mockZeroSingleReservedStock();
+
+    var update = new UpdateProductRequest(
+        null, null, null,
+        List.of(new CreateProductRequest.ImageRequest("/api/v1/files/images/keep.jpg", null, true)),
+        null, null, null, null, null);
+
+    productService.updateProduct("1", update);
+
+    verify(storageService).deleteByUrl("/api/v1/files/images/remove.jpg");
+    verify(storageService, never()).deleteByUrl("/api/v1/files/images/keep.jpg");
+    verify(productRepository).save(any());
+  }
+
+  @Test
+  void updateProduct_imagesNull_doesNotTouchStorage() {
+    Product p = activeProduct("1");
+    when(productRepository.findById("1")).thenReturn(Optional.of(p));
+    when(productRepository.save(any())).thenReturn(p);
+    when(positionRepository.findByProductIdInAndIsActiveTrue(any())).thenReturn(List.of());
+    mockZeroSingleReservedStock();
+
+    var update = new UpdateProductRequest(
+        "NewName", null, null, null, null, null, null, null, null);
+
+    productService.updateProduct("1", update);
+
+    verify(storageService, never()).deleteByUrl(any());
+  }
+
+  // ── INVALID_CATEGORY ───────────────────────────────────────────────────────
+
+  @Test
+  void createProduct_invalidCategory_throws400() {
+    when(productRepository.findBySku("SKU-001")).thenReturn(Optional.empty());
+    ResponseStatusException ex =
+        assertThrows(
+            ResponseStatusException.class,
+            () ->
+                productService.createProduct(
+                    new CreateProductRequest(
+                        "SKU-001", "Widget", null, "INVENTADO", null, null, null, 0, 0)));
+    assertEquals(400, ex.getStatusCode().value());
+    assertEquals("INVALID_CATEGORY", ex.getReason());
+  }
+
+  @Test
+  void updateProduct_invalidCategory_throws400() {
+    Product p = activeProduct("1");
+    when(productRepository.findById("1")).thenReturn(Optional.of(p));
+    ResponseStatusException ex =
+        assertThrows(
+            ResponseStatusException.class,
+            () ->
+                productService.updateProduct(
+                    "1",
+                    new UpdateProductRequest(
+                        null, null, "INVENTADO", null, null, null, null, null, null)));
+    assertEquals(400, ex.getStatusCode().value());
+    assertEquals("INVALID_CATEGORY", ex.getReason());
+  }
+
+  @Test
+  void getProducts_invalidCategory_throws400() {
+    Pageable pageable = PageRequest.of(0, 10);
+    ResponseStatusException ex =
+        assertThrows(
+            ResponseStatusException.class,
+            () -> productService.getProducts("INVENTADO", null, null, pageable));
+    assertEquals(400, ex.getStatusCode().value());
+    assertEquals("INVALID_CATEGORY", ex.getReason());
+  }
+
+  @Test
+  void getProducts_validCategoryLowercase_filtersAndReturns() {
+    Pageable pageable = PageRequest.of(0, 10);
+    Product p = activeProduct("1");
+    when(mongoTemplate.count(any(Query.class), eq(Product.class))).thenReturn(1L);
+    when(mongoTemplate.find(any(Query.class), eq(Product.class))).thenReturn(List.of(p));
+    when(positionRepository.findByProductIdInAndIsActiveTrue(any())).thenReturn(List.of());
+    mockZeroBulkReservedStock();
+
+    Page<ProductResponse> result = productService.getProducts("tecnologia", null, null, pageable);
+
+    assertEquals(1, result.getContent().size());
+    verify(mongoTemplate).count(argThat(query -> 
+      "TECNOLOGIA".equals(query.getQueryObject().get("category"))
+    ), eq(Product.class));
+  }
+
+  @Test
+  void getProducts_searchAndCategoryCombined_filtersBoth() {
+    Pageable pageable = PageRequest.of(0, 10);
+    Product p = activeProduct("1");
+    when(mongoTemplate.count(any(Query.class), eq(Product.class))).thenReturn(1L);
+    when(mongoTemplate.find(any(Query.class), eq(Product.class))).thenReturn(List.of(p));
+    when(positionRepository.findByProductIdInAndIsActiveTrue(any())).thenReturn(List.of());
+    mockZeroBulkReservedStock();
+
+    Page<ProductResponse> result = productService.getProducts("HERRAMIENTAS", "widget", null, pageable);
+
+    assertEquals(1, result.getContent().size());
+    verify(mongoTemplate).count(argThat(query -> {
+      var obj = query.getQueryObject();
+      return "HERRAMIENTAS".equals(obj.get("category")) && obj.containsKey("$or");
+    }), eq(Product.class));
   }
 }

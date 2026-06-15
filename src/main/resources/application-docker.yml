@@ -5,3 +5,7 @@ spring:
     bootstrap-servers: redpanda:9092
   jackson:
     property-naming-strategy: SNAKE_CASE
+
+minio:
+  endpoint: http://minio:9000
+  bucket: ${MINIO_BUCKET:wh-images}
