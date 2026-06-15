@@ -1,0 +1,23 @@
+name: Deploy
+
+on:
+  release:
+    types: [published]
+
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy backend to server
+    if: github.event.release.prerelease == false
+    runs-on: [self-hosted, prod]
+    environment: production
+    steps:
+      - name: Deploy released tag
+        run: |
+          cd /opt/wh/wh-backend
+          git fetch --tags --force origin
+          git checkout "${GITHUB_REF_NAME}"
+          make deploy
