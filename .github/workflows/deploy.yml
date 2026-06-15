@@ -54,6 +54,9 @@ jobs:
           jq -nc --arg b "$body" '{body:$b}' | curl -fsS -X POST -H "Authorization: Bearer $GH_TOKEN" \
             "https://api.github.com/repos/$REPO/issues/${{ steps.ctx.outputs.pr }}/comments" -d @-
 
+      - name: Log in to GHCR
+        run: echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
       - name: Deploy
         id: deploy
         run: |
