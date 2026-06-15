@@ -35,7 +35,7 @@ jobs:
         id: ctx
         run: |
           cd /opt/wh/wh-backend
-          git fetch --all --tags --force origin
+          git fetch --tags --force --prune origin
           SHA="$HEAD_SHA"
           [ -n "$SHA" ] || SHA=$(git rev-parse origin/master)   # manual dispatch → latest master
           TAG=$(git tag --points-at "$SHA" | grep -E '^v' | head -1)
