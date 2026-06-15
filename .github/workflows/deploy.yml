@@ -14,7 +14,12 @@ jobs:
     if: github.event.release.prerelease == false
     runs-on: [self-hosted, prod]
     environment: production
+    permissions:
+      contents: read
+      packages: read
     steps:
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
       - name: Deploy released tag
         run: |
           cd /opt/wh/wh-backend
