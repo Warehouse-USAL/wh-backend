@@ -36,6 +36,26 @@ jobs:
           fi
           echo "Branch name is valid."
 
+      - name: Enforce GitFlow flow (which branches may target which)
+        run: |
+          HEAD="${{ github.head_ref }}"
+          BASE="${{ github.base_ref }}"
+          echo "Flow: $HEAD -> $BASE"
+          # master (production) is only updated through the release process:
+          #   beta/*  (release candidate) or hotfix/* (production urgency).
+          if [ "$BASE" = "master" ]; then
+            case "$HEAD" in
+              beta/*|hotfix/*) echo "OK: release path into master." ;;
+              *) echo "ERROR: only beta/* or hotfix/* may target master. Day-to-day work (feature/enhancement/fix) goes to develop."; exit 1 ;;
+            esac
+          # develop receives all day-to-day work plus automated PRs.
+          elif [ "$BASE" = "develop" ]; then
+            case "$HEAD" in
+              feature/*|enhancement/*|fix/*|refactor/*|hotfix/*|backport/*|dependabot/*) echo "OK: into develop." ;;
+              *) echo "ERROR: '$HEAD' may not target develop."; exit 1 ;;
+            esac
+          fi
+
   code-quality:
     name: Code Quality (Checkstyle + SpotBugs)
     needs: skip-drafts
