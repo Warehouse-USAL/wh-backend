@@ -24,6 +24,10 @@ services:
       # Honor X-Forwarded-* (incl. X-Forwarded-Prefix from Caddy) so swagger/api-docs
       # URLs are generated with the public /api prefix instead of root.
       SERVER_FORWARD_HEADERS_STRATEGY: framework
+      # The 'prod' profile doesn't load application-docker.yml, so MinIO endpoint/
+      # bucket aren't set there — provide them explicitly (MinioConfig requires them).
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
+      MINIO_BUCKET: ${MINIO_BUCKET:-wh-images}
     restart: always
     depends_on:
       mongo-init:
