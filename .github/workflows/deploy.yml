@@ -36,8 +36,10 @@ jobs:
         run: |
           cd /opt/wh/wh-backend
           git fetch --tags --force --prune origin
-          SHA="$HEAD_SHA"
-          [ -n "$SHA" ] || SHA=$(git rev-parse origin/master)   # manual dispatch → latest master
+          # Deploy the current released master tip. workflow_run.head_sha is the
+          # PR's source-branch commit, which isn't fetchable once that branch is
+          # deleted on merge — so resolve the production branch directly.
+          SHA=$(git rev-parse origin/master)
           TAG=$(git tag --points-at "$SHA" | grep -E '^v' | head -1)
           [ -n "$TAG" ] || TAG="${SHA:0:7}"
           PR=$(curl -fsS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
