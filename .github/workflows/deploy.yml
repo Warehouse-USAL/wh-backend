@@ -61,9 +61,13 @@ jobs:
         id: deploy
         run: |
           cd /opt/wh/wh-backend
-          git checkout "${{ steps.ctx.outputs.sha }}"
           set -o pipefail
-          make deploy 2>&1 | tee /tmp/wh-deploy.log
+          # Force-sync to the exact released commit (reset --hard, not checkout) so
+          # local drift can never block the deploy. Capture the whole thing —
+          # including the sync — so the failure comment shows the real cause.
+          { git reset --hard "${{ steps.ctx.outputs.sha }}" \
+              && git clean -fd \
+              && make deploy; } 2>&1 | tee /tmp/wh-deploy.log
 
       - name: Verify backend actually booted
         run: |
