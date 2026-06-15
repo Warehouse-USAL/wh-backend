@@ -21,6 +21,9 @@ services:
       JWT_SECRET: ${JWT_SECRET}
       JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:-86400000}
       SPRING_PROFILES_ACTIVE: prod
+      # Honor X-Forwarded-* (incl. X-Forwarded-Prefix from Caddy) so swagger/api-docs
+      # URLs are generated with the public /api prefix instead of root.
+      SERVER_FORWARD_HEADERS_STRATEGY: framework
     restart: always
     depends_on:
       mongo-init:
