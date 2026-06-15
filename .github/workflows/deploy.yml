@@ -65,6 +65,18 @@ jobs:
           set -o pipefail
           make deploy 2>&1 | tee /tmp/wh-deploy.log
 
+      - name: Verify backend actually booted
+        run: |
+          for i in $(seq 1 24); do
+            if docker logs --since 120s wh-backend-backend-1 2>&1 | grep -qiE 'Started .*Application in'; then
+              echo "backend booted"; exit 0
+            fi
+            sleep 5
+          done
+          echo "backend did not boot within timeout — appending logs:" | tee -a /tmp/wh-deploy.log
+          docker logs --tail 80 wh-backend-backend-1 2>&1 | tail -60 >> /tmp/wh-deploy.log
+          exit 1
+
       - name: Comment — deploy succeeded
         if: success() && steps.ctx.outputs.pr != ''
         run: |
