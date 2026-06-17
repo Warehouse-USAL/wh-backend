@@ -41,8 +41,10 @@ services:
       - wh-proxy
 
   # One-shot: create the replica-set keyFile in a named volume if absent.
+  # All mongo images pinned to 4.4 — the prod box (HP ProLiant) has no AVX, so
+  # mongo:5.0+ crashes with "Illegal instruction". 4.4 supports keyFile+auth+replSet.
   mongo-keyfile:
-    image: mongo:7
+    image: mongo:4.4
     entrypoint:
       - bash
       - -c
@@ -63,8 +65,9 @@ services:
       mongo-keyfile:
         condition: service_completed_successfully
     # Liveness only (ping is allowed pre-auth); replica-set init is handled below.
+    # 4.4 ships the legacy 'mongo' shell, not 'mongosh'.
     healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      test: ["CMD", "mongo", "--quiet", "--eval", "db.adminCommand('ping').ok"]
       interval: 10s
       timeout: 5s
       retries: 15
@@ -73,7 +76,7 @@ services:
 
   # One-shot: initiate the replica set, authenticated as root. Idempotent.
   mongo-init:
-    image: mongo:7
+    image: mongo:4.4
     depends_on:
       mongodb:
         condition: service_healthy
@@ -84,9 +87,9 @@ services:
       - bash
       - -c
       - |
-        mongosh --host mongodb:27017 --quiet \
+        mongo --host mongodb:27017 --quiet \
           -u "$$MONGO_ROOT_USER" -p "$$MONGO_ROOT_PASSWORD" --authenticationDatabase admin \
-          --eval 'try { rs.status() } catch (e) { rs.initiate({_id:"rs0",members:[{_id:0,host:"mongodb:27017"}]}) }'
+          --eval 'var s; try { s = rs.status().ok } catch (e) { s = 0 } if (s !== 1) { rs.initiate({_id:"rs0",members:[{_id:0,host:"mongodb:27017"}]}) }'
     networks:
       - wh-network
     restart: "no"
