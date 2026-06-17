@@ -2,7 +2,6 @@ package com.usal.whbackend.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -51,7 +50,7 @@ class JwtAuthFilterTest {
   }
 
   @Test
-  void invalidToken_returns401AndStopsChain() throws Exception {
+  void invalidToken_doesNotAuthenticateAndContinuesChain() throws Exception {
     MockHttpServletRequest request = new MockHttpServletRequest();
     request.addHeader("Authorization", "Bearer badtoken");
     MockHttpServletResponse response = new MockHttpServletResponse();
@@ -61,8 +60,13 @@ class JwtAuthFilterTest {
 
     filter.doFilter(request, response, chain);
 
-    assertThat(response.getStatus()).isEqualTo(401);
-    verify(chain, never()).doFilter(request, response);
+    // An invalid token must NOT short-circuit with 401 — that would reject even
+    // permitAll/public endpoints when a stale/garbage header is present. The filter
+    // leaves the context unauthenticated and continues; Spring Security authorization
+    // then decides (public paths proceed, protected paths 401 via the entry point).
+    assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+    assertThat(response.getStatus()).isEqualTo(200);
+    verify(chain).doFilter(request, response);
   }
 
   @Test
