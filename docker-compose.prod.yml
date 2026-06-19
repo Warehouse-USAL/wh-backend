@@ -1,26 +1,117 @@
+# Production overlay: docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Differences from dev:
+#  - backend runs the prebuilt GHCR image and joins the shared reverse-proxy net
+#  - MongoDB runs a replica set WITH auth, which requires a keyFile; the keyfile
+#    is generated once into a named volume, and a one-shot initializer runs
+#    rs.initiate() authenticated as root (the dev healthcheck can't, once auth is on)
+#  - stateful data lives in named volumes (no host bind-mount permission issues)
+
 services:
   backend:
     image: ghcr.io/warehouse-usal/wh-backend:latest
     environment:
       SPRING_DATA_MONGODB_URI: ${SPRING_DATA_MONGODB_URI}
+      # Override the dev base's credential-less SPRING_MONGODB_URI so prod doesn't
+      # connect unauthenticated.
+      SPRING_MONGODB_URI: ${SPRING_DATA_MONGODB_URI}
       REDPANDA_BOOTSTRAP_SERVERS: ${REDPANDA_BOOTSTRAP_SERVERS}
+      # Redpanda is Kafka-compatible; the prod profile binds spring.kafka.bootstrap-servers.
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: ${REDPANDA_BOOTSTRAP_SERVERS:-redpanda:9092}
       JWT_SECRET: ${JWT_SECRET}
-      JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:86400000}
+      JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:-86400000}
       SPRING_PROFILES_ACTIVE: prod
+      # Honor X-Forwarded-* (incl. X-Forwarded-Prefix from Caddy) so swagger/api-docs
+      # URLs are generated with the public /api prefix instead of root.
+      SERVER_FORWARD_HEADERS_STRATEGY: framework
+      # The 'prod' profile doesn't load application-docker.yml, so MinIO endpoint/
+      # bucket aren't set there — provide them explicitly (MinioConfig requires them).
+      MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
+      MINIO_BUCKET: ${MINIO_BUCKET:-wh-images}
     restart: always
+    depends_on:
+      mongo-init:
+        condition: service_completed_successfully
+      redpanda:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - wh-network
+      - wh-proxy
+
+  # One-shot: create the replica-set keyFile in a named volume if absent.
+  # All mongo images pinned to 4.4 — the prod box (HP ProLiant) has no AVX, so
+  # mongo:5.0+ crashes with "Illegal instruction". 4.4 supports keyFile+auth+replSet.
+  mongo-keyfile:
+    image: mongo:4.4
+    entrypoint:
+      - bash
+      - -c
+      - 'test -f /keyfile/mongo.key || { openssl rand -base64 756 > /keyfile/mongo.key && chmod 400 /keyfile/mongo.key && chown 999:999 /keyfile/mongo.key; }'
+    volumes:
+      - mongo_keyfile:/keyfile
+    restart: "no"
 
   mongodb:
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+    command: ["--replSet", "rs0", "--bind_ip_all", "--keyFile", "/etc/mongo/mongo.key", "--auth"]
+    volumes:
+      - mongo_data:/data/db
+      - mongo_keyfile:/etc/mongo:ro
+    depends_on:
+      mongo-keyfile:
+        condition: service_completed_successfully
+    # Liveness only (ping is allowed pre-auth); replica-set init is handled below.
+    # 4.4 ships the legacy 'mongo' shell, not 'mongosh'.
+    healthcheck:
+      test: ["CMD", "mongo", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 20s
     restart: always
 
+  # One-shot: initiate the replica set, authenticated as root. Idempotent.
+  mongo-init:
+    image: mongo:4.4
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    environment:
+      MONGO_ROOT_USER: ${MONGO_ROOT_USER}
+      MONGO_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+    entrypoint:
+      - bash
+      - -c
+      - |
+        mongo --host mongodb:27017 --quiet \
+          -u "$$MONGO_ROOT_USER" -p "$$MONGO_ROOT_PASSWORD" --authenticationDatabase admin \
+          --eval 'var s; try { s = rs.status().ok } catch (e) { s = 0 } if (s !== 1) { rs.initiate({_id:"rs0",members:[{_id:0,host:"mongodb:27017"}]}) }'
+    networks:
+      - wh-network
+    restart: "no"
+
   redpanda:
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
     restart: always
 
   minio:
+    volumes:
+      - minio_data:/data
     restart: always
 
 networks:
   wh-network:
     driver: bridge
+  wh-proxy:
+    external: true
+
+volumes:
+  mongo_data:
+  mongo_keyfile:
+  redpanda_data:
+  minio_data:

@@ -27,7 +27,12 @@ services:
     restart: unless-stopped
 
   mongodb:
-    image: mongo:7
+    # Pinned to 4.4 — the last MongoDB line that runs WITHOUT AVX. The prod box
+    # (HP ProLiant, no AVX) crashes mongo:5.0+ with "Illegal instruction". 4.4 is
+    # a verified functional drop-in for our usage (replica set, transactions, the
+    # ProductService aggregation) — see scripts/smoke-mongo.sh. Revisit before any
+    # public exposure: 4.4 is EOL.
+    image: mongo:4.4
     ports:
       - "27017:27017"
     volumes:
@@ -36,10 +41,16 @@ services:
       - wh-network
     command: ["--replSet", "rs0", "--bind_ip_all"]
     healthcheck:
+      # 4.4 ships the legacy 'mongo' shell, not 'mongosh'. Also, on that shell
+      # rs.status() RETURNS {ok:0} on an uninitialised node (mongosh throws), so we
+      # test the .ok value rather than rely on a catch. Reports healthy only once
+      # the node is PRIMARY, so dependents wait for a usable replica set.
       test: |
-        mongosh --eval "
-          try { rs.status().ok } catch(e) { rs.initiate({_id:'rs0',members:[{_id:0,host:'mongodb:27017'}]}) }
-        " --quiet
+        mongo --quiet --eval '
+          var s; try { s = rs.status().ok } catch (e) { s = 0 }
+          if (s !== 1) { rs.initiate({_id: "rs0", members: [{_id: 0, host: "mongodb:27017"}]}); quit(1) }
+          quit(rs.status().myState === 1 ? 0 : 1)
+        '
       interval: 10s
       timeout: 10s
       retries: 10

@@ -1,0 +1,100 @@
+name: Deploy
+
+# Triggered when "Stable Release" finishes. We use workflow_run (not
+# release:published) because releases created by the built-in GITHUB_TOKEN do
+# NOT trigger release events. workflow_dispatch allows manual (re)deploys.
+on:
+  workflow_run:
+    workflows: ["Stable Release"]
+    types: [completed]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy backend to server
+    # Only deploy on a successful release (or a manual dispatch).
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: [self-hosted, prod]
+    environment: production
+    permissions:
+      contents: read
+      packages: read
+      pull-requests: write
+      issues: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      REPO: ${{ github.repository }}
+      HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - name: Resolve commit, tag, and PR
+        id: ctx
+        run: |
+          cd /opt/wh/wh-backend
+          git fetch --tags --force --prune origin
+          # Deploy the current released master tip. workflow_run.head_sha is the
+          # PR's source-branch commit, which isn't fetchable once that branch is
+          # deleted on merge — so resolve the production branch directly.
+          SHA=$(git rev-parse origin/master)
+          TAG=$(git tag --points-at "$SHA" | grep -E '^v' | head -1)
+          [ -n "$TAG" ] || TAG="${SHA:0:7}"
+          PR=$(curl -fsS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+                "https://api.github.com/repos/$REPO/commits/$SHA/pulls" | jq -r '.[0].number // empty')
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "pr=$PR"   >> "$GITHUB_OUTPUT"
+          echo "deploying $SHA ($TAG); PR=${PR:-none}"
+
+      - name: Comment — deploy started
+        if: steps.ctx.outputs.pr != ''
+        run: |
+          body=$(printf '🚀 **Deploy started** — `%s` → server.\n\n[Watch the run](%s)' "${{ steps.ctx.outputs.tag }}" "$RUN_URL")
+          jq -nc --arg b "$body" '{body:$b}' | curl -fsS -X POST -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/$REPO/issues/${{ steps.ctx.outputs.pr }}/comments" -d @-
+
+      - name: Log in to GHCR
+        run: echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Deploy
+        id: deploy
+        run: |
+          cd /opt/wh/wh-backend
+          set -o pipefail
+          # Force-sync to the exact released commit (reset --hard, not checkout) so
+          # local drift can never block the deploy. Capture the whole thing —
+          # including the sync — so the failure comment shows the real cause.
+          { git reset --hard "${{ steps.ctx.outputs.sha }}" \
+              && git clean -fd \
+              && make deploy; } 2>&1 | tee /tmp/wh-deploy.log
+
+      - name: Verify backend actually booted
+        run: |
+          for i in $(seq 1 24); do
+            if docker logs --since 120s wh-backend-backend-1 2>&1 | grep -qiE 'Started .*Application in'; then
+              echo "backend booted"; exit 0
+            fi
+            sleep 5
+          done
+          echo "backend did not boot within timeout — appending logs:" | tee -a /tmp/wh-deploy.log
+          docker logs --tail 80 wh-backend-backend-1 2>&1 | tail -60 >> /tmp/wh-deploy.log
+          exit 1
+
+      - name: Comment — deploy succeeded
+        if: success() && steps.ctx.outputs.pr != ''
+        run: |
+          img=$(docker inspect -f '{{.Image}}' wh-backend-backend-1 2>/dev/null || echo unknown)
+          body=$(printf '✅ **Deploy succeeded** — `%s` is live.\nBackend image: `%s`\n\n[Run](%s)' "${{ steps.ctx.outputs.tag }}" "$img" "$RUN_URL")
+          jq -nc --arg b "$body" '{body:$b}' | curl -fsS -X POST -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/$REPO/issues/${{ steps.ctx.outputs.pr }}/comments" -d @-
+
+      - name: Comment — deploy failed
+        if: failure() && steps.ctx.outputs.pr != ''
+        run: |
+          log=$(tail -c 2500 /tmp/wh-deploy.log 2>/dev/null || echo 'no deploy log captured')
+          body=$(printf '❌ **Deploy FAILED** — `%s`.\n\n```\n%s\n```\n\n[Run](%s)' "${{ steps.ctx.outputs.tag }}" "$log" "$RUN_URL")
+          jq -nc --arg b "$body" '{body:$b}' | curl -fsS -X POST -H "Authorization: Bearer $GH_TOKEN" \
+            "https://api.github.com/repos/$REPO/issues/${{ steps.ctx.outputs.pr }}/comments" -d @-

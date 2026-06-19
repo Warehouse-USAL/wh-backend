@@ -33,19 +33,20 @@ public class JwtAuthFilter extends OncePerRequestFilter {
     }
 
     String token = authHeader.substring(7);
-    if (!jwtService.isTokenValid(token)) {
-      response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-      return;
+    // Only establish authentication when the token is valid. Do NOT short-circuit with a 401 on an
+    // invalid token — that would reject even permitAll/public endpoints (e.g. public file serving)
+    // whenever a stale/garbage Authorization header is present. Leaving the context unauthenticated
+    // lets Spring Security's authorization rules decide: public paths proceed, protected paths 401.
+    if (jwtService.isTokenValid(token)) {
+      String userId = jwtService.extractUserId(token);
+      String role = jwtService.extractRole(token);
+
+      UsernamePasswordAuthenticationToken auth =
+          new UsernamePasswordAuthenticationToken(
+              userId, null, List.of(new SimpleGrantedAuthority("ROLE_" + role)));
+      auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
+      SecurityContextHolder.getContext().setAuthentication(auth);
     }
-
-    String userId = jwtService.extractUserId(token);
-    String role = jwtService.extractRole(token);
-
-    UsernamePasswordAuthenticationToken auth =
-        new UsernamePasswordAuthenticationToken(
-            userId, null, List.of(new SimpleGrantedAuthority("ROLE_" + role)));
-    auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
-    SecurityContextHolder.getContext().setAuthentication(auth);
 
     filterChain.doFilter(request, response);
   }

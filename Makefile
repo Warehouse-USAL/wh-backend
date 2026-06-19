@@ -1,4 +1,4 @@
-.PHONY: help up-dev run up-prod up-infra down build test test-coverage lint format format-fix pr-checks logs clean
+.PHONY: help up-dev run up-prod up-infra deploy down build test test-coverage lint format format-fix pr-checks logs clean
 
 .DEFAULT_GOAL := help
 
@@ -33,6 +33,11 @@ run: up-dev ## Alias for up-dev
 up-prod: ## Start services in production mode (requires env vars set)
 	docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 	@echo "Production services started on port 8080"
+
+deploy: ## Pull the newest backend image and restart ONLY the backend (data services untouched)
+	docker compose -f docker-compose.yml -f docker-compose.prod.yml pull backend
+	docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d backend
+	@echo "Backend redeployed"
 
 up-infra: ## Start only MongoDB, Redpanda and MinIO (for local Gradle development)
 	docker compose up mongodb redpanda minio -d
