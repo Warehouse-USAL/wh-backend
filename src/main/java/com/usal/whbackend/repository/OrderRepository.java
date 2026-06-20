@@ -48,6 +48,10 @@ public class OrderRepository {
     return saved;
   }
 
+  public Order update(Order order) {
+    return mongo.save(order);
+  }
+
   public Order cancel(Order order, String reason) {
     order.setCancelReason(reason);
     order.setStatus(OrderStatus.CANCELLED);
