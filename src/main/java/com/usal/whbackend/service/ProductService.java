@@ -205,6 +205,10 @@ public class ProductService {
     product.setMaxQuantityPerOrder(
         request.maxQuantityPerOrder() != null ? request.maxQuantityPerOrder() : 0);
     product.setMinimumStock(request.minimumStock() != null ? request.minimumStock() : 0);
+    product.setHeight(request.height() != null ? request.height() : 0.0);
+    product.setWidth(request.width() != null ? request.width() : 0.0);
+    product.setLength(request.length() != null ? request.length() : 0.0);
+    product.setWeight(request.weight() != null ? request.weight() : 0.0);
     product.setActive(true);
     product.setCreatedAt(Instant.now());
     try {
@@ -284,6 +288,10 @@ public class ProductService {
       product.setMaxQuantityPerOrder(request.maxQuantityPerOrder());
     if (request.minimumStock() != null) product.setMinimumStock(request.minimumStock());
     if (request.isActive() != null) product.setActive(request.isActive());
+    if (request.height() != null) product.setHeight(request.height());
+    if (request.width() != null) product.setWidth(request.width());
+    if (request.length() != null) product.setLength(request.length());
+    if (request.weight() != null) product.setWeight(request.weight());
     Product saved = productRepository.save(product);
     return ProductResponse.from(saved, computeAvailableStock(id), computeReservedStock(id));
   }
