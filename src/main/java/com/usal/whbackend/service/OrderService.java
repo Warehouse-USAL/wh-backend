@@ -201,6 +201,7 @@ public class OrderService {
     return cancelled;
   }
 
+  @Transactional
   public Order assignVehicle(String orderId, String vehicleId) {
     Order order =
         orderRepository
@@ -217,6 +218,12 @@ public class OrderService {
             .findById(vehicleId)
             .orElseThrow(
                 () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "VEHICLE_NOT_FOUND"));
+
+    if (vehicle.getStatus() == VehicleStatus.BUSY
+        && vehicle.getCurrentOrderId() != null
+        && !vehicle.getCurrentOrderId().equals(orderId)) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "VEHICLE_ALREADY_BUSY");
+    }
 
     String previousVehicleId = order.getAssignedVehicleId();
     if (previousVehicleId != null && !previousVehicleId.equals(vehicleId)) {
