@@ -71,4 +71,27 @@ public class PositionController {
     positionService.deletePosition(id);
     return ResponseEntity.noContent().build();
   }
+
+  @PostMapping("/warehouse/positions/validate-fit")
+  public ResponseEntity<FitValidationResponse> validateFit(
+      @Valid @RequestBody ValidateFitRequest request) {
+    Product product = productRepository.findById(request.productId())
+        .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(HttpStatus.NOT_FOUND, "PRODUCT_NOT_FOUND"));
+    if (!product.isActive()) {
+      throw new org.springframework.web.server.ResponseStatusException(HttpStatus.NOT_FOUND, "PRODUCT_NOT_FOUND");
+    }
+    double productVolume = product.getVolume();
+    double containerVolume = request.size().getVolumeCm3();
+    double requiredVolume = productVolume * request.quantity();
+    boolean fits = requiredVolume <= containerVolume;
+    int maxQuantityAllowed = productVolume > 0 ? (int) (containerVolume / productVolume) : 0;
+
+    return ResponseEntity.ok(new FitValidationResponse(
+        fits,
+        productVolume,
+        containerVolume,
+        requiredVolume,
+        maxQuantityAllowed
+    ));
+  }
 }

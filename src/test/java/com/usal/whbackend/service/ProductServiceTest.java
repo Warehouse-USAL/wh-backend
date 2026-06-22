@@ -191,7 +191,7 @@ class ProductServiceTest {
     ProductResponse result =
         productService.createProduct(
             new CreateProductRequest(
-                "SKU-001", "Widget", "A widget", "HERRAMIENTAS", null, null, null, 10, 5));
+                "SKU-001", "Widget", "A widget", "HERRAMIENTAS", null, null, null, 10, 5, 10.0, 10.0, 10.0, 1.0));
 
     assertNotNull(result);
     verify(productRepository).save(any());
@@ -206,7 +206,7 @@ class ProductServiceTest {
             () ->
                 productService.createProduct(
                     new CreateProductRequest(
-                        "SKU-001", "Widget", null, "HERRAMIENTAS", null, null, null, 10, 5)));
+                        "SKU-001", "Widget", null, "HERRAMIENTAS", null, null, null, 10, 5, 10.0, 10.0, 10.0, 1.0)));
     assertEquals(409, ex.getStatusCode().value());
   }
 
@@ -220,7 +220,7 @@ class ProductServiceTest {
             () ->
                 productService.createProduct(
                     new CreateProductRequest(
-                        "SKU-002", "Widget", null, "HERRAMIENTAS", null, null, null, 10, 5)));
+                        "SKU-002", "Widget", null, "HERRAMIENTAS", null, null, null, 10, 5, 10.0, 10.0, 10.0, 1.0)));
     assertEquals(409, ex.getStatusCode().value());
   }
 
@@ -235,7 +235,7 @@ class ProductServiceTest {
     mockZeroSingleReservedStock();
 
     productService.updateProduct(
-        "1", new UpdateProductRequest("NewName", null, null, null, null, null, null, null, null));
+        "1", new UpdateProductRequest("NewName", null, null, null, null, null, null, null, null, null, null, null, null));
 
     verify(productRepository).save(any());
   }
@@ -248,7 +248,7 @@ class ProductServiceTest {
         () ->
             productService.updateProduct(
                 "none",
-                new UpdateProductRequest(null, null, null, null, null, null, null, null, null)));
+                new UpdateProductRequest(null, null, null, null, null, null, null, null, null, null, null, null, null)));
   }
 
   // ── deleteProduct ──────────────────────────────────────────────────────────
@@ -322,7 +322,7 @@ class ProductServiceTest {
     var update = new UpdateProductRequest(
         null, null, null,
         List.of(new CreateProductRequest.ImageRequest("/api/v1/files/images/keep.jpg", null, true)),
-        null, null, null, null, null);
+        null, null, null, null, null, null, null, null, null);
 
     productService.updateProduct("1", update);
 
@@ -340,7 +340,7 @@ class ProductServiceTest {
     mockZeroSingleReservedStock();
 
     var update = new UpdateProductRequest(
-        "NewName", null, null, null, null, null, null, null, null);
+        "NewName", null, null, null, null, null, null, null, null, null, null, null, null);
 
     productService.updateProduct("1", update);
 
@@ -358,7 +358,7 @@ class ProductServiceTest {
             () ->
                 productService.createProduct(
                     new CreateProductRequest(
-                        "SKU-001", "Widget", null, "INVENTADO", null, null, null, 0, 0)));
+                        "SKU-001", "Widget", null, "INVENTADO", null, null, null, 0, 0, 10.0, 10.0, 10.0, 1.0)));
     assertEquals(400, ex.getStatusCode().value());
     assertEquals("INVALID_CATEGORY", ex.getReason());
   }
@@ -374,7 +374,7 @@ class ProductServiceTest {
                 productService.updateProduct(
                     "1",
                     new UpdateProductRequest(
-                        null, null, "INVENTADO", null, null, null, null, null, null)));
+                        null, null, "INVENTADO", null, null, null, null, null, null, null, null, null, null)));
     assertEquals(400, ex.getStatusCode().value());
     assertEquals("INVALID_CATEGORY", ex.getReason());
   }

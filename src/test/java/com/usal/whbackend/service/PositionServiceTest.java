@@ -47,7 +47,7 @@ class PositionServiceTest {
     p.setPositionName("P01");
     p.setMaximumCapacity(100);
     p.setCurrentStock(0);
-    p.setSizeStockToSave(StockSize.MEDIANO);
+    p.setSizeStockToSave(StockSize.MEDIO_PALLET);
     p.setActive(false);
     return p;
   }
@@ -72,7 +72,7 @@ class PositionServiceTest {
     when(positionRepository.save(any())).thenReturn(saved);
     Position result =
         positionService.createPosition(
-            "l1", new CreatePositionRequest("P01", 100, StockSize.MEDIANO));
+            "l1", new CreatePositionRequest("P01", 100, StockSize.MEDIO_PALLET));
     assertEquals("z1", result.getIdZone());
   }
 
@@ -118,5 +118,52 @@ class PositionServiceTest {
     when(positionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
     positionService.deletePosition("p1");
     verify(positionRepository).save(argThat(saved -> !((Position) saved).isActive()));
+  }
+
+  @Test
+  void updatePosition_stockExceedsVolumeCapacity_throws() {
+    Position p = position("p1", "l1", "z1");
+    p.setProductId("product-1");
+    p.setSizeStockToSave(StockSize.MEDIO_PALLET); // 900,000 cm3
+    p.setMaximumCapacity(200);
+    p.setCurrentStock(10);
+
+    com.usal.whbackend.domain.Product prod = new com.usal.whbackend.domain.Product();
+    prod.setId("product-1");
+    prod.setHeight(100.0);
+    prod.setWidth(100.0);
+    prod.setLength(10.0); // Volume = 100,000 cm3 per unit
+
+    when(positionRepository.findById("p1")).thenReturn(Optional.of(p));
+    when(productRepository.findById("product-1")).thenReturn(Optional.of(prod));
+
+    UpdatePositionRequest req = new UpdatePositionRequest(null, null, 10, null, null, null);
+
+    assertThrows(
+        StockExceedsCapacityException.class, () -> positionService.updatePosition("p1", req));
+  }
+
+  @Test
+  void updatePosition_stockFitsVolumeCapacity_updatesStock() {
+    Position p = position("p1", "l1", "z1");
+    p.setProductId("product-1");
+    p.setSizeStockToSave(StockSize.MEDIO_PALLET); // 900,000 cm3
+    p.setMaximumCapacity(200);
+    p.setCurrentStock(5);
+
+    com.usal.whbackend.domain.Product prod = new com.usal.whbackend.domain.Product();
+    prod.setId("product-1");
+    prod.setHeight(100.0);
+    prod.setWidth(100.0);
+    prod.setLength(10.0); // Volume = 100,000 cm3 per unit
+
+    when(positionRepository.findById("p1")).thenReturn(Optional.of(p));
+    when(productRepository.findById("product-1")).thenReturn(Optional.of(prod));
+    when(positionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    UpdatePositionRequest req = new UpdatePositionRequest(null, null, 5, null, null, null);
+    Position result = positionService.updatePosition("p1", req);
+
+    assertEquals(5, result.getCurrentStock());
   }
 }

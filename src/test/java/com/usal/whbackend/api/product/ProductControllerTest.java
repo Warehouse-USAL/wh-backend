@@ -52,7 +52,12 @@ class ProductControllerTest {
             new ProductResponse.Stock(10, 0, 0),
             new ProductResponse.OrderConstraints(0),
             true,
-            null);
+            null,
+            10.0,
+            10.0,
+            10.0,
+            1.0,
+            1000.0);
   }
 
   @Test
@@ -89,7 +94,7 @@ class ProductControllerTest {
         .perform(
             post("/products")
                 .contentType("application/json")
-                .content("{\"sku\":\"SKU-001\",\"name\":\"Test\",\"category\":\"TECNOLOGIA\"}"))
+                .content("{\"sku\":\"SKU-001\",\"name\":\"Test\",\"category\":\"TECNOLOGIA\",\"height\":10.0,\"width\":10.0,\"length\":10.0,\"weight\":1.0}"))
         .andExpect(status().isCreated())
         .andExpect(jsonPath("$.product").exists())
         .andExpect(jsonPath("$.product.sku").value("SKU-001"));
@@ -134,7 +139,12 @@ class ProductControllerTest {
             new ProductResponse.Stock(50, 0, 10),
             new ProductResponse.OrderConstraints(5),
             true,
-            Instant.parse("2026-01-01T00:00:00Z"));
+            Instant.parse("2026-01-01T00:00:00Z"),
+            10.0,
+            10.0,
+            10.0,
+            1.0,
+            1000.0);
 
     when(productService.getProduct(anyString(), any())).thenReturn(product);
 
@@ -174,7 +184,12 @@ class ProductControllerTest {
             new ProductResponse.Stock(100, 0, 20),
             new ProductResponse.OrderConstraints(10),
             true,
-            Instant.parse("2026-01-01T00:00:00Z"));
+            Instant.parse("2026-01-01T00:00:00Z"),
+            10.0,
+            10.0,
+            10.0,
+            1.0,
+            1000.0);
 
     ArgumentCaptor<CreateProductRequest> captor =
         ArgumentCaptor.forClass(CreateProductRequest.class);
@@ -192,7 +207,8 @@ class ProductControllerTest {
                         + "\"tax_included\":false},"
                         + "\"specs\":[{\"label\":\"Marca\",\"value\":\"Acme\"}],"
                         + "\"max_quantity_per_order\":10,"
-                        + "\"minimum_stock\":20}"))
+                        + "\"minimum_stock\":20,"
+                        + "\"height\":10.0,\"width\":10.0,\"length\":10.0,\"weight\":1.0}"))
         .andExpect(status().isCreated())
         .andExpect(jsonPath("$.product.images[0].url").value("https://example.com/tool.png"))
         .andExpect(jsonPath("$.product.price.amount_cents").value(1500000))
