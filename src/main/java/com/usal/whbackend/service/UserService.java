@@ -80,18 +80,39 @@ public class UserService {
   }
 
   public void changeMyPassword(String userId, com.usal.whbackend.api.user.ChangePasswordRequest request) {
-  User user = userRepository.findById(userId)
-      .orElseThrow(() -> new UserNotFoundException(userId));
+    User user = userRepository.findById(userId)
+        .orElseThrow(() -> new UserNotFoundException(userId));
 
-  if (!passwordEncoder.matches(request.currentPassword(), user.getPasswordHash())) {
-    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "WRONG_CURRENT_PASSWORD");
-  }
+    if (!passwordEncoder.matches(request.currentPassword(), user.getPasswordHash())) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "WRONG_CURRENT_PASSWORD");
+    }
 
-  if (passwordEncoder.matches(request.newPassword(), user.getPasswordHash())) {
-    throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "SAME_PASSWORD");
-  }
+    if (passwordEncoder.matches(request.newPassword(), user.getPasswordHash())) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "SAME_PASSWORD");
+    }
 
-  user.setPasswordHash(passwordEncoder.encode(request.newPassword()));
-  userRepository.save(user);
+    user.setPasswordHash(passwordEncoder.encode(request.newPassword()));
+    userRepository.save(user);
   } 
+
+  public User updateMe(String userId, com.usal.whbackend.api.user.UpdateMeRequest request) {
+    User user = userRepository.findById(userId)
+        .orElseThrow(() -> new UserNotFoundException(userId));
+
+    if (request.name() != null) {
+      user.setName(request.name());
+    }
+
+    if (request.address() != null) {
+      com.usal.whbackend.domain.Address address = new com.usal.whbackend.domain.Address();
+      address.setStreet(request.address().street());
+      address.setDepartment(request.address().department());
+      address.setFloor(request.address().floor());
+      address.setPostalCode(request.address().postalCode());
+      user.setAddress(address);
+    }
+
+  return userRepository.save(user);
+  }
+
 }

@@ -18,6 +18,8 @@ public class User {
   private boolean active;
   private String passwordHash;
   private Instant createdAt;
+  private Address address;
+
 
   public User() {}
 
@@ -43,6 +45,14 @@ public class User {
 
   public void setName(String name) {
     this.name = name;
+  }
+
+  public Address getAddress() { 
+    return address; 
+  }
+
+  public void setAddress(Address address) {
+     this.address = address; 
   }
 
   public UserRole getRole() {
