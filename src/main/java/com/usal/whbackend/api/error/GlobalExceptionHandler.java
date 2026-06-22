@@ -63,7 +63,13 @@ public class GlobalExceptionHandler {
           Map.entry(
               "MISSING_ADDRESS_POSTAL_CODE",
               "El campo código postal (postal_code) es obligatorio."),
-          Map.entry("INVALID_CATEGORY", "La categoría indicada no existe."));
+          Map.entry("INVALID_CATEGORY", "La categoría indicada no existe."),
+          Map.entry("VEHICLE_NOT_FOUND", "El vehículo solicitado no existe."),
+          Map.entry(
+              "ORDER_NOT_ASSIGNABLE", "La orden no puede ser asignada en su estado actual."),
+          Map.entry(
+              "VEHICLE_ALREADY_BUSY",
+              "El vehículo ya está asignado a otra orden en progreso."));
 
   @ExceptionHandler(AccessDeniedException.class)
   public ResponseEntity<ErrorResponse> handleAccessDenied(AccessDeniedException ex) {

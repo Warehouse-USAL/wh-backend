@@ -10,8 +10,11 @@ import com.usal.whbackend.api.order.CreateOrderRequest.OrderItemRequest;
 import com.usal.whbackend.domain.Order;
 import com.usal.whbackend.domain.OrderStatus;
 import com.usal.whbackend.domain.Product;
+import com.usal.whbackend.domain.Vehicle;
+import com.usal.whbackend.domain.VehicleStatus;
 import com.usal.whbackend.repository.OrderRepository;
 import com.usal.whbackend.repository.ProductRepository;
+import com.usal.whbackend.repository.VehicleRepository;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -32,6 +35,7 @@ class OrderServiceTest {
   @Mock OrderRepository orderRepository;
   @Mock ProductRepository productRepository;
   @Mock ProductService productService;
+  @Mock VehicleRepository vehicleRepository;
   @Mock OrderEventPublisher orderEventPublisher;
   @Mock StockEventPublisher stockEventPublisher;
   OrderService orderService;
@@ -43,6 +47,7 @@ class OrderServiceTest {
             orderRepository,
             productRepository,
             productService,
+            vehicleRepository,
             List.of(orderEventPublisher),
             List.of(stockEventPublisher));
   }
@@ -343,5 +348,132 @@ class OrderServiceTest {
 
     assertEquals(400, ex.getStatusCode().value());
     assertEquals("INSUFFICIENT_STOCK", ex.getReason());
+  }
+
+  // ── assignVehicle ──────────────────────────────────────────────────────────
+
+  @Test
+  void assignVehicle_pendingOrder_setsInProgressAndStartedAt() {
+    Order order = new Order();
+    order.setId("order-1");
+    order.setStatus(OrderStatus.PENDING);
+
+    Vehicle vehicle = new Vehicle();
+    vehicle.setId("vehicle-1");
+
+    Order saved = new Order();
+    saved.setId("order-1");
+    saved.setStatus(OrderStatus.IN_PROGRESS);
+    saved.setAssignedVehicleId("vehicle-1");
+
+    when(orderRepository.findById("order-1")).thenReturn(Optional.of(order));
+    when(vehicleRepository.findById("vehicle-1")).thenReturn(Optional.of(vehicle));
+    when(orderRepository.update(any())).thenReturn(saved);
+
+    Order result = orderService.assignVehicle("order-1", "vehicle-1");
+
+    assertEquals(OrderStatus.IN_PROGRESS, result.getStatus());
+    assertEquals("vehicle-1", result.getAssignedVehicleId());
+    verify(vehicleRepository).save(vehicle);
+    assertEquals(VehicleStatus.BUSY, vehicle.getStatus());
+    assertEquals("order-1", vehicle.getCurrentOrderId());
+    verify(orderEventPublisher).broadcastOrderUpdate(saved);
+  }
+
+  @Test
+  void assignVehicle_inProgressOrder_doesNotResetStartedAt() {
+    Instant originalStart = Instant.parse("2026-01-01T00:00:00Z");
+    Order order = new Order();
+    order.setId("order-1");
+    order.setStatus(OrderStatus.IN_PROGRESS);
+    order.setStartedAt(originalStart);
+    order.setAssignedVehicleId("vehicle-old");
+
+    Vehicle newVehicle = new Vehicle();
+    newVehicle.setId("vehicle-2");
+
+    Vehicle oldVehicle = new Vehicle();
+    oldVehicle.setId("vehicle-old");
+
+    Order saved = new Order();
+    saved.setId("order-1");
+    saved.setStatus(OrderStatus.IN_PROGRESS);
+
+    when(orderRepository.findById("order-1")).thenReturn(Optional.of(order));
+    when(vehicleRepository.findById("vehicle-2")).thenReturn(Optional.of(newVehicle));
+    when(vehicleRepository.findById("vehicle-old")).thenReturn(Optional.of(oldVehicle));
+    when(orderRepository.update(any())).thenReturn(saved);
+
+    orderService.assignVehicle("order-1", "vehicle-2");
+
+    assertEquals(originalStart, order.getStartedAt());
+    assertEquals(VehicleStatus.IDLE, oldVehicle.getStatus());
+    assertNull(oldVehicle.getCurrentOrderId());
+    verify(vehicleRepository).save(oldVehicle);
+  }
+
+  @Test
+  void assignVehicle_orderNotFound_throws404() {
+    when(orderRepository.findById("missing")).thenReturn(Optional.empty());
+
+    ResponseStatusException ex =
+        assertThrows(
+            ResponseStatusException.class,
+            () -> orderService.assignVehicle("missing", "vehicle-1"));
+
+    assertEquals(404, ex.getStatusCode().value());
+    assertEquals("ORDER_NOT_FOUND", ex.getReason());
+  }
+
+  @Test
+  void assignVehicle_vehicleNotFound_throws404() {
+    Order order = new Order();
+    order.setId("order-1");
+    order.setStatus(OrderStatus.PENDING);
+
+    when(orderRepository.findById("order-1")).thenReturn(Optional.of(order));
+    when(vehicleRepository.findById("vehicle-x")).thenReturn(Optional.empty());
+
+    ResponseStatusException ex =
+        assertThrows(
+            ResponseStatusException.class,
+            () -> orderService.assignVehicle("order-1", "vehicle-x"));
+
+    assertEquals(404, ex.getStatusCode().value());
+    assertEquals("VEHICLE_NOT_FOUND", ex.getReason());
+  }
+
+  @Test
+  void assignVehicle_completedOrder_throws409() {
+    Order order = new Order();
+    order.setId("order-1");
+    order.setStatus(OrderStatus.COMPLETED);
+
+    when(orderRepository.findById("order-1")).thenReturn(Optional.of(order));
+
+    ResponseStatusException ex =
+        assertThrows(
+            ResponseStatusException.class,
+            () -> orderService.assignVehicle("order-1", "vehicle-1"));
+
+    assertEquals(409, ex.getStatusCode().value());
+    assertEquals("ORDER_NOT_ASSIGNABLE", ex.getReason());
+  }
+
+  @Test
+  void assignVehicle_cancelledOrder_throws409() {
+    Order order = new Order();
+    order.setId("order-1");
+    order.setStatus(OrderStatus.CANCELLED);
+
+    when(orderRepository.findById("order-1")).thenReturn(Optional.of(order));
+
+    ResponseStatusException ex =
+        assertThrows(
+            ResponseStatusException.class,
+            () -> orderService.assignVehicle("order-1", "vehicle-1"));
+
+    assertEquals(409, ex.getStatusCode().value());
+    assertEquals("ORDER_NOT_ASSIGNABLE", ex.getReason());
   }
 }
