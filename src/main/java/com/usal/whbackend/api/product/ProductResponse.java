@@ -72,7 +72,7 @@ public record ProductResponse(
         images,
         price,
         specs,
-        new Stock(availableStock, reservedStock, product.getMinimumStock()),
+        new Stock(availableStock - reservedStock, reservedStock, product.getMinimumStock()),
         new OrderConstraints(product.getMaxQuantityPerOrder()),
         product.isActive(),
         product.getCreatedAt(),
