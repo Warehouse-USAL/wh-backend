@@ -116,7 +116,7 @@ public class UserController {
         user.getName(),
         user.getRole().name(),
         user.isActive(),
-        user.getCreatedAt()
+        user.getCreatedAt(),
         user.getAddress());
   }
 
