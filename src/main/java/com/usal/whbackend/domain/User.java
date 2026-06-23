@@ -79,11 +79,13 @@ public class User {
     this.createdAt = createdAt;
   }
 
-  public Address getAddress() { 
-    return address; 
+  public Address getAddress() {
+    return address == null ? null : new Address(
+        address.street(), address.department(), address.floor(), address.postalCode());
   }
-  
-  public void setAddress(Address address) { 
-    this.address = address;
+
+  public void setAddress(Address address) {
+    this.address = address == null ? null : new Address(
+        address.street(), address.department(), address.floor(), address.postalCode());
   }
 }
