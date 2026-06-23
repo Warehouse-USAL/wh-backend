@@ -35,6 +35,7 @@ class InternalOrderControllerSecurityTest {
   @MockitoBean JwtService jwtService;
 
   private static final String BODY = "{\"vehicle_id\":\"vehicle-1\"}";
+  private static final String STATUS_BODY = "{\"status\":\"completed\"}";
 
   @BeforeEach
   void setUp() {
@@ -94,6 +95,51 @@ class InternalOrderControllerSecurityTest {
             patch("/internal/orders/order-1/assign-vehicle")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(BODY))
+        .andExpect(status().isOk());
+  }
+
+  @Test
+  void changeStatus_withNoToken_returns401() throws Exception {
+    mockMvc
+        .perform(
+            patch("/internal/orders/order-1/status")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(STATUS_BODY))
+        .andExpect(status().isUnauthorized());
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_SALES")
+  void changeStatus_withAdminSales_returns403() throws Exception {
+    mockMvc
+        .perform(
+            patch("/internal/orders/order-1/status")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(STATUS_BODY))
+        .andExpect(status().isForbidden());
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void changeStatus_withAdminWarehouse_returns200() throws Exception {
+    when(orderService.changeStatus(anyString(), anyString())).thenReturn(new Order());
+    mockMvc
+        .perform(
+            patch("/internal/orders/order-1/status")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(STATUS_BODY))
+        .andExpect(status().isOk());
+  }
+
+  @Test
+  @WithMockUser(roles = "SUPERADMIN")
+  void changeStatus_withSuperadmin_returns200() throws Exception {
+    when(orderService.changeStatus(anyString(), anyString())).thenReturn(new Order());
+    mockMvc
+        .perform(
+            patch("/internal/orders/order-1/status")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(STATUS_BODY))
         .andExpect(status().isOk());
   }
 }

@@ -78,4 +78,24 @@ class InternalOrderControllerTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.order").exists());
   }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void changeStatus_returns200WithUpdatedOrder() throws Exception {
+    Order completed = new Order();
+    completed.setId("order-1");
+    completed.setStatus(OrderStatus.COMPLETED);
+    completed.setRequestedByUserId("user-1");
+    completed.setItems(List.of());
+    completed.setCreatedAt(Instant.now());
+    when(orderService.changeStatus(eq("order-1"), eq("completed"))).thenReturn(completed);
+
+    mockMvc
+        .perform(
+            patch("/internal/orders/order-1/status")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"status\":\"completed\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.order.status").value("completed"));
+  }
 }
