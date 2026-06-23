@@ -18,6 +18,8 @@ public class User {
   private boolean active;
   private String passwordHash;
   private Instant createdAt;
+  private Address address;
+
 
   public User() {}
 
@@ -75,5 +77,13 @@ public class User {
 
   public void setCreatedAt(Instant createdAt) {
     this.createdAt = createdAt;
+  }
+
+  public Address getAddress() {
+    return address == null ? null : new Address(address);
+  }
+
+  public void setAddress(Address address) {
+    this.address = address == null ? null : new Address(address);
   }
 }
