@@ -110,14 +110,7 @@ public class UserController {
   }
 
   private UserResponse toResponse(User user) {
-    return new UserResponse(
-        user.getId(),
-        user.getEmail(),
-        user.getName(),
-        user.getRole().name(),
-        user.isActive(),
-        user.getCreatedAt(),
-        user.getAddress());
+    return UserResponse.from(user);
   }
 
  @Operation(summary = "Self-service change password")
