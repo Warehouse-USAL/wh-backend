@@ -42,4 +42,23 @@ public class InternalOrderController {
     return ResponseEntity.ok(
         Map.of("order", OrderResponse.from(orderService.assignVehicle(id, request.vehicleId()))));
   }
+
+  @Operation(
+      summary = "Change order status",
+      description =
+          "Forces an order into the given status (in_progress, completed, or cancelled),"
+              + " simulating the asynchronous transition that would normally arrive via Kafka."
+              + " Completing an order drains its stock. Reverting to pending is rejected, and"
+              + " orders already completed or cancelled cannot be modified.")
+  @ApiResponse(responseCode = "200", description = "Status changed")
+  @ApiResponse(responseCode = "400", description = "INVALID_STATUS or INVALID_STATUS_TRANSITION")
+  @ApiResponse(responseCode = "404", description = "ORDER_NOT_FOUND")
+  @ApiResponse(responseCode = "409", description = "ORDER_NOT_MODIFIABLE")
+  @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_WAREHOUSE')")
+  @PatchMapping("/{id}/status")
+  public ResponseEntity<Map<String, OrderResponse>> changeStatus(
+      @PathVariable String id, @RequestBody ChangeOrderStatusRequest request) {
+    return ResponseEntity.ok(
+        Map.of("order", OrderResponse.from(orderService.changeStatus(id, request.status()))));
+  }
 }
