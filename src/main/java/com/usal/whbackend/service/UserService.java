@@ -104,11 +104,12 @@ public class UserService {
     }
 
     if (request.address() != null) {
-      user.setAddress(new com.usal.whbackend.domain.Address(
-          request.address().street(),
-          request.address().department(),
-          request.address().floor(),
-          request.address().postalCode()));
+      com.usal.whbackend.domain.Address address = new com.usal.whbackend.domain.Address();
+      address.setStreet(request.address().street());
+      address.setDepartment(request.address().department());
+      address.setFloor(request.address().floor());
+      address.setPostalCode(request.address().postalCode());
+      user.setAddress(address);
     }
 
     return userRepository.save(user);
