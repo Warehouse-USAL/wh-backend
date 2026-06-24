@@ -146,6 +146,20 @@ MongoDB and Redpanda data is persisted to `data/` at the project root (bind-moun
 
 ---
 
+## Demo data
+
+To populate a **fresh** database with a complete, interconnected demo dataset — users across every role, a product catalog, a stocked warehouse, vehicles, and orders in every state — set `SEED_DEMO=true` before the first boot:
+
+```bash
+SEED_DEMO=true make up-dev
+```
+
+It runs once on startup and is **idempotent**: if products already exist it does nothing, so it is safe across restarts and off by default (it can never fire on an existing database unless you opt in). To re-seed, reset the database first (`make down` and delete `data/`, or drop the Mongo database) and boot again.
+
+Login credentials for the seeded accounts are listed in [docs/demo-credentials.md](docs/demo-credentials.md) (shared password `Demo1234!`).
+
+---
+
 ## Environment configuration
 
 Copy `src/main/resources/application.yml.example` to `application.yml` and adjust as needed. This file is gitignored — never commit secrets.

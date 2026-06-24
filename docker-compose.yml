@@ -12,6 +12,10 @@ services:
       SPRING_PROFILES_ACTIVE: dev,docker
       ADMIN_EMAIL: ${ADMIN_EMAIL}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      # Set SEED_DEMO=true against a FRESH database to seed a full, interconnected
+      # demo dataset on first boot (idempotent; off by default). The prod overlay
+      # inherits this var. See docs/demo-credentials.md.
+      SEED_DEMO: ${SEED_DEMO:-false}
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
       MINIO_BUCKET: ${MINIO_BUCKET:-wh-images}
