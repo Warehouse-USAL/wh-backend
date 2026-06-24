@@ -4,10 +4,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
+import com.usal.whbackend.api.internal.vehicle.PatchVehicleRequest;
 import com.usal.whbackend.api.vehicle.RegisterVehicleRequest;
 import com.usal.whbackend.domain.Vehicle;
 import com.usal.whbackend.domain.VehicleStatus;
 import com.usal.whbackend.repository.VehicleRepository;
+import com.usal.whbackend.service.VehicleEventPublisher;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
@@ -25,6 +28,7 @@ import org.springframework.web.server.ResponseStatusException;
 class VehicleServiceTest {
 
   @Mock VehicleRepository vehicleRepository;
+  @Mock VehicleEventPublisher vehicleEventPublisher;
   @InjectMocks VehicleService vehicleService;
 
   @Test
@@ -100,5 +104,61 @@ class VehicleServiceTest {
     assertEquals("Rover-03", result.getName());
     assertEquals(VehicleStatus.OFFLINE, result.getStatus());
     verify(vehicleRepository).save(any(Vehicle.class));
+  }
+
+  @Test
+  void updateVehicle_appliesOnlyProvidedFields() {
+    Vehicle existing = new Vehicle();
+    existing.setId("VHC-001");
+    existing.setStatus(VehicleStatus.IDLE);
+    existing.setPositionX(1.0);
+    existing.setPositionY(2.0);
+    existing.setBattery(50);
+    when(vehicleRepository.findById("VHC-001")).thenReturn(Optional.of(existing));
+    when(vehicleRepository.save(any(Vehicle.class))).thenAnswer(inv -> inv.getArgument(0));
+
+    PatchVehicleRequest request = new PatchVehicleRequest("offline", null, null, 30, null, null);
+    Vehicle result = vehicleService.updateVehicle("VHC-001", request);
+
+    assertEquals(VehicleStatus.OFFLINE, result.getStatus());
+    assertEquals(1.0, result.getPositionX());
+    assertEquals(2.0, result.getPositionY());
+    assertEquals(30, result.getBattery());
+    verify(vehicleEventPublisher).broadcastVehicleUpdate(result);
+  }
+
+  @Test
+  void updateVehicle_allFields_updatesAll() {
+    Vehicle existing = new Vehicle();
+    existing.setId("VHC-002");
+    existing.setStatus(VehicleStatus.IDLE);
+    when(vehicleRepository.findById("VHC-002")).thenReturn(Optional.of(existing));
+    when(vehicleRepository.save(any(Vehicle.class))).thenAnswer(inv -> inv.getArgument(0));
+
+    Instant now = Instant.parse("2026-01-01T00:00:00Z");
+    PatchVehicleRequest request =
+        new PatchVehicleRequest("busy", 5.0, 10.0, 80, "ORDER-99", now);
+    Vehicle result = vehicleService.updateVehicle("VHC-002", request);
+
+    assertEquals(VehicleStatus.BUSY, result.getStatus());
+    assertEquals(5.0, result.getPositionX());
+    assertEquals(10.0, result.getPositionY());
+    assertEquals(80, result.getBattery());
+    assertEquals("ORDER-99", result.getCurrentOrderId());
+    assertEquals(now, result.getLastSeenAt());
+  }
+
+  @Test
+  void updateVehicle_unknownId_throws404() {
+    when(vehicleRepository.findById("no-existe")).thenReturn(Optional.empty());
+
+    PatchVehicleRequest request = new PatchVehicleRequest("idle", null, null, null, null, null);
+    ResponseStatusException ex =
+        assertThrows(
+            ResponseStatusException.class,
+            () -> vehicleService.updateVehicle("no-existe", request));
+
+    assertEquals(404, ex.getStatusCode().value());
+    assertEquals("VEHICLE_NOT_FOUND", ex.getReason());
   }
 }

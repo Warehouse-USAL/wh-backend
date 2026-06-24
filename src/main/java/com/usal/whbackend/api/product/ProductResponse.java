@@ -16,7 +16,12 @@ public record ProductResponse(
     Stock stock,
     OrderConstraints orderConstraints,
     boolean active,
-    Instant createdAt) {
+    Instant createdAt,
+    Double height,
+    Double width,
+    Double length,
+    Double weight,
+    Double volume) {
 
   public ProductResponse {
     images = images == null ? null : List.copyOf(images);
@@ -67,9 +72,14 @@ public record ProductResponse(
         images,
         price,
         specs,
-        new Stock(availableStock, reservedStock, product.getMinimumStock()),
+        new Stock(availableStock - reservedStock, reservedStock, product.getMinimumStock()),
         new OrderConstraints(product.getMaxQuantityPerOrder()),
         product.isActive(),
-        product.getCreatedAt());
+        product.getCreatedAt(),
+        product.getHeight(),
+        product.getWidth(),
+        product.getLength(),
+        product.getWeight(),
+        product.getVolume());
   }
 }

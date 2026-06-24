@@ -44,6 +44,11 @@ class ProductControllerSecurityTest {
         new ProductResponse.Stock(0, 0, 0),
         new ProductResponse.OrderConstraints(0),
         true,
+        null,
+        null,
+        null,
+        null,
+        null,
         null);
   }
 
@@ -55,7 +60,7 @@ class ProductControllerSecurityTest {
             post("/products")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
-                    "{\"sku\":\"SKU-001\",\"name\":\"Test\",\"category\":\"electronics\",\"description\":\"\",\"zoneId\":\"A\",\"line\":\"1\",\"position\":\"1\",\"height\":\"1\",\"maxQuantityPerOrder\":10}"))
+                    "{\"sku\":\"SKU-001\",\"name\":\"Test\",\"category\":\"electronics\",\"description\":\"\",\"zoneId\":\"A\",\"line\":\"1\",\"position\":\"1\",\"height\":\"1\",\"width\":\"1\",\"length\":\"1\",\"weight\":\"1\",\"maxQuantityPerOrder\":10}"))
         .andExpect(status().isForbidden());
   }
 
@@ -68,7 +73,7 @@ class ProductControllerSecurityTest {
             post("/products")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
-                    "{\"sku\":\"SKU-001\",\"name\":\"Test\",\"category\":\"electronics\",\"description\":\"\",\"zoneId\":\"A\",\"line\":\"1\",\"position\":\"1\",\"height\":\"1\",\"maxQuantityPerOrder\":10}"))
+                    "{\"sku\":\"SKU-001\",\"name\":\"Test\",\"category\":\"electronics\",\"description\":\"\",\"zoneId\":\"A\",\"line\":\"1\",\"position\":\"1\",\"height\":\"1\",\"width\":\"1\",\"length\":\"1\",\"weight\":\"1\",\"maxQuantityPerOrder\":10}"))
         .andExpect(status().isCreated());
   }
 
@@ -95,7 +100,7 @@ class ProductControllerSecurityTest {
         .perform(
             post("/products")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"sku\":\"SKU-001\",\"name\":\"Test\",\"category\":\"electronics\"}"))
+                .content("{\"sku\":\"SKU-001\",\"name\":\"Test\",\"category\":\"electronics\",\"height\":1.0,\"width\":1.0,\"length\":1.0,\"weight\":1.0}"))
         .andExpect(status().isCreated());
   }
 

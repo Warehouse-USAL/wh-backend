@@ -16,11 +16,13 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.core.annotation.Order;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
 @Component
+@Order(1)
 public class DataInitializer implements ApplicationRunner {
 
   private static final Logger log = LoggerFactory.getLogger(DataInitializer.class);
@@ -111,7 +113,7 @@ public class DataInitializer implements ApplicationRunner {
     posA1P1.setIdZone(zoneA.getId());
     posA1P1.setPositionName("P01");
     posA1P1.setMaximumCapacity(200);
-    posA1P1.setSizeStockToSave(StockSize.MEDIANO);
+    posA1P1.setSizeStockToSave(StockSize.MEDIO_PALLET);
     posA1P1.setActive(true);
     posA1P1.setCurrentStock(0);
     posA1P1.setCreatedAt(Instant.now());
@@ -123,7 +125,7 @@ public class DataInitializer implements ApplicationRunner {
     posA1P2.setIdZone(zoneA.getId());
     posA1P2.setPositionName("P02");
     posA1P2.setMaximumCapacity(200);
-    posA1P2.setSizeStockToSave(StockSize.GRANDE);
+    posA1P2.setSizeStockToSave(StockSize.PALLET);
     posA1P2.setActive(true);
     posA1P2.setCurrentStock(0);
     posA1P2.setCreatedAt(Instant.now());

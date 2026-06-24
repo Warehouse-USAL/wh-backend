@@ -94,4 +94,24 @@ public class UserService {
   user.setPasswordHash(passwordEncoder.encode(request.newPassword()));
   userRepository.save(user);
   } 
+
+  public User updateMe(String userId, com.usal.whbackend.api.user.UpdateMeRequest request) {
+    User user = userRepository.findById(userId)
+        .orElseThrow(() -> new UserNotFoundException(userId));
+
+    if (request.name() != null) {
+      user.setName(request.name());
+    }
+
+    if (request.address() != null) {
+      com.usal.whbackend.domain.Address address = new com.usal.whbackend.domain.Address();
+      address.setStreet(request.address().street());
+      address.setDepartment(request.address().department());
+      address.setFloor(request.address().floor());
+      address.setPostalCode(request.address().postalCode());
+      user.setAddress(address);
+    }
+
+    return userRepository.save(user);
+  }
 }

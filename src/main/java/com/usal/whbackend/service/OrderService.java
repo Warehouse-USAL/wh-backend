@@ -6,8 +6,11 @@ import com.usal.whbackend.domain.Order;
 import com.usal.whbackend.domain.OrderItem;
 import com.usal.whbackend.domain.OrderStatus;
 import com.usal.whbackend.domain.Product;
+import com.usal.whbackend.domain.Vehicle;
+import com.usal.whbackend.domain.VehicleStatus;
 import com.usal.whbackend.repository.OrderRepository;
 import com.usal.whbackend.repository.ProductRepository;
+import com.usal.whbackend.repository.VehicleRepository;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
@@ -29,6 +32,8 @@ public class OrderService {
   private final OrderRepository orderRepository;
   private final ProductRepository productRepository;
   private final ProductService productService;
+  private final VehicleRepository vehicleRepository;
+  private final StockDrainPort stockDrainPort;
   private final List<OrderEventPublisher> orderEventPublishers;
   private final List<StockEventPublisher> stockEventPublishers;
 
@@ -50,11 +55,15 @@ public class OrderService {
       OrderRepository orderRepository,
       ProductRepository productRepository,
       ProductService productService,
+      VehicleRepository vehicleRepository,
+      StockDrainPort stockDrainPort,
       List<OrderEventPublisher> orderEventPublishers,
       List<StockEventPublisher> stockEventPublishers) {
     this.orderRepository = orderRepository;
     this.productRepository = productRepository;
     this.productService = productService;
+    this.vehicleRepository = vehicleRepository;
+    this.stockDrainPort = stockDrainPort;
     this.orderEventPublishers = List.copyOf(orderEventPublishers);
     this.stockEventPublishers = List.copyOf(stockEventPublishers);
   }
@@ -193,5 +202,106 @@ public class OrderService {
     Order cancelled = orderRepository.cancel(order, reason);
     orderEventPublishers.forEach(p -> p.broadcastOrderUpdate(cancelled));
     return cancelled;
+  }
+
+  @Transactional
+  public Order assignVehicle(String orderId, String vehicleId) {
+    Order order =
+        orderRepository
+            .findById(orderId)
+            .orElseThrow(
+                () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "ORDER_NOT_FOUND"));
+
+    if (order.getStatus() == OrderStatus.COMPLETED || order.getStatus() == OrderStatus.CANCELLED) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "ORDER_NOT_ASSIGNABLE");
+    }
+
+    Vehicle vehicle =
+        vehicleRepository
+            .findById(vehicleId)
+            .orElseThrow(
+                () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "VEHICLE_NOT_FOUND"));
+
+    if (vehicle.getStatus() == VehicleStatus.BUSY
+        && vehicle.getCurrentOrderId() != null
+        && !vehicle.getCurrentOrderId().equals(orderId)) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "VEHICLE_ALREADY_BUSY");
+    }
+
+    String previousVehicleId = order.getAssignedVehicleId();
+    if (previousVehicleId != null && !previousVehicleId.equals(vehicleId)) {
+      vehicleRepository
+          .findById(previousVehicleId)
+          .ifPresent(
+              old -> {
+                old.setCurrentOrderId(null);
+                old.setStatus(VehicleStatus.IDLE);
+                vehicleRepository.save(old);
+              });
+    }
+
+    if (order.getStatus() == OrderStatus.PENDING) {
+      order.setStartedAt(Instant.now());
+    }
+    order.setStatus(OrderStatus.IN_PROGRESS);
+    order.setAssignedVehicleId(vehicleId);
+
+    vehicle.setCurrentOrderId(orderId);
+    vehicle.setStatus(VehicleStatus.BUSY);
+    vehicleRepository.save(vehicle);
+
+    Order saved = orderRepository.update(order);
+    orderEventPublishers.forEach(p -> p.broadcastOrderUpdate(saved));
+    return saved;
+  }
+
+  /**
+   * Forces an order into the given status, simulating the asynchronous transition that would
+   * normally arrive on the {@code order.status} Kafka topic. Completing an order drains its stock
+   * (FIFO) exactly as the consumer does. Reverting to PENDING is rejected, and orders already in a
+   * terminal state (COMPLETED/CANCELLED) cannot be modified.
+   */
+  @Transactional
+  public Order changeStatus(String id, String status) {
+    if (status == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "INVALID_STATUS");
+    }
+    OrderStatus target;
+    try {
+      target = OrderStatus.valueOf(status.toUpperCase());
+    } catch (IllegalArgumentException e) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "INVALID_STATUS");
+    }
+    Order order =
+        orderRepository
+            .findById(id)
+            .orElseThrow(
+                () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "ORDER_NOT_FOUND"));
+
+    if (order.getStatus() == OrderStatus.COMPLETED || order.getStatus() == OrderStatus.CANCELLED) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "ORDER_NOT_MODIFIABLE");
+    }
+
+    switch (target) {
+      case IN_PROGRESS -> {
+        if (order.getStartedAt() == null) {
+          order.setStartedAt(Instant.now());
+        }
+        order.setStatus(OrderStatus.IN_PROGRESS);
+      }
+      case COMPLETED -> {
+        order.setStatus(OrderStatus.COMPLETED);
+        order.setCompletedAt(Instant.now());
+        stockDrainPort.drain(order.getItems());
+      }
+      case CANCELLED -> order.setStatus(OrderStatus.CANCELLED);
+      default -> {
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "INVALID_STATUS_TRANSITION");
+      }
+    }
+
+    Order saved = orderRepository.update(order);
+    orderEventPublishers.forEach(p -> p.broadcastOrderUpdate(saved));
+    return saved;
   }
 }

@@ -52,7 +52,7 @@ class PositionControllerTest {
     p.setPositionName("P01");
     p.setActive(false);
     p.setMaximumCapacity(100);
-    p.setSizeStockToSave(StockSize.MEDIANO);
+    p.setSizeStockToSave(StockSize.MEDIO_PALLET);
     p.setCurrentStock(0);
     return p;
   }
@@ -77,7 +77,7 @@ class PositionControllerTest {
             post("/warehouse/lines/l1/positions")
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
-                    "{\"position_name\":\"P01\",\"maximum_capacity\":100,\"size_stock_to_save\":\"MEDIANO\"}"))
+                    "{\"position_name\":\"P01\",\"maximum_capacity\":100,\"size_stock_to_save\":\"MEDIO_PALLET\"}"))
         .andExpect(status().isCreated());
   }
 
@@ -93,5 +93,62 @@ class PositionControllerTest {
                 .content("{\"product_id\":\"other-product\"}"))
         .andExpect(status().isConflict())
         .andExpect(jsonPath("$.error.code").value("POSITION_ALREADY_OCCUPIED"));
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void validateFit_whenFits_returns200AndFitsTrue() throws Exception {
+    com.usal.whbackend.domain.Product prod = new com.usal.whbackend.domain.Product();
+    prod.setId("product-1");
+    prod.setHeight(10.0);
+    prod.setWidth(10.0);
+    prod.setLength(10.0); // 1000 cm3
+    prod.setActive(true);
+    when(productRepository.findById("product-1")).thenReturn(java.util.Optional.of(prod));
+
+    mockMvc
+        .perform(
+            post("/warehouse/positions/validate-fit")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"product_id\":\"product-1\",\"quantity\":10,\"size\":\"PALLET\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.fits").value(true))
+        .andExpect(jsonPath("$.product_volume").value(1000.0))
+        .andExpect(jsonPath("$.container_volume").value(1800000.0));
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void validateFit_whenDoesNotFit_returns200AndFitsFalse() throws Exception {
+    com.usal.whbackend.domain.Product prod = new com.usal.whbackend.domain.Product();
+    prod.setId("product-1");
+    prod.setHeight(200.0);
+    prod.setWidth(200.0);
+    prod.setLength(200.0); // 8000000 cm3
+    prod.setActive(true);
+    when(productRepository.findById("product-1")).thenReturn(java.util.Optional.of(prod));
+
+    mockMvc
+        .perform(
+            post("/warehouse/positions/validate-fit")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"product_id\":\"product-1\",\"quantity\":1,\"size\":\"CAJA\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.fits").value(false))
+        .andExpect(jsonPath("$.product_volume").value(8000000.0))
+        .andExpect(jsonPath("$.container_volume").value(48000.0));
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void validateFit_whenProductNotFound_returns404() throws Exception {
+    when(productRepository.findById("product-invalid")).thenReturn(java.util.Optional.empty());
+
+    mockMvc
+        .perform(
+            post("/warehouse/positions/validate-fit")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"product_id\":\"product-invalid\",\"quantity\":1,\"size\":\"CAJA\"}"))
+        .andExpect(status().isNotFound());
   }
 }
