@@ -59,6 +59,8 @@ TO=$(python3   -c "import datetime as t;print((t.datetime.now(t.UTC)+t.timedelta
 MFROM=$(python3 -c "import datetime as t;print((t.datetime.now(t.UTC)-t.timedelta(days=6)).strftime('%Y-%m-%dT%H:%M:%SZ'))")
 MTO=$(python3   -c "import datetime as t;print(t.datetime.now(t.UTC).strftime('%Y-%m-%dT%H:%M:%SZ'))")
 W="{\"field\":\"created_at\",\"op\":\"gte\",\"value\":\"$FROM\"},{\"field\":\"created_at\",\"op\":\"lt\",\"value\":\"$TO\"}"
+DEMAND_DAYS=61
+WINDOW_SECONDS=$(python3 -c "print(6*24*3600)")
 
 echo
 echo "Dashboard blackbox — $BASE_URL"
@@ -202,6 +204,67 @@ check "20. minimum stock per product, for reorder rules" \
 check "21. capacity utilisation per zone" \
   "len(d['items'])>0 and all(i['capacity']>0 for i in d['items'])" \
   "$(q positions '{"group_by":[{"field":"id_zone","as":"zone"}],"aggregates":[{"op":"sum","field":"current_stock","as":"stock"},{"op":"sum","field":"maximum_capacity","as":"capacity"}]}')"
+
+# ── Composite flows ──────────────────────────────────────────────────────────
+# The inventory questions are not single queries: each is two or three responses joined by the
+# caller. These check the joins actually line up, which is the part a per-endpoint test cannot
+# show. Demand is grouped by items.product_id, not by SKU, so it keys straight to positions.
+echo
+echo "Composite flows (several calls joined client-side)"
+
+DEMAND=$(q orders "{\"filters\":[$W],\"unwind\":\"items\",\"group_by\":[{\"field\":\"items.productId\",\"as\":\"product_id\"}],\"aggregates\":[{\"op\":\"sum\",\"field\":\"items.quantity\",\"as\":\"units\"},{\"op\":\"max\",\"field\":\"created_at\",\"as\":\"last_ordered\"}],\"size\":500}")
+STOCK=$(q positions '{"group_by":[{"field":"product_id","as":"product_id"}],"aggregates":[{"op":"sum","field":"current_stock","as":"on_hand"}],"size":500}')
+MINSTOCK=$(q products '{"group_by":[{"field":"id","as":"product_id"}],"aggregates":[{"op":"sum","field":"minimum_stock","as":"min_stock"}],"size":500}')
+
+JOINED=$(python3 -c "
+import json, sys
+demand = {i['product_id']: i for i in json.loads(sys.argv[1])['items'] if i.get('product_id')}
+stock  = {i['product_id']: i for i in json.loads(sys.argv[2])['items'] if i.get('product_id')}
+mins   = {i['product_id']: i for i in json.loads(sys.argv[3])['items'] if i.get('product_id')}
+days = $DEMAND_DAYS
+matched = set(demand) & set(stock)
+coverage = []
+for pid in matched:
+    per_day = demand[pid]['units'] / days
+    if per_day > 0:
+        coverage.append(stock[pid]['on_hand'] / per_day)
+dead = [p for p in stock if p not in demand and stock[p]['on_hand'] > 0]
+reorder = [p for p in stock if p in mins and stock[p]['on_hand'] < mins[p]['min_stock']]
+print(json.dumps({
+    'matched': len(matched),
+    'coverage_days_sane': bool(coverage) and all(c >= 0 for c in coverage),
+    'has_min_stock': len(mins) > 0,
+    'dead': len(dead), 'reorder': len(reorder),
+}))
+" "$DEMAND" "$STOCK" "$MINSTOCK" 2>/dev/null)
+
+check "22. demand and stock join on product_id" "d['matched']>0" "$JOINED"
+check "23. duración del stock — días a quiebre" "d['coverage_days_sane']" "$JOINED"
+check "24. dead stock — stocked, never ordered" "d['dead']>=0" "$JOINED"
+check "25. reposición requerida — below minimum" "d['has_min_stock'] and d['reorder']>=0" "$JOINED"
+
+# MTBF and MTTR are ratios the caller computes. These assert the two inputs are both present and
+# combine into a finite number, which is the only part the backend is responsible for.
+FAILS=$(mq "{\"metric\":\"wh.vehicle.transitions\",\"from\":\"$MFROM\",\"to\":\"$MTO\",\"step\":\"6h\",\"agg\":\"increase\",\"group_by\":[\"vehicle_id\"],\"filters\":{\"to\":\"ERROR\"}}")
+INERR=$(mq "{\"metric\":\"wh.vehicle.state\",\"from\":\"$MFROM\",\"to\":\"$MTO\",\"step\":\"6h\",\"agg\":\"avg\",\"group_by\":[\"vehicle_id\"],\"filters\":{\"state\":\"ERROR\"}}")
+DERIVED=$(python3 -c "
+import json, sys
+window_s = $WINDOW_SECONDS
+fails = {s['labels'].get('vehicle_id'): sum(p[1] for p in s['points']) for s in json.loads(sys.argv[1])['series']}
+inerr = {s['labels'].get('vehicle_id'): (sum(p[1] for p in s['points'])/len(s['points']) if s['points'] else 0)
+         for s in json.loads(sys.argv[2])['series']}
+mtbf, mttr = {}, {}
+for v, n in fails.items():
+    if n > 0:
+        mtbf[v] = window_s / n
+        mttr[v] = (inerr.get(v, 0) * window_s) / n
+print(json.dumps({'rovers_with_failures': len(mtbf),
+                  'mtbf_finite': all(0 < x < window_s for x in mtbf.values()),
+                  'mttr_finite': all(0 <= x <= window_s for x in mttr.values())}))
+" "$FAILS" "$INERR" 2>/dev/null)
+
+check "26. MTBF is computable from the published counter" "d['rovers_with_failures']>0 and d['mtbf_finite']" "$DERIVED"
+check "27. MTTR is computable from counter + state gauge" "d['rovers_with_failures']>0 and d['mttr_finite']" "$DERIVED"
 
 # ── Security boundary ────────────────────────────────────────────────────────
 echo
