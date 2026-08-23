@@ -16,4 +16,14 @@
         <Bug pattern="EI_EXPOSE_REP2"/>
         <Class name="~com\.usal\.whbackend\.domain\.Product(\$.*)?"/>
     </Match>
+    <!-- The two query request DTOs hold an unmodifiable wrapper around a private defensive copy,
+         so the fields genuinely cannot be mutated from outside. SpotBugs recognises List.copyOf as
+         immutable but not Collections.unmodifiableList(new ArrayList<>(..)), hence the false
+         positive. The wrapper is required rather than cosmetic: copyOf rejects null entries, and a
+         null filter value must reach the translator so it can answer 400 INVALID_FILTER_VALUE.
+         Dropping it silently would run the query unfiltered — a wrong answer, not an error. -->
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP"/>
+        <Class name="~com\.usal\.whbackend\.api\.(metrics\.MetricsQueryRequest|query\.EntityQueryRequest)"/>
+    </Match>
 </FindBugsFilter>

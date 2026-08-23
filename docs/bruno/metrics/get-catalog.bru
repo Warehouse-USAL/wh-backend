@@ -1,0 +1,20 @@
+meta {
+  name: Get Metrics Catalog
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/metrics/catalog
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+docs {
+  Self-describing catalogue. Each entry carries the dimensions and aggregations a valid
+  query may use, so a client can build a metric picker without any further documentation.
+}
