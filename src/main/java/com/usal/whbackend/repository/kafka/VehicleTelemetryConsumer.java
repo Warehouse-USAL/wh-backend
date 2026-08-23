@@ -7,6 +7,7 @@ import com.usal.whbackend.repository.VehicleRepository;
 import com.usal.whbackend.service.VehicleEventPublisher;
 import com.usal.whbackend.telemetry.TelemetryPort;
 import com.usal.whbackend.telemetry.VehicleSample;
+import com.usal.whbackend.telemetry.VehicleStatusChange;
 import java.time.Instant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,10 +41,16 @@ public class VehicleTelemetryConsumer {
           .findById(msg.vehicleId())
           .ifPresent(
               vehicle -> {
+                // Read before the setter overwrites it. This consumer is the only place the
+                // change is observable at all: the vehicle document holds current status, so
+                // once it is saved the previous value is gone.
+                VehicleStatus previous = vehicle.getStatus();
+                VehicleStatus current = VehicleStatus.valueOf(msg.status().toUpperCase());
+
                 vehicle.setPositionX(msg.position().x());
                 vehicle.setPositionY(msg.position().y());
                 vehicle.setBattery(msg.battery());
-                vehicle.setStatus(VehicleStatus.valueOf(msg.status().toUpperCase()));
+                vehicle.setStatus(current);
                 vehicle.setLastSeenAt(Instant.parse(msg.timestamp()));
                 Vehicle saved = vehicleRepository.save(vehicle);
                 vehicleEventPublisher.broadcastVehicleUpdate(saved);
@@ -51,6 +58,17 @@ public class VehicleTelemetryConsumer {
                 // job, and keying the metric on known vehicles bounds label cardinality to the
                 // fleet size rather than to whatever ids the producer happens to send.
                 telemetry.recordVehicleSample(new VehicleSample(msg.vehicleId(), msg.battery()));
+                // Only on an actual change. Rovers publish continuously, so counting every
+                // message would make the transition counter a message counter, and every
+                // failure rate derived from it meaningless.
+                if (previous != current) {
+                  telemetry.recordStatusTransition(
+                      new VehicleStatusChange(
+                          msg.vehicleId(),
+                          previous == null ? "UNKNOWN" : previous.name(),
+                          current.name(),
+                          VehicleStatusChange.UNCATEGORIZED));
+                }
               });
     } catch (Exception e) {
       log.warn("Failed to process vehicle.telemetry message: {}", e.getMessage());

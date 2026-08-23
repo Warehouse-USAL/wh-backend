@@ -28,6 +28,29 @@ public record MetricDescriptor(
     dimensions = List.copyOf(dimensions);
     permittedAggregations = List.copyOf(permittedAggregations);
     requiredRoles = Set.copyOf(requiredRoles);
+    validateAggregationsMatchType(name, type, permittedAggregations);
+  }
+
+  /**
+   * Fails at startup rather than at request time if a descriptor offers an aggregation that makes
+   * no sense for its instrument.
+   *
+   * <p>The mismatch is silent otherwise: {@code sum_over_time} of a counter returns a number, just
+   * a meaningless one — the sum of its cumulative totals. A dashboard would plot it happily.
+   */
+  private static void validateAggregationsMatchType(
+      String name, MetricType type, List<Aggregation> aggregations) {
+    for (Aggregation aggregation : aggregations) {
+      boolean valid =
+          switch (type) {
+            case COUNTER -> aggregation.isCounterDelta();
+            case GAUGE, HISTOGRAM -> !aggregation.isCounterDelta();
+          };
+      if (!valid) {
+        throw new IllegalArgumentException(
+            "Metric %s is a %s and cannot permit %s".formatted(name, type, aggregation));
+      }
+    }
   }
 
   public boolean hasDimension(String dimension) {

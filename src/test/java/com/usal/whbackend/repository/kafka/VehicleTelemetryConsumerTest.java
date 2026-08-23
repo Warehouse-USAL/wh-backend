@@ -14,6 +14,7 @@ import com.usal.whbackend.repository.VehicleRepository;
 import com.usal.whbackend.service.VehicleEventPublisher;
 import com.usal.whbackend.telemetry.TelemetryPort;
 import com.usal.whbackend.telemetry.VehicleSample;
+import com.usal.whbackend.telemetry.VehicleStatusChange;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -101,5 +102,37 @@ class VehicleTelemetryConsumerTest {
     // Telemetry is recorded last precisely so a failure here cannot cost us the snapshot.
     verify(vehicleRepository).save(any(Vehicle.class));
     verify(vehicleEventPublisher).broadcastVehicleUpdate(any(Vehicle.class));
+  }
+
+  @Test
+  void recordsATransitionWhenTheStatusActuallyChanges() throws Exception {
+    Vehicle vehicle = new Vehicle();
+    vehicle.setId("vhc-1");
+    vehicle.setStatus(VehicleStatus.IDLE);
+    when(vehicleRepository.findById("vhc-1")).thenReturn(Optional.of(vehicle));
+    when(vehicleRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    consumer.consume(message("vhc-1", 79));
+
+    ArgumentCaptor<VehicleStatusChange> captor = ArgumentCaptor.forClass(VehicleStatusChange.class);
+    verify(telemetry).recordStatusTransition(captor.capture());
+    assertEquals("IDLE", captor.getValue().from());
+    assertEquals("BUSY", captor.getValue().to());
+    assertEquals(VehicleStatusChange.UNCATEGORIZED, captor.getValue().category());
+  }
+
+  @Test
+  void recordsNoTransitionWhenTheStatusIsUnchanged() throws Exception {
+    Vehicle vehicle = new Vehicle();
+    vehicle.setId("vhc-1");
+    vehicle.setStatus(VehicleStatus.BUSY);
+    when(vehicleRepository.findById("vhc-1")).thenReturn(Optional.of(vehicle));
+    when(vehicleRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    // Rovers publish continuously. Counting every message would turn the transition counter into
+    // a message counter and make every failure rate derived from it meaningless.
+    consumer.consume(message("vhc-1", 79));
+
+    verify(telemetry, never()).recordStatusTransition(any());
   }
 }

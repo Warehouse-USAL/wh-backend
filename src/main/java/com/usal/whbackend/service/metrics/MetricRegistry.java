@@ -14,8 +14,9 @@ import org.springframework.stereotype.Component;
  * list is what removes the injection surface: a metric, dimension or aggregation absent here simply
  * cannot reach VictoriaMetrics.
  *
- * <p>Deliberately holds one entry. The pipeline ships proven end to end by a single signal;
- * additional metrics are new entries here plus a recording call in {@code TelemetryPort}.
+ * <p>Holds raw fleet signals only. Nothing derived — no MTBF, no failure rate — because those are
+ * ratios of these series and belong to whoever is drawing the chart. Adding a metric is an entry
+ * here plus a recording call in {@code TelemetryPort}.
  */
 @Component
 public class MetricRegistry {
@@ -34,6 +35,27 @@ public class MetricRegistry {
               MetricType.GAUGE,
               List.of("vehicle_id"),
               List.of(Aggregation.AVG, Aggregation.MIN, Aggregation.MAX, Aggregation.LAST),
+              READERS),
+          new MetricDescriptor(
+              OtelTelemetryAdapter.STATE_METRIC,
+              "wh_vehicle_state",
+              "Vehicle state",
+              "1",
+              MetricType.GAUGE,
+              List.of("vehicle_id", "state"),
+              // COUNT answers "how many rovers were in this state at once"; AVG answers "what
+              // fraction of the window one rover spent there" — the input to a mean time to
+              // recovery, which the caller divides for itself.
+              List.of(Aggregation.COUNT, Aggregation.AVG, Aggregation.MAX, Aggregation.LAST),
+              READERS),
+          new MetricDescriptor(
+              OtelTelemetryAdapter.TRANSITIONS_METRIC,
+              "wh_vehicle_transitions",
+              "Vehicle status transitions",
+              "1",
+              MetricType.COUNTER,
+              List.of("vehicle_id", "from", "to", "category"),
+              List.of(Aggregation.INCREASE, Aggregation.RATE),
               READERS));
 
   public List<MetricDescriptor> all() {

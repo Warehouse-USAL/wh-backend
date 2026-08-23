@@ -62,11 +62,12 @@ public class TelemetryConfig {
   }
 
   @Bean
-  public TelemetryPort telemetryPort(OpenTelemetrySdk sdk, TelemetryProperties props) {
+  public TelemetryPort telemetryPort(
+      OpenTelemetrySdk sdk, TelemetryProperties props, FleetStateSource fleetStateSource) {
     if (!props.isEnabled()) {
       log.info("Telemetry disabled (telemetry.enabled=false) — samples are discarded");
       return new NoOpTelemetryAdapter();
     }
-    return new OtelTelemetryAdapter(sdk.getMeter(INSTRUMENTATION_SCOPE));
+    return new OtelTelemetryAdapter(sdk.getMeter(INSTRUMENTATION_SCOPE), fleetStateSource);
   }
 }

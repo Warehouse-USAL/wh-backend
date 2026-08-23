@@ -104,7 +104,11 @@ class MetricsQueryServiceTest {
 
   @Test
   void catalogHidesMetricsTheCallerCannotRead() {
-    assertThat(service().catalog(Set.of(UserRole.DASHBOARD))).hasSize(1);
+    // Asserted by name rather than by count, so adding a metric does not fail a test about roles.
+    assertThat(service().catalog(Set.of(UserRole.DASHBOARD)))
+        .extracting(MetricDescriptor::name)
+        .containsExactlyInAnyOrder(
+            "wh.vehicle.battery", "wh.vehicle.state", "wh.vehicle.transitions");
     assertThat(service().catalog(Set.of(UserRole.OPERATOR))).isEmpty();
     assertThat(service().catalog(Set.of())).isEmpty();
   }
