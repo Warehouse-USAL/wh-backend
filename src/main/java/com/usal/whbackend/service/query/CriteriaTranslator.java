@@ -39,7 +39,10 @@ public class CriteriaTranslator {
     }
 
     Query query = new Query();
-    buildCriteria(request, entity).forEach(query::addCriteria);
+    // allowDerived=false: outside an aggregation there is no $addFields stage, so a derived
+    // field genuinely does not exist on the stored document. Filtering on one would match
+    // nothing and return an empty page with no error.
+    criteriaFor(request.filters(), entity, false).forEach(query::addCriteria);
     query.with(sortOf(request, entity));
     applyProjection(request, entity, query);
     return query;
@@ -53,21 +56,22 @@ public class CriteriaTranslator {
    * plus {@code createdAt <= b} — is the common case that hits it. The same trap is documented in
    * {@code OrderRepository.findByFilters}.
    */
-  private List<Criteria> buildCriteria(EntityQueryRequest request, EntityDescriptor entity) {
+  List<Criteria> criteriaFor(
+      List<EntityQueryRequest.Filter> filters, EntityDescriptor entity, boolean allowDerived) {
     // Grouped by the RESOLVED field, not the name as written. A caller may spell the same field
     // `created_at` in one filter and `createdAt` in another; grouping on the raw text would make
     // those two groups, producing exactly the duplicate-criteria crash this method prevents.
     Map<FieldDescriptor, List<EntityQueryRequest.Filter>> byField = new LinkedHashMap<>();
-    for (EntityQueryRequest.Filter filter : request.filters()) {
-      FieldDescriptor field = filterableField(entity, filter.field());
+    for (EntityQueryRequest.Filter filter : filters) {
+      FieldDescriptor field = filterableField(entity, filter.field(), allowDerived);
       byField.computeIfAbsent(field, k -> new ArrayList<>()).add(filter);
     }
 
     List<Criteria> result = new ArrayList<>();
     byField.forEach(
-        (field, filters) -> {
+        (field, fieldFilters) -> {
           Criteria criteria = Criteria.where(mongoField(field.name()));
-          for (EntityQueryRequest.Filter filter : filters) {
+          for (EntityQueryRequest.Filter filter : fieldFilters) {
             apply(criteria, field, filter);
           }
           result.add(criteria);
@@ -75,12 +79,16 @@ public class CriteriaTranslator {
     return result;
   }
 
-  private FieldDescriptor filterableField(EntityDescriptor entity, String name) {
+  private FieldDescriptor filterableField(
+      EntityDescriptor entity, String name, boolean allowDerived) {
     FieldDescriptor field =
         entity
             .field(name)
             .orElseThrow(
                 () -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "UNKNOWN_FIELD"));
+    if (field.isDerived() && !allowDerived) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "UNKNOWN_FIELD");
+    }
     if (!field.filterable()) {
       // Reported as UNKNOWN_FIELD, not "forbidden": confirming a hidden field exists is itself
       // a leak, and for a password hash the existence of a filter oracle is the whole risk.
