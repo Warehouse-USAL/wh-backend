@@ -39,3 +39,26 @@ management:
     web:
       exposure:
         include: health,info
+
+# Telemetry export. Disabled by default so a local run needs no collector; docker-compose
+# turns it on. The backend must start and serve normally with the collector absent.
+telemetry:
+  enabled: ${TELEMETRY_ENABLED:false}
+  endpoint: ${TELEMETRY_ENDPOINT:http://otel-collector:4318/v1/metrics}
+  service-name: wh-backend
+  export-interval-ms: 10000
+  export-timeout-ms: 5000
+
+# Read side of the metrics pipeline.
+victoriametrics:
+  url: ${VICTORIAMETRICS_URL:http://victoriametrics:8428}
+
+# Declared @Indexed / @CompoundIndex annotations are NOT created unless this is on — Spring Data
+# MongoDB has defaulted it to false since 3.0. It was off here, so every declared index in the
+# codebase (User.email, Product.sku, Zone, Line, Position, ...) existed only in the source, and
+# every filtered query was a collection scan. Safe at this scale; if a collection ever grows large
+# enough that a startup index build hurts, replace this with an explicit migration.
+spring:
+  data:
+    mongodb:
+      auto-index-creation: ${SPRING_DATA_MONGODB_AUTO_INDEX_CREATION:true}

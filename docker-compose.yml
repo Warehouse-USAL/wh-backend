@@ -15,6 +15,9 @@ services:
       MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-minioadmin}
       MINIO_BUCKET: ${MINIO_BUCKET:-wh-images}
+      TELEMETRY_ENABLED: ${TELEMETRY_ENABLED:-true}
+      TELEMETRY_ENDPOINT: http://otel-collector:4318/v1/metrics
+      VICTORIAMETRICS_URL: http://victoriametrics:8428
     depends_on:
       mongodb:
         condition: service_healthy
@@ -139,6 +142,43 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+    restart: unless-stopped
+
+  victoriametrics:
+    image: victoriametrics/victoria-metrics:v1.111.0
+    command:
+      - "-retentionPeriod=30d"
+      - "-httpListenAddr=:8428"
+      # Without this VM sizes its caches at -memory.allowedPercent=60 of host RAM (~5GB on a
+      # dev laptop). The prod box is a shared HP ProLiant already running five containers, so
+      # the footprint is pinned rather than left to scale with whatever machine it lands on.
+      - "-memory.allowedBytes=512MB"
+    ports:
+      - "8428:8428"
+    volumes:
+      - ./data/victoriametrics:/victoria-metrics-data
+    networks:
+      - wh-network
+    # No healthcheck: the image ships without a shell or any HTTP client, so every CMD form
+    # fails regardless of whether the server is up. The collector's remote-write queue retries,
+    # so service_started is sufficient for ordering.
+    restart: unless-stopped
+
+  # The telemetry broker. Distroless image, so no shell healthcheck is possible; the
+  # backend deliberately does NOT depend on it — telemetry must degrade, never block startup.
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.115.1
+    command: ["--config=/etc/otel/collector-config.yml"]
+    volumes:
+      - ./config/otel/collector-config.yml:/etc/otel/collector-config.yml:ro
+    ports:
+      - "4317:4317"
+      - "4318:4318"
+    depends_on:
+      victoriametrics:
+        condition: service_started
+    networks:
+      - wh-network
     restart: unless-stopped
 
 networks:
