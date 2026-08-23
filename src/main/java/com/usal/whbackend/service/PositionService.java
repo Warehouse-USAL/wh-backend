@@ -51,12 +51,15 @@ public class PositionService {
 
   /**
    * Flat listing of every position, denormalised with zone code and line number. {@code
-   * occupiedOnly} narrows the payload to positions that hold stock of an assigned product.
+   * occupiedOnly} narrows the payload to active positions that hold stock of an assigned product —
+   * the same set the stock computations count, so the dashboard's position column agrees with the
+   * available stock reported by {@code GET /products}. The unfiltered listing returns inactive
+   * positions too; callers tell them apart via {@code is_active}.
    */
   public List<PositionSummaryResponse> getPositionsFlat(boolean occupiedOnly) {
     List<Position> positions =
         occupiedOnly
-            ? positionRepository.findByProductIdNotNullAndCurrentStockGreaterThan(0)
+            ? positionRepository.findByIsActiveTrueAndProductIdNotNullAndCurrentStockGreaterThan(0)
             : positionRepository.findAll();
     if (positions.isEmpty()) {
       return List.of();

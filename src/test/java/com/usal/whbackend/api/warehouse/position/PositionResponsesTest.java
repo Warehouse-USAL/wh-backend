@@ -74,9 +74,9 @@ class PositionResponsesTest {
 
     PositionSummaryResponse r = PositionSummaryResponse.from(position(), line, zone);
 
-    assertThat(r).isEqualTo(new PositionSummaryResponse("p1", "P01", "A", 3, "prod-1", 42));
+    assertThat(r).isEqualTo(new PositionSummaryResponse("p1", "P01", "A", 3, "prod-1", 42, true));
     assertThat(r.hashCode())
-        .isEqualTo(new PositionSummaryResponse("p1", "P01", "A", 3, "prod-1", 42).hashCode());
+        .isEqualTo(new PositionSummaryResponse("p1", "P01", "A", 3, "prod-1", 42, true).hashCode());
     assertThat(r.toString()).contains("P01");
   }
 
@@ -88,6 +88,7 @@ class PositionResponsesTest {
     assertThat(r.numberLine()).isZero();
     assertThat(r.idPosition()).isEqualTo("p1");
     assertThat(r.currentStock()).isEqualTo(42);
+    assertThat(r.isActive()).isTrue();
   }
 
   @Test

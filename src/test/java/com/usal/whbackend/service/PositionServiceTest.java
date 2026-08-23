@@ -294,14 +294,37 @@ class PositionServiceTest {
   // ── Flat listing (GET /warehouse/positions) ────────────────────────────────
 
   @Test
+  void getPositionsFlat_occupiedOnly_excludesInactivePositions() {
+    // A soft-deleted position keeps its productId and currentStock (deletePosition only flips
+    // isActive), and stock in an inactive position is excluded from available stock everywhere
+    // else. The occupied listing must agree, or the dashboard shows a product parked in a
+    // position that GET /products reports as holding nothing.
+    Position p = position("p1", "l1", "z1");
+    p.setProductId("product-A");
+    p.setCurrentStock(42);
+    p.setActive(true);
+
+    when(positionRepository.findByIsActiveTrueAndProductIdNotNullAndCurrentStockGreaterThan(0))
+        .thenReturn(List.of(p));
+    when(lineRepository.findAllById(List.of("l1"))).thenReturn(List.of(line("l1", "z1")));
+    when(zoneRepository.findAllById(List.of("z1"))).thenReturn(List.of(zone("z1", "A")));
+
+    var result = positionService.getPositionsFlat(true);
+
+    assertEquals(1, result.size());
+    verify(positionRepository, never()).findAll();
+  }
+
+  @Test
   void getPositionsFlat_occupiedOnly_queriesOccupiedAndDenormalises() {
     Position p = position("p1", "l1", "z1");
     p.setProductId("product-A");
     p.setCurrentStock(42);
+    p.setActive(true); // the occupied finder only ever returns active positions
     Line l = line("l1", "z1");
     l.setNumberLine(3);
 
-    when(positionRepository.findByProductIdNotNullAndCurrentStockGreaterThan(0))
+    when(positionRepository.findByIsActiveTrueAndProductIdNotNullAndCurrentStockGreaterThan(0))
         .thenReturn(List.of(p));
     when(lineRepository.findAllById(List.of("l1"))).thenReturn(List.of(l));
     when(zoneRepository.findAllById(List.of("z1"))).thenReturn(List.of(zone("z1", "A")));
@@ -315,6 +338,7 @@ class PositionServiceTest {
     assertEquals(3, result.get(0).numberLine());
     assertEquals("product-A", result.get(0).productId());
     assertEquals(42, result.get(0).currentStock());
+    assertTrue(result.get(0).isActive());
     verify(positionRepository, never()).findAll();
   }
 
@@ -329,12 +353,14 @@ class PositionServiceTest {
 
     assertEquals(1, result.size());
     assertNull(result.get(0).productId());
-    verify(positionRepository, never()).findByProductIdNotNullAndCurrentStockGreaterThan(anyInt());
+    assertFalse(result.get(0).isActive());
+    verify(positionRepository, never())
+        .findByIsActiveTrueAndProductIdNotNullAndCurrentStockGreaterThan(anyInt());
   }
 
   @Test
   void getPositionsFlat_empty_shortCircuitsWithoutLookups() {
-    when(positionRepository.findByProductIdNotNullAndCurrentStockGreaterThan(0))
+    when(positionRepository.findByIsActiveTrueAndProductIdNotNullAndCurrentStockGreaterThan(0))
         .thenReturn(List.of());
     assertTrue(positionService.getPositionsFlat(true).isEmpty());
     verifyNoInteractions(zoneRepository);

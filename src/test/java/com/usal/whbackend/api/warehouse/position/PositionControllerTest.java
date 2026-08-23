@@ -158,7 +158,7 @@ class PositionControllerTest {
   @WithMockUser(roles = "ADMIN_WAREHOUSE")
   void getAllPositions_occupiedTrue_returnsFlatList() throws Exception {
     when(positionService.getPositionsFlat(true))
-        .thenReturn(List.of(new PositionSummaryResponse("p1", "P01", "A", 1, "prod-1", 42)));
+        .thenReturn(List.of(new PositionSummaryResponse("p1", "P01", "A", 1, "prod-1", 42, true)));
 
     mockMvc
         .perform(get("/warehouse/positions").param("occupied", "true"))
@@ -169,7 +169,8 @@ class PositionControllerTest {
         .andExpect(jsonPath("$.positions[0].zone_code").value("A"))
         .andExpect(jsonPath("$.positions[0].number_line").value(1))
         .andExpect(jsonPath("$.positions[0].product_id").value("prod-1"))
-        .andExpect(jsonPath("$.positions[0].current_stock").value(42));
+        .andExpect(jsonPath("$.positions[0].current_stock").value(42))
+        .andExpect(jsonPath("$.positions[0].is_active").value(true));
   }
 
   @Test
