@@ -161,6 +161,7 @@ El Backend actúa como gateway entre los consumidores y el ecosistema de vehícu
 | `provider` | Proveedor / Depositante | Lectura de su propio stock, carga de órdenes de reposición |
 | `dispatcher` | Despachador | Ejecución y confirmación de despachos |
 | `operator` | Operario / Repositor | Confirmación de operaciones físicas, lectura de instrucciones |
+| `dashboard` | Dashboard y Monitoreo (Grupo 3) | **Solo lectura.** Consulta de métricas (`/metrics/*`) y de entidades (`/query/*`). No puede modificar ningún recurso. |
 
 ---
 
