@@ -26,7 +26,7 @@ class VictoriaMetricsRepositoryTest {
   private static Fixture fixture() {
     RestClient.Builder builder = RestClient.builder().baseUrl("http://victoriametrics:8428");
     MockRestServiceServer server = MockRestServiceServer.bindTo(builder).build();
-    return new Fixture(new VictoriaMetricsRepository(builder.build()), server);
+    return new Fixture(new VictoriaMetricsRepository(builder.build(), ""), server);
   }
 
   @Test
@@ -127,5 +127,34 @@ class VictoriaMetricsRepositoryTest {
         f.repository().queryRange("up", FROM, TO, "5m");
 
     assertThat(series.get(0).points()).containsExactly(List.of(1755648300L, 78.4));
+  }
+
+  @Test
+  void aSelectorWithLabelFiltersSurvivesUriBuilding() {
+    Fixture f = fixture();
+    f.server()
+        .expect(
+            requestTo(
+                // The braces reach VictoriaMetrics percent-encoded rather than blowing up in the
+                // builder. Asserted on the selector alone: which characters beyond it get encoded
+                // is the URI library's business and not what this test is about.
+                org.hamcrest.Matchers.containsString("%7Bto%3D%22ERROR%22%7D")))
+        .andRespond(
+            withSuccess(
+                "{\"status\":\"success\",\"data\":{\"resultType\":\"matrix\",\"result\":[]}}",
+                MediaType.APPLICATION_JSON));
+
+    // The braces in a MetricsQL selector are a URI template variable as far as UriBuilder is
+    // concerned, and it throws rather than expanding one it has no value for. Every filtered
+    // query failed this way until the URI was built pre-encoded.
+    assertThat(
+            f.repository()
+                .queryRange(
+                    "sum by (vehicle_id)(increase(wh_vehicle_transitions{to=\"ERROR\"}[5m]))",
+                    FROM,
+                    TO,
+                    "5m"))
+        .isEmpty();
+    f.server().verify();
   }
 }

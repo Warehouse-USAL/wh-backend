@@ -1,5 +1,7 @@
 package com.usal.whbackend.repository;
 
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -17,6 +19,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.util.UriComponentsBuilder;
+import org.springframework.web.util.UriUtils;
 
 /**
  * Reads range queries from VictoriaMetrics.
@@ -31,6 +35,7 @@ public class VictoriaMetricsRepository {
   private static final Logger log = LoggerFactory.getLogger(VictoriaMetricsRepository.class);
 
   private final RestClient client;
+  private final String baseUrl;
 
   // @Autowired is required, not decorative: the package-private test-seam constructor below
   // means this class has two constructors, and without this Spring cannot choose one and the
@@ -38,12 +43,13 @@ public class VictoriaMetricsRepository {
   @Autowired
   public VictoriaMetricsRepository(
       @Value("${victoriametrics.url:http://victoriametrics:8428}") String baseUrl) {
-    this(defaultClient(baseUrl));
+    this(defaultClient(baseUrl), baseUrl);
   }
 
   /** Test seam: lets a test supply a {@code MockRestServiceServer}-bound client. */
-  VictoriaMetricsRepository(RestClient client) {
+  VictoriaMetricsRepository(RestClient client, String baseUrl) {
     this.client = client;
+    this.baseUrl = baseUrl;
   }
 
   private static RestClient defaultClient(String baseUrl) {
@@ -56,20 +62,7 @@ public class VictoriaMetricsRepository {
   public List<TimeSeries> queryRange(String query, Instant from, Instant to, String step) {
     VmResponse response;
     try {
-      response =
-          client
-              .get()
-              .uri(
-                  uriBuilder ->
-                      uriBuilder
-                          .path("/api/v1/query_range")
-                          .queryParam("query", query)
-                          .queryParam("start", from.getEpochSecond())
-                          .queryParam("end", to.getEpochSecond())
-                          .queryParam("step", step)
-                          .build())
-              .retrieve()
-              .body(VmResponse.class);
+      response = client.get().uri(rangeUri(query, from, to, step)).retrieve().body(VmResponse.class);
     } catch (RestClientException e) {
       log.warn("VictoriaMetrics query failed: {}", e.getMessage());
       throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "METRICS_UNAVAILABLE");
@@ -79,6 +72,26 @@ public class VictoriaMetricsRepository {
       return List.of();
     }
     return response.data().result().stream().map(VictoriaMetricsRepository::toSeries).toList();
+  }
+
+  /**
+   * Builds the URI without letting Spring's URI-template machinery near it.
+   *
+   * <p>A MetricsQL selector contains braces — {@code wh_vehicle_state{state="BUSY"}} — and to a
+   * {@code UriBuilder} those are a template variable named {@code state="BUSY"}, which it then
+   * fails to expand. Every filtered query died that way. So the query value is percent-encoded
+   * here and handed over as an already-encoded component: {@code build(true)} skips both the
+   * second round of encoding and the expansion.
+   */
+  private URI rangeUri(String query, Instant from, Instant to, String step) {
+    return UriComponentsBuilder.fromUriString(baseUrl)
+        .path("/api/v1/query_range")
+        .queryParam("query", UriUtils.encodeQueryParam(query, StandardCharsets.UTF_8))
+        .queryParam("start", from.getEpochSecond())
+        .queryParam("end", to.getEpochSecond())
+        .queryParam("step", UriUtils.encodeQueryParam(step, StandardCharsets.UTF_8))
+        .build(true)
+        .toUri();
   }
 
   private static TimeSeries toSeries(VmResult result) {
