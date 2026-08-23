@@ -8,6 +8,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -156,5 +157,76 @@ class VictoriaMetricsRepositoryTest {
                     "5m"))
         .isEmpty();
     f.server().verify();
+  }
+
+  private static final VictoriaMetricsRepository.SeriesData POINT =
+      new VictoriaMetricsRepository.SeriesData(
+          Map.of("__name__", "wh_vehicle_state", "vehicle_id", "v-1"),
+          List.of(1.0, 0.0),
+          List.of(1_700_000_000_000L, 1_700_000_300_000L));
+
+  @Test
+  void importsBackdatedPointsAsNewlineDelimitedJson() {
+    Fixture f = fixture();
+    f.server()
+        .expect(requestTo(org.hamcrest.Matchers.containsString("/api/v1/import")))
+        .andExpect(MockRestRequestMatchers.method(org.springframework.http.HttpMethod.POST))
+        .andExpect(
+            MockRestRequestMatchers.content()
+                .string(org.hamcrest.Matchers.containsString("\"timestamps\"")))
+        .andRespond(withSuccess());
+
+    assertThat(f.repository().importSeries(List.of(POINT), 8)).isTrue();
+    f.server().verify();
+  }
+
+  @Test
+  void aRefusedImportIsReportedRatherThanThrown() {
+    Fixture f = fixture();
+    f.server()
+        .expect(requestTo(org.hamcrest.Matchers.containsString("/api/v1/import")))
+        .andRespond(withServerError());
+
+    // Seeding demo history is a convenience. Nothing it can do is worth failing a boot over.
+    assertThat(f.repository().importSeries(List.of(POINT), 8)).isFalse();
+  }
+
+  @Test
+  void batchesSoOneImportBodyStaysBounded() {
+    Fixture f = fixture();
+    for (int i = 0; i < 3; i++) {
+      f.server()
+          .expect(requestTo(org.hamcrest.Matchers.containsString("/api/v1/import")))
+          .andRespond(withSuccess());
+    }
+
+    assertThat(f.repository().importSeries(List.of(POINT, POINT, POINT, POINT, POINT), 2)).isTrue();
+    f.server().verify();
+  }
+
+  @Test
+  void bracketsInTheSeriesMatchParameterAreEncoded() {
+    Fixture f = fixture();
+    f.server()
+        // "match[]" is not legal raw in a query string, and the URI is built already-encoded.
+        // Getting this wrong threw IllegalArgumentException and once killed application startup.
+        .expect(requestTo(org.hamcrest.Matchers.containsString("match%5B%5D=wh_vehicle_state")))
+        .andRespond(
+            withSuccess(
+                "{\"status\":\"success\",\"data\":[{\"__name__\":\"wh_vehicle_state\"}]}",
+                MediaType.APPLICATION_JSON));
+
+    assertThat(f.repository().hasAnySeries("wh_vehicle_state")).isTrue();
+    f.server().verify();
+  }
+
+  @Test
+  void anUnreachableStoreReadsAsNoSeriesRatherThanAnError() {
+    Fixture f = fixture();
+    f.server()
+        .expect(requestTo(org.hamcrest.Matchers.containsString("/api/v1/series")))
+        .andRespond(withServerError());
+
+    assertThat(f.repository().hasAnySeries("wh_vehicle_state")).isFalse();
   }
 }

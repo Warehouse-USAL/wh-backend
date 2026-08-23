@@ -1,5 +1,6 @@
 package com.usal.whbackend.repository;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -14,6 +15,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
@@ -62,7 +64,8 @@ public class VictoriaMetricsRepository {
   public List<TimeSeries> queryRange(String query, Instant from, Instant to, String step) {
     VmResponse response;
     try {
-      response = client.get().uri(rangeUri(query, from, to, step)).retrieve().body(VmResponse.class);
+      response =
+          client.get().uri(rangeUri(query, from, to, step)).retrieve().body(VmResponse.class);
     } catch (RestClientException e) {
       log.warn("VictoriaMetrics query failed: {}", e.getMessage());
       throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "METRICS_UNAVAILABLE");
@@ -79,9 +82,9 @@ public class VictoriaMetricsRepository {
    *
    * <p>A MetricsQL selector contains braces — {@code wh_vehicle_state{state="BUSY"}} — and to a
    * {@code UriBuilder} those are a template variable named {@code state="BUSY"}, which it then
-   * fails to expand. Every filtered query died that way. So the query value is percent-encoded
-   * here and handed over as an already-encoded component: {@code build(true)} skips both the
-   * second round of encoding and the expansion.
+   * fails to expand. Every filtered query died that way. So the query value is percent-encoded here
+   * and handed over as an already-encoded component: {@code build(true)} skips both the second
+   * round of encoding and the expansion.
    */
   private URI rangeUri(String query, Instant from, Instant to, String step) {
     return UriComponentsBuilder.fromUriString(baseUrl)
@@ -92,6 +95,103 @@ public class VictoriaMetricsRepository {
         .queryParam("step", UriUtils.encodeQueryParam(step, StandardCharsets.UTF_8))
         .build(true)
         .toUri();
+  }
+
+  /**
+   * Writes backdated points straight into VictoriaMetrics.
+   *
+   * <p>Used only to seed demo history. The live path publishes through OpenTelemetry, which can
+   * only report the present — there is no way to hand the SDK a timestamp from last Tuesday, so a
+   * freshly booted stack has no past. Seeding is the one case that needs to write one.
+   *
+   * @return true when every batch was accepted; false if the store refused or was unreachable,
+   *     which is never fatal — demo history is a convenience, not data anyone depends on.
+   */
+  public boolean importSeries(List<SeriesData> series, int batchSize) {
+    ObjectMapper mapper = new ObjectMapper();
+    List<SeriesData> batch = new ArrayList<>(batchSize);
+    for (SeriesData one : series) {
+      batch.add(one);
+      if (batch.size() >= batchSize && !postBatch(mapper, batch)) {
+        return false;
+      }
+    }
+    return batch.isEmpty() || postBatch(mapper, batch);
+  }
+
+  private boolean postBatch(ObjectMapper mapper, List<SeriesData> batch) {
+    StringBuilder body = new StringBuilder();
+    try {
+      for (SeriesData one : batch) {
+        body.append(
+                mapper.writeValueAsString(
+                    Map.of(
+                        "metric", one.labels(),
+                        "values", one.values(),
+                        "timestamps", one.timestampsMs())))
+            .append('\n');
+      }
+    } catch (RuntimeException | com.fasterxml.jackson.core.JsonProcessingException e) {
+      log.warn("Could not encode demo telemetry: {}", e.getMessage());
+      return false;
+    }
+    batch.clear();
+
+    try {
+      client
+          .post()
+          .uri(
+              UriComponentsBuilder.fromUriString(baseUrl)
+                  .path("/api/v1/import")
+                  .build(true)
+                  .toUri())
+          .contentType(MediaType.APPLICATION_NDJSON)
+          .body(body.toString())
+          .retrieve()
+          .toBodilessEntity();
+      return true;
+    } catch (RuntimeException e) {
+      log.warn("Could not write demo telemetry to VictoriaMetrics: {}", e.getMessage());
+      return false;
+    }
+  }
+
+  /** Whether any point exists for a series name — used to keep seeding idempotent. */
+  public boolean hasAnySeries(String seriesName) {
+    try {
+      Map<?, ?> response =
+          client
+              .get()
+              .uri(
+                  UriComponentsBuilder.fromUriString(baseUrl)
+                      .path("/api/v1/series")
+                      // The parameter NAME needs encoding too: brackets are not legal raw in a
+                      // query string, and build(true) promises the components are already encoded.
+                      .queryParam(
+                          "match%5B%5D",
+                          UriUtils.encodeQueryParam(seriesName, StandardCharsets.UTF_8))
+                      .build(true)
+                      .toUri())
+              .retrieve()
+              .body(Map.class);
+      return response != null && response.get("data") instanceof List<?> data && !data.isEmpty();
+    } catch (RuntimeException e) {
+      // Deliberately broad. This only decides whether demo history gets written; nothing it can
+      // throw is worth failing over, and a malformed URI here once took application startup with
+      // it because the catch was narrower than the things that can go wrong.
+      log.warn("Could not check VictoriaMetrics for existing series: {}", e.getMessage());
+      return false;
+    }
+  }
+
+  /** One series of backdated points. Timestamps are epoch milliseconds, as the import API wants. */
+  public record SeriesData(
+      Map<String, String> labels, List<Double> values, List<Long> timestampsMs) {
+    public SeriesData {
+      labels = Collections.unmodifiableMap(new LinkedHashMap<>(labels));
+      values = Collections.unmodifiableList(new ArrayList<>(values));
+      timestampsMs = Collections.unmodifiableList(new ArrayList<>(timestampsMs));
+    }
   }
 
   private static TimeSeries toSeries(VmResult result) {
