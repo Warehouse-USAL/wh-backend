@@ -58,4 +58,32 @@ class VehicleTelemetryConsumerTest {
     assertEquals(VehicleStatus.BUSY, captor.getValue().getStatus());
     verify(vehicleEventPublisher).broadcastVehicleUpdate(any(Vehicle.class));
   }
+
+  @Test
+  void consume_malformedPayload_isLoggedAndSwallowed() {
+    consumer.consume("{oops");
+
+    verify(vehicleRepository, org.mockito.Mockito.never()).save(any());
+    verify(vehicleEventPublisher, org.mockito.Mockito.never()).broadcastVehicleUpdate(any());
+  }
+
+  @Test
+  void consume_unknownVehicle_isIgnored() throws Exception {
+    when(vehicleRepository.findById("ghost")).thenReturn(Optional.empty());
+
+    String message =
+        new ObjectMapper()
+            .writeValueAsString(
+                new VehicleTelemetryMessage(
+                    "vehicle.telemetry",
+                    "ghost",
+                    new VehicleTelemetryMessage.Position(1.0, 2.0),
+                    80,
+                    "IDLE",
+                    "2026-05-01T10:00:00Z"));
+
+    consumer.consume(message);
+
+    verify(vehicleRepository, org.mockito.Mockito.never()).save(any());
+  }
 }

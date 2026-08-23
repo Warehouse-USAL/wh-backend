@@ -14,6 +14,9 @@ public interface PositionRepository extends MongoRepository<Position, String> {
   List<Position> findByProductIdAndIsActiveTrueAndCurrentStockGreaterThanOrderByCreatedAtAsc(
       String productId, int minStock);
 
+  /** Flat dashboard listing — occupied positions only (assigned product with stock on hand). */
+  List<Position> findByProductIdNotNullAndCurrentStockGreaterThan(int minStock);
+
   List<Position> findByProductIdIn(List<String> productIds);
 
   /** Stock computation — only count active positions. */

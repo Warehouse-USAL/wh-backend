@@ -151,4 +151,170 @@ class PositionControllerTest {
                 .content("{\"product_id\":\"product-invalid\",\"quantity\":1,\"size\":\"CAJA\"}"))
         .andExpect(status().isNotFound());
   }
+
+  // ── GET /warehouse/positions (flat dashboard listing) ──────────────────────
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void getAllPositions_occupiedTrue_returnsFlatList() throws Exception {
+    when(positionService.getPositionsFlat(true))
+        .thenReturn(List.of(new PositionSummaryResponse("p1", "P01", "A", 1, "prod-1", 42)));
+
+    mockMvc
+        .perform(get("/warehouse/positions").param("occupied", "true"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.positions").isArray())
+        .andExpect(jsonPath("$.positions[0].id_position").value("p1"))
+        .andExpect(jsonPath("$.positions[0].position_name").value("P01"))
+        .andExpect(jsonPath("$.positions[0].zone_code").value("A"))
+        .andExpect(jsonPath("$.positions[0].number_line").value(1))
+        .andExpect(jsonPath("$.positions[0].product_id").value("prod-1"))
+        .andExpect(jsonPath("$.positions[0].current_stock").value(42));
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void getAllPositions_withoutParam_defaultsToUnfiltered() throws Exception {
+    when(positionService.getPositionsFlat(false)).thenReturn(List.of());
+
+    mockMvc
+        .perform(get("/warehouse/positions"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.positions").isArray())
+        .andExpect(jsonPath("$.positions.length()").value(0));
+
+    verify(positionService).getPositionsFlat(false);
+  }
+
+  @Test
+  @WithMockUser(roles = "OPERATOR")
+  void getAllPositions_insufficientRole_returns403() throws Exception {
+    mockMvc.perform(get("/warehouse/positions")).andExpect(status().isForbidden());
+  }
+
+  @Test
+  void getAllPositions_withoutAuth_returns401() throws Exception {
+    mockMvc.perform(get("/warehouse/positions")).andExpect(status().isUnauthorized());
+  }
+
+  // ── Remaining CRUD handlers ────────────────────────────────────────────────
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void getPosition_withAssignedProduct_returnsDetail() throws Exception {
+    Position p = position("p1", "l1");
+    p.setProductId("prod-1");
+    com.usal.whbackend.domain.Product prod = new com.usal.whbackend.domain.Product();
+    prod.setId("prod-1");
+    prod.setSku("SKU-1");
+    prod.setName("Widget");
+    when(positionService.getPosition("p1")).thenReturn(p);
+    when(productRepository.findById("prod-1")).thenReturn(java.util.Optional.of(prod));
+
+    mockMvc
+        .perform(get("/warehouse/positions/p1"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.id_position").value("p1"))
+        .andExpect(jsonPath("$.assigned_product.id").value("prod-1"))
+        .andExpect(jsonPath("$.assigned_product.sku").value("SKU-1"))
+        .andExpect(jsonPath("$.assigned_product.name").value("Widget"));
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void getPosition_withoutAssignedProduct_returnsNullAssignedProduct() throws Exception {
+    when(positionService.getPosition("p1")).thenReturn(position("p1", "l1"));
+
+    mockMvc
+        .perform(get("/warehouse/positions/p1"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.id_position").value("p1"))
+        .andExpect(jsonPath("$.assigned_product").doesNotExist());
+    verify(productRepository, never()).findById(anyString());
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void getPosition_notFound_returns404() throws Exception {
+    when(positionService.getPosition("ghost"))
+        .thenThrow(new com.usal.whbackend.service.exception.PositionNotFoundException("ghost"));
+
+    mockMvc
+        .perform(get("/warehouse/positions/ghost"))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.error.code").value("POSITION_NOT_FOUND"));
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void updatePosition_valid_returns200() throws Exception {
+    Position updated = position("p1", "l1");
+    updated.setCurrentStock(7);
+    when(positionService.updatePosition(eq("p1"), any())).thenReturn(updated);
+
+    mockMvc
+        .perform(
+            patch("/warehouse/positions/p1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"current_stock\":7}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.current_stock").value(7));
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void updatePosition_stockExceedsCapacity_returns400() throws Exception {
+    when(positionService.updatePosition(eq("p1"), any()))
+        .thenThrow(
+            new com.usal.whbackend.service.exception.StockExceedsCapacityException(500, 100));
+
+    mockMvc
+        .perform(
+            patch("/warehouse/positions/p1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"current_stock\":500}"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.error.code").value("STOCK_EXCEEDS_CAPACITY"));
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void deletePosition_returns204() throws Exception {
+    mockMvc.perform(delete("/warehouse/positions/p1")).andExpect(status().isNoContent());
+    verify(positionService).deletePosition("p1");
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void validateFit_inactiveProduct_returns404() throws Exception {
+    com.usal.whbackend.domain.Product prod = new com.usal.whbackend.domain.Product();
+    prod.setId("product-1");
+    prod.setActive(false);
+    when(productRepository.findById("product-1")).thenReturn(java.util.Optional.of(prod));
+
+    mockMvc
+        .perform(
+            post("/warehouse/positions/validate-fit")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"product_id\":\"product-1\",\"quantity\":1,\"size\":\"CAJA\"}"))
+        .andExpect(status().isNotFound());
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void validateFit_zeroVolumeProduct_returnsZeroMaxQuantity() throws Exception {
+    com.usal.whbackend.domain.Product prod = new com.usal.whbackend.domain.Product();
+    prod.setId("product-1");
+    prod.setActive(true);
+    when(productRepository.findById("product-1")).thenReturn(java.util.Optional.of(prod));
+
+    mockMvc
+        .perform(
+            post("/warehouse/positions/validate-fit")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"product_id\":\"product-1\",\"quantity\":1,\"size\":\"CAJA\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.fits").value(true))
+        .andExpect(jsonPath("$.max_quantity_allowed").value(0));
+  }
 }

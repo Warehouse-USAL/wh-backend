@@ -70,10 +70,11 @@ jacoco {
 }
 
 tasks.jacocoTestCoverageVerification {
+    dependsOn(tasks.test)
     violationRules {
         rule {
             limit {
-                minimum = "0.80".toBigDecimal()
+                minimum = "0.95".toBigDecimal()
             }
         }
     }

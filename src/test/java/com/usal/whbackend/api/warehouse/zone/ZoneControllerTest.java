@@ -102,4 +102,64 @@ class ZoneControllerTest {
   void getZones_unauthenticated_returns401() throws Exception {
     mockMvc.perform(get("/warehouse/zones")).andExpect(status().isUnauthorized());
   }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void updateZone_valid_returns200() throws Exception {
+    Zone updated = new Zone();
+    updated.setId("z1");
+    updated.setZoneCode("B");
+    updated.setMaxAllowedLines(10);
+    when(zoneService.updateZone(eq("z1"), any())).thenReturn(updated);
+
+    mockMvc
+        .perform(
+            patch("/warehouse/zones/z1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"zone_code\":\"B\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.zone_code").value("B"));
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void updateZone_duplicateCode_returns409() throws Exception {
+    when(zoneService.updateZone(eq("z1"), any()))
+        .thenThrow(new ZoneCodeAlreadyExistsException("B"));
+
+    mockMvc
+        .perform(
+            patch("/warehouse/zones/z1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"zone_code\":\"B\"}"))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.error.code").value("ZONE_CODE_ALREADY_EXISTS"));
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void updateZone_notFound_returns404() throws Exception {
+    when(zoneService.updateZone(eq("ghost"), any())).thenThrow(new ZoneNotFoundException("ghost"));
+
+    mockMvc
+        .perform(
+            patch("/warehouse/zones/ghost")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"is_active\":true}"))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.error.code").value("ZONE_NOT_FOUND"));
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void deleteZone_returns204() throws Exception {
+    mockMvc.perform(delete("/warehouse/zones/z1")).andExpect(status().isNoContent());
+    verify(zoneService).deleteZone("z1");
+  }
+
+  @Test
+  @WithMockUser(roles = "OPERATOR")
+  void deleteZone_insufficientRole_returns403() throws Exception {
+    mockMvc.perform(delete("/warehouse/zones/z1")).andExpect(status().isForbidden());
+  }
 }
