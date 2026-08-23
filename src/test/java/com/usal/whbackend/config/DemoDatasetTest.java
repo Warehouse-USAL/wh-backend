@@ -29,15 +29,15 @@ class DemoDatasetTest {
   }
 
   @Test
-  void buildsTwelveNonSuperadminUsersAllActiveAndHashed() {
+  void buildsThirteenNonSuperadminUsersAllActiveAndHashed() {
     var users = data.getUsers();
-    assertThat(users).hasSize(12);
+    assertThat(users).hasSize(13);
     assertThat(users).allMatch(User::isActive);
     assertThat(users).noneMatch(u -> u.getRole() == UserRole.SUPERADMIN);
     assertThat(users)
         .allMatch(u -> u.getPasswordHash().equals("hashed:" + DemoDataset.SHARED_PASSWORD));
     assertThat(users).allMatch(u -> u.getEmail().endsWith("@smartwarehouse.local"));
-    assertThat(users.stream().map(User::getEmail).distinct().count()).isEqualTo(12);
+    assertThat(users.stream().map(User::getEmail).distinct().count()).isEqualTo(13);
   }
 
   @Test

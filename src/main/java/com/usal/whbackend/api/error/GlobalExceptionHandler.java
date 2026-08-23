@@ -90,7 +90,25 @@ public class GlobalExceptionHandler {
           Map.entry(
               "UNSUPPORTED_OPERATOR", "El operador indicado no está permitido para este campo."),
           Map.entry("TOO_MANY_FILTERS", "La consulta declara demasiados filtros."),
-          Map.entry("INVALID_FILTER_VALUE", "El valor de uno de los filtros no es válido."));
+          Map.entry("INVALID_FILTER_VALUE", "El valor de uno de los filtros no es válido."),
+          Map.entry(
+              "NO_AGGREGATES",
+              "Una consulta agrupada debe declarar al menos un agregado en 'aggregates'."),
+          Map.entry(
+              "UNWIND_REQUIRED",
+              "Los campos dentro de un arreglo requieren declarar 'unwind' con ese arreglo."),
+          Map.entry(
+              "UNSUPPORTED_BUCKET",
+              "El bucket indicado no es válido. Valores aceptados: hour, day, month,"
+                  + " y sólo sobre campos de fecha."),
+          Map.entry("UNKNOWN_TIMEZONE", "La zona horaria indicada no existe."),
+          Map.entry(
+              "INVALID_ALIAS",
+              "Un nombre de columna es inválido o está repetido. Usar minúsculas, dígitos y"
+                  + " guión bajo."),
+          Map.entry(
+              "UNBOUNDED_RANGE",
+              "Una consulta agrupada debe acotarse con un filtro de fecha (ej: created_at >=)."));
 
   @ExceptionHandler(AccessDeniedException.class)
   public ResponseEntity<ErrorResponse> handleAccessDenied(AccessDeniedException ex) {

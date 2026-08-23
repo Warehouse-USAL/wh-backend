@@ -106,6 +106,9 @@ public final class DemoDataset {
     users.add(user("u-operator-3", "operator3", "Lucía Méndez", UserRole.OPERATOR, 35));
     users.add(user("u-operator-4", "operator4", "Joaquín Silva", UserRole.OPERATOR, 33));
     users.add(user("u-operator-5", "operator5", "Florencia Díaz", UserRole.OPERATOR, 30));
+    // The account Grupo 3's dashboard authenticates as. Read-only by construction: DASHBOARD
+    // appears in no write endpoint, so a demo cannot be damaged by whatever the dashboard does.
+    users.add(user("u-dashboard", "dashboard", "Panel de Monitoreo", UserRole.DASHBOARD, 20));
     return users;
   }
 

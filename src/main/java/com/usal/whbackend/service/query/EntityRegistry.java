@@ -50,8 +50,27 @@ public class EntityRegistry {
                   FieldDescriptor.of("createdAt", FieldType.INSTANT),
                   FieldDescriptor.of("startedAt", FieldType.INSTANT),
                   FieldDescriptor.of("completedAt", FieldType.INSTANT),
-                  FieldDescriptor.of("cancelReason", FieldType.STRING)),
-              "createdAt"),
+                  FieldDescriptor.of("cancelReason", FieldType.STRING),
+
+                  // Reachable only through `unwind: items`. Without these, demand per SKU has no
+                  // source at all: the quantities live one level down, inside the line items.
+                  FieldDescriptor.inArray("items.sku", FieldType.STRING),
+                  FieldDescriptor.inArray("items.productId", FieldType.STRING),
+                  FieldDescriptor.inArray("items.quantity", FieldType.NUMBER),
+
+                  // Durations, in milliseconds. Computed server-side because the subtraction has
+                  // to happen before the group — you cannot average a difference that does not
+                  // exist yet. Null for orders that never reached that stage, and $avg skips
+                  // nulls, so an incomplete order lowers no average.
+                  FieldDescriptor.derived(
+                      "cycleTimeMs", FieldType.NUMBER, "completedAt", "createdAt"),
+                  FieldDescriptor.derived(
+                      "assignmentLatencyMs", FieldType.NUMBER, "startedAt", "createdAt")),
+              "createdAt",
+              Set.of("items"),
+              // Append-only and unbounded: the one collection where a missing date filter really
+              // could scan everything ever recorded.
+              true),
           new EntityDescriptor(
               "products",
               "products",
@@ -66,7 +85,11 @@ public class EntityRegistry {
                   FieldDescriptor.of("maxQuantityPerOrder", FieldType.NUMBER),
                   FieldDescriptor.of("weight", FieldType.NUMBER),
                   FieldDescriptor.of("createdAt", FieldType.INSTANT)),
-              "createdAt"),
+              "createdAt",
+              Set.of(),
+              // Catalogue size, not event volume. A date window here would exclude everything
+              // catalogued before it rather than bounding anything.
+              false),
           new EntityDescriptor(
               "vehicles",
               "vehicles",
@@ -80,7 +103,32 @@ public class EntityRegistry {
                   FieldDescriptor.of("positionY", FieldType.NUMBER),
                   FieldDescriptor.of("currentOrderId", FieldType.STRING),
                   FieldDescriptor.of("lastSeenAt", FieldType.INSTANT)),
-              "name"),
+              "name",
+              Set.of(),
+              false),
+          // Stock on hand lives here, not on the product: a product's quantity is the sum of
+          // currentStock across the positions holding it. Without this entity there is no way to
+          // ask how much of anything is in the warehouse.
+          new EntityDescriptor(
+              "positions",
+              "positions",
+              WAREHOUSE_ADMINS,
+              List.of(
+                  FieldDescriptor.of("id", FieldType.STRING),
+                  FieldDescriptor.of("positionName", FieldType.STRING),
+                  FieldDescriptor.of("productId", FieldType.STRING),
+                  FieldDescriptor.of("currentStock", FieldType.NUMBER),
+                  FieldDescriptor.of("maximumCapacity", FieldType.NUMBER),
+                  FieldDescriptor.of("idZone", FieldType.STRING),
+                  FieldDescriptor.of("idLine", FieldType.STRING),
+                  FieldDescriptor.of("isActive", FieldType.BOOLEAN),
+                  FieldDescriptor.of("createdAt", FieldType.INSTANT)),
+              "positionName",
+              Set.of(),
+              // Critical: stock on hand is the sum of currentStock over EVERY position. Forcing a
+              // date window would drop every pallet racked before it and understate the total
+              // with no error at all.
+              false),
           new EntityDescriptor(
               "users",
               "users",
@@ -95,7 +143,9 @@ public class EntityRegistry {
                   // Neither readable, sortable nor filterable. Filtering matters as much as
                   // projection here: a filterable hash can be recovered one comparison at a time.
                   FieldDescriptor.hidden("passwordHash", FieldType.STRING)),
-              "email"));
+              "email",
+              Set.of(),
+              false));
 
   public List<EntityDescriptor> all() {
     return descriptors;

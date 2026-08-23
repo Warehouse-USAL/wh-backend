@@ -25,7 +25,7 @@ class CriteriaTranslatorTest {
   private final EntityDescriptor users = registry.findByName("users").orElseThrow();
 
   private static EntityQueryRequest request(List<Filter> filters) {
-    return new EntityQueryRequest(filters, List.of(), List.of(), 0, 25);
+    return new EntityQueryRequest(filters, List.of(), List.of(), 0, 25, null, null, null, null);
   }
 
   private static String codeOf(Throwable t) {
@@ -135,7 +135,8 @@ class CriteriaTranslatorTest {
   @Test
   void refusesToProjectAHiddenField() {
     EntityQueryRequest request =
-        new EntityQueryRequest(List.of(), List.of(), List.of("passwordHash"), 0, 25);
+        new EntityQueryRequest(
+            List.of(), List.of(), List.of("passwordHash"), 0, 25, null, null, null, null);
     assertThatThrownBy(() -> translator.translate(request, users))
         .satisfies(t -> assertThat(codeOf(t)).isEqualTo("UNKNOWN_FIELD"));
   }
@@ -144,7 +145,15 @@ class CriteriaTranslatorTest {
   void refusesToSortByAHiddenField() {
     EntityQueryRequest request =
         new EntityQueryRequest(
-            List.of(), List.of(new SortSpec("passwordHash", "asc")), List.of(), 0, 25);
+            List.of(),
+            List.of(new SortSpec("passwordHash", "asc")),
+            List.of(),
+            0,
+            25,
+            null,
+            null,
+            null,
+            null);
     assertThatThrownBy(() -> translator.translate(request, users))
         .satisfies(t -> assertThat(codeOf(t)).isEqualTo("UNKNOWN_FIELD"));
   }
@@ -226,5 +235,25 @@ class CriteriaTranslatorTest {
     assertThat(CriteriaTranslator.normalizedSize(null)).isEqualTo(CriteriaTranslator.DEFAULT_SIZE);
     assertThat(CriteriaTranslator.normalizedSize(0)).isEqualTo(1);
     assertThat(CriteriaTranslator.normalizedPage(-5)).isZero();
+  }
+
+  @Test
+  void derivedFieldsDoNotExistOutsideAnAggregation() {
+    // There is no $addFields stage in a find, so cycleTimeMs is simply not on the stored
+    // document. Accepting the filter would match nothing and return an empty page with no error.
+    assertThatThrownBy(
+            () ->
+                translator.translate(
+                    request(List.of(new Filter("cycle_time_ms", "lt", 1000))), orders))
+        .satisfies(t -> assertThat(codeOf(t)).isEqualTo("UNKNOWN_FIELD"));
+  }
+
+  @Test
+  void arrayMembersAreNotProjectableEvenThoughTheyAreFilterable() {
+    EntityQueryRequest request =
+        new EntityQueryRequest(
+            List.of(), List.of(), List.of("items.sku"), 0, 25, null, null, null, null);
+    assertThatThrownBy(() -> translator.translate(request, orders))
+        .satisfies(t -> assertThat(codeOf(t)).isEqualTo("UNKNOWN_FIELD"));
   }
 }

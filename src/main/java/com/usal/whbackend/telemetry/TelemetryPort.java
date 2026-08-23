@@ -11,4 +11,12 @@ public interface TelemetryPort {
 
   /** Records a vehicle telemetry reading. Never throws. */
   void recordVehicleSample(VehicleSample sample);
+
+  /**
+   * Records that a vehicle changed status. Never throws.
+   *
+   * <p>Only actual changes should be passed: the counter it feeds is the denominator of every
+   * failure-rate the dashboard derives, so re-recording an unchanged status would inflate them.
+   */
+  void recordStatusTransition(VehicleStatusChange change);
 }

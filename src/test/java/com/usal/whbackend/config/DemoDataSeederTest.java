@@ -39,6 +39,7 @@ class DemoDataSeederTest {
   @Mock VehicleRepository vehicleRepository;
   @Mock OrderMongoRepository orderMongoRepository;
   @Mock PasswordEncoder passwordEncoder;
+  @Mock DemoTelemetrySeeder demoTelemetrySeeder;
 
   private DemoDataSeeder seeder(boolean seedDemo) {
     return new DemoDataSeeder(
@@ -50,6 +51,7 @@ class DemoDataSeederTest {
         vehicleRepository,
         orderMongoRepository,
         passwordEncoder,
+        demoTelemetrySeeder,
         seedDemo);
   }
 
@@ -93,13 +95,16 @@ class DemoDataSeederTest {
 
     seeder(true).run(null);
 
-    verify(userRepository).saveAll(argThat((Iterable<User> it) -> count(it) == 12));
+    verify(userRepository).saveAll(argThat((Iterable<User> it) -> count(it) == 13));
     verify(productRepository).saveAll(argThat((Iterable<Product> it) -> count(it) == 24));
     verify(zoneRepository).saveAll(argThat((Iterable<Zone> it) -> count(it) == 2));
     verify(lineRepository).saveAll(argThat((Iterable<Line> it) -> count(it) == 7));
     verify(positionRepository).saveAll(argThat((Iterable<Position> it) -> count(it) == 35));
     verify(vehicleRepository).saveAll(argThat((Iterable<Vehicle> it) -> count(it) == 6));
     verify(orderMongoRepository).saveAll(argThat((Iterable<Order> it) -> count(it) == 25));
+    // Seeded inside the same fresh-database guard: the metrics store has no backfill, so the
+    // rover charts would otherwise be blank next to three weeks of orders.
+    verify(demoTelemetrySeeder).seed(argThat((java.util.List<Vehicle> it) -> it.size() == 6));
   }
 
   private static int count(Iterable<?> iterable) {

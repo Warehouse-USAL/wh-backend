@@ -3,11 +3,26 @@ package com.usal.whbackend.telemetry;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.opentelemetry.sdk.OpenTelemetrySdk;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class TelemetryConfigTest {
 
   private final TelemetryConfig config = new TelemetryConfig();
+
+  /** An empty fleet is enough: these tests assert which adapter is chosen, not what it observes. */
+  private static final FleetStateSource EMPTY_FLEET =
+      new FleetStateSource() {
+        @Override
+        public List<VehicleState> currentFleet() {
+          return List.of();
+        }
+
+        @Override
+        public List<String> knownStates() {
+          return List.of();
+        }
+      };
 
   @Test
   void usesNoOpAdapterWhenTelemetryIsDisabled() {
@@ -16,7 +31,8 @@ class TelemetryConfigTest {
 
     OpenTelemetrySdk sdk = config.openTelemetrySdk(props);
 
-    assertThat(config.telemetryPort(sdk, props)).isInstanceOf(NoOpTelemetryAdapter.class);
+    assertThat(config.telemetryPort(sdk, props, EMPTY_FLEET))
+        .isInstanceOf(NoOpTelemetryAdapter.class);
     sdk.close();
   }
 
@@ -28,7 +44,8 @@ class TelemetryConfigTest {
 
     OpenTelemetrySdk sdk = config.openTelemetrySdk(props);
 
-    assertThat(config.telemetryPort(sdk, props)).isInstanceOf(OtelTelemetryAdapter.class);
+    assertThat(config.telemetryPort(sdk, props, EMPTY_FLEET))
+        .isInstanceOf(OtelTelemetryAdapter.class);
     sdk.close();
   }
 
