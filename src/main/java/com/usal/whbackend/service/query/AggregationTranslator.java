@@ -88,7 +88,9 @@ public class AggregationTranslator {
       // Rejecting it keeps every response shape predictable: group columns plus aggregate columns.
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "NO_AGGREGATES");
     }
-    requireBoundedRange(request, entity);
+    if (entity.requiresBoundedRange()) {
+      requireBoundedRange(request, entity);
+    }
 
     String timezone = validatedTimezone(request.timezone());
     List<GroupKey> keys = resolveGroupKeys(request, entity, timezone);

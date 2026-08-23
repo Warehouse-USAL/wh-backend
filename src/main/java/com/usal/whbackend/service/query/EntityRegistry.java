@@ -67,7 +67,10 @@ public class EntityRegistry {
                   FieldDescriptor.derived(
                       "assignmentLatencyMs", FieldType.NUMBER, "startedAt", "createdAt")),
               "createdAt",
-              Set.of("items")),
+              Set.of("items"),
+              // Append-only and unbounded: the one collection where a missing date filter really
+              // could scan everything ever recorded.
+              true),
           new EntityDescriptor(
               "products",
               "products",
@@ -82,7 +85,11 @@ public class EntityRegistry {
                   FieldDescriptor.of("maxQuantityPerOrder", FieldType.NUMBER),
                   FieldDescriptor.of("weight", FieldType.NUMBER),
                   FieldDescriptor.of("createdAt", FieldType.INSTANT)),
-              "createdAt"),
+              "createdAt",
+              Set.of(),
+              // Catalogue size, not event volume. A date window here would exclude everything
+              // catalogued before it rather than bounding anything.
+              false),
           new EntityDescriptor(
               "vehicles",
               "vehicles",
@@ -96,7 +103,9 @@ public class EntityRegistry {
                   FieldDescriptor.of("positionY", FieldType.NUMBER),
                   FieldDescriptor.of("currentOrderId", FieldType.STRING),
                   FieldDescriptor.of("lastSeenAt", FieldType.INSTANT)),
-              "name"),
+              "name",
+              Set.of(),
+              false),
           // Stock on hand lives here, not on the product: a product's quantity is the sum of
           // currentStock across the positions holding it. Without this entity there is no way to
           // ask how much of anything is in the warehouse.
@@ -114,7 +123,12 @@ public class EntityRegistry {
                   FieldDescriptor.of("idLine", FieldType.STRING),
                   FieldDescriptor.of("isActive", FieldType.BOOLEAN),
                   FieldDescriptor.of("createdAt", FieldType.INSTANT)),
-              "positionName"),
+              "positionName",
+              Set.of(),
+              // Critical: stock on hand is the sum of currentStock over EVERY position. Forcing a
+              // date window would drop every pallet racked before it and understate the total
+              // with no error at all.
+              false),
           new EntityDescriptor(
               "users",
               "users",
@@ -129,7 +143,9 @@ public class EntityRegistry {
                   // Neither readable, sortable nor filterable. Filtering matters as much as
                   // projection here: a filterable hash can be recovered one comparison at a time.
                   FieldDescriptor.hidden("passwordHash", FieldType.STRING)),
-              "email"));
+              "email",
+              Set.of(),
+              false));
 
   public List<EntityDescriptor> all() {
     return descriptors;

@@ -492,4 +492,63 @@ class AggregationTranslatorTest {
         .isEqualTo(AggregationTranslator.MAX_GROUPED_ROWS);
     assertThat(AggregationTranslator.normalizedRows(-3)).isEqualTo(1);
   }
+
+  @Test
+  void stockOnHandNeedsNoDateWindowBecauseOneWouldDropOlderPallets() {
+    EntityDescriptor positions = registry.findByName("positions").orElseThrow();
+
+    // The regression this guards: requiring a date filter here silently excludes every position
+    // racked before the window, understating stock with no error. Correctness beats a bounded
+    // scan on a collection whose size is fixed by the warehouse.
+    assertThatCode(
+            () ->
+                translator.translate(
+                    request(
+                        List.of(),
+                        null,
+                        List.of(new GroupSpec("product_id", null, "product_id")),
+                        List.of(new AggregateSpec("sum", "current_stock", "on_hand"))),
+                    positions))
+        .doesNotThrowAnyException();
+  }
+
+  @Test
+  void ordersStillRequireADateWindowBecauseTheyGrowWithoutLimit() {
+    assertThat(orders.requiresBoundedRange()).isTrue();
+    assertThat(registry.findByName("positions").orElseThrow().requiresBoundedRange()).isFalse();
+    assertThat(registry.findByName("products").orElseThrow().requiresBoundedRange()).isFalse();
+    assertThat(registry.findByName("vehicles").orElseThrow().requiresBoundedRange()).isFalse();
+
+    assertThatThrownBy(
+            () ->
+                translator.translate(
+                    request(
+                        List.of(),
+                        null,
+                        List.of(new GroupSpec("status", null, "s")),
+                        List.of(new AggregateSpec("count", null, "n"))),
+                    orders))
+        .satisfies(t -> assertThat(codeOf(t)).isEqualTo("UNBOUNDED_RANGE"));
+  }
+
+  @Test
+  void anUnboundedEntityIsStillCappedByRowsAndByGroupKeys() {
+    EntityDescriptor positions = registry.findByName("positions").orElseThrow();
+
+    // Dropping the date requirement must not drop the other rails with it.
+    assertThatThrownBy(
+            () ->
+                translator.translate(
+                    request(
+                        List.of(),
+                        null,
+                        List.of(
+                            new GroupSpec("product_id", null, "a"),
+                            new GroupSpec("id_zone", null, "b"),
+                            new GroupSpec("id_line", null, "c"),
+                            new GroupSpec("position_name", null, "d")),
+                        List.of(new AggregateSpec("count", null, "n"))),
+                    positions))
+        .satisfies(t -> assertThat(codeOf(t)).isEqualTo("QUERY_TOO_BROAD"));
+  }
 }
