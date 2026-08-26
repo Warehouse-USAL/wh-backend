@@ -1,0 +1,41 @@
+# OpenTelemetry Collector — the telemetry broker.
+#
+# OTLP in from the backend, Prometheus remote-write out to VictoriaMetrics.
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  batch:
+    timeout: 5s
+    send_batch_size: 1024
+
+exporters:
+  prometheusremotewrite:
+    endpoint: http://victoriametrics:8428/api/v1/write
+    tls:
+      insecure: true
+    # PINNED DELIBERATELY. With suffixes on, the exporter normalises the OTel unit into the
+    # series name — `wh.vehicle.battery` with unit `%` would be stored as
+    # `wh_vehicle_battery_percent`, and MetricsQueryTranslator would silently return empty
+    # series against `wh_vehicle_battery`. Dots still become underscores; that part is
+    # unavoidable and the translator accounts for it. See spec section 6.
+    add_metric_suffixes: false
+    resource_to_telemetry_conversion:
+      enabled: false
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [prometheusremotewrite]

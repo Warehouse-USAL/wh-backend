@@ -28,6 +28,12 @@ services:
       # bucket aren't set there — provide them explicitly (MinioConfig requires them).
       MINIO_ENDPOINT: ${MINIO_ENDPOINT:-http://minio:9000}
       MINIO_BUCKET: ${MINIO_BUCKET:-wh-images}
+      # The 'prod' profile does not load application-docker.yml, so this must be set explicitly
+      # here or declared indexes are never created and every filtered query scans.
+      SPRING_DATA_MONGODB_AUTO_INDEX_CREATION: ${SPRING_DATA_MONGODB_AUTO_INDEX_CREATION:-true}
+      TELEMETRY_ENABLED: ${TELEMETRY_ENABLED:-true}
+      TELEMETRY_ENDPOINT: ${TELEMETRY_ENDPOINT:-http://otel-collector:4318/v1/metrics}
+      VICTORIAMETRICS_URL: ${VICTORIAMETRICS_URL:-http://victoriametrics:8428}
     restart: always
     depends_on:
       mongo-init:
@@ -104,6 +110,17 @@ services:
       - minio_data:/data
     restart: always
 
+  # Named volume rather than a host bind-mount, matching mongodb/minio in this overlay.
+  # Host port publishing from the dev base is cleared: unlike the databases, nothing off-box
+  # has any reason to reach these two. They stay reachable only on wh-network, never via Caddy.
+  victoriametrics:
+    volumes:
+      - victoriametrics_data:/victoria-metrics-data
+    ports: !override []
+
+  otel-collector:
+    ports: !override []
+
 networks:
   wh-network:
     driver: bridge
@@ -115,3 +132,4 @@ volumes:
   mongo_keyfile:
   redpanda_data:
   minio_data:
+  victoriametrics_data:

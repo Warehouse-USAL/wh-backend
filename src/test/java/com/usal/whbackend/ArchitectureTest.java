@@ -34,4 +34,15 @@ class ArchitectureTest {
           .orShould()
           .dependOnClassesThat()
           .haveSimpleNameEndingWith("Controller");
+
+  // The telemetry package exists to be the one place that knows OpenTelemetry. If this rule ever
+  // fails, the wrapper has leaked and swapping the telemetry backend stopped being a local change.
+  @ArchTest
+  static final ArchRule openTelemetryIsConfinedToTheTelemetryPackage =
+      noClasses()
+          .that()
+          .resideOutsideOfPackage("..telemetry..")
+          .should()
+          .dependOnClassesThat()
+          .resideInAPackage("io.opentelemetry..");
 }

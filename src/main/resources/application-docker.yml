@@ -1,4 +1,8 @@
 spring:
+  data:
+    mongodb:
+      # See application.yml.example — declared indexes are never created without this.
+      auto-index-creation: ${SPRING_DATA_MONGODB_AUTO_INDEX_CREATION:true}
   mongodb:
     uri: mongodb://mongodb:27017/smartwarehouse
   kafka:
@@ -9,3 +13,10 @@ spring:
 minio:
   endpoint: http://minio:9000
   bucket: ${MINIO_BUCKET:wh-images}
+
+telemetry:
+  enabled: ${TELEMETRY_ENABLED:true}
+  endpoint: ${TELEMETRY_ENDPOINT:http://otel-collector:4318/v1/metrics}
+
+victoriametrics:
+  url: ${VICTORIAMETRICS_URL:http://victoriametrics:8428}

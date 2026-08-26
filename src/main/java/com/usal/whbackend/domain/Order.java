@@ -4,18 +4,31 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.index.CompoundIndex;
+import org.springframework.data.mongodb.core.index.Indexed;
 import org.springframework.data.mongodb.core.mapping.Document;
 
+// Serves the archetypal dashboard query — "orders with status X over a date range" — and, by the
+// prefix rule, status-only filters too. It does NOT serve createdAt-only queries, which is why
+// createdAt also carries a standalone index below.
 @Document(collection = "orders")
+@CompoundIndex(name = "status_createdAt_idx", def = "{'status': 1, 'createdAt': -1}")
 public class Order {
 
   @Id private String id;
   private OrderStatus status;
-  private String requestedByUserId;
+
+  // Existing OrderMongoRepository.findByRequestedByUserId scans without this.
+  @Indexed private String requestedByUserId;
   private List<OrderItem> items;
   private String destinationArea;
-  private String assignedVehicleId;
-  private Instant createdAt;
+
+  // Existing OrderMongoRepository.findByAssignedVehicleId scans without this.
+  @Indexed private String assignedVehicleId;
+
+  // The default sort for every unsorted /query/orders request, and the field date-range filters
+  // use. The compound index above cannot serve it, because its prefix is status.
+  @Indexed private Instant createdAt;
   private Instant startedAt;
   private Instant completedAt;
   private String cancelReason;

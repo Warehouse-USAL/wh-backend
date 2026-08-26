@@ -43,6 +43,7 @@ public class DemoDataSeeder implements ApplicationRunner {
   private final VehicleRepository vehicleRepository;
   private final OrderMongoRepository orderMongoRepository;
   private final PasswordEncoder passwordEncoder;
+  private final DemoTelemetrySeeder demoTelemetrySeeder;
   private final boolean seedDemo;
 
   public DemoDataSeeder(
@@ -54,6 +55,7 @@ public class DemoDataSeeder implements ApplicationRunner {
       VehicleRepository vehicleRepository,
       OrderMongoRepository orderMongoRepository,
       PasswordEncoder passwordEncoder,
+      DemoTelemetrySeeder demoTelemetrySeeder,
       @Value("${SEED_DEMO:false}") boolean seedDemo) {
     this.userRepository = userRepository;
     this.productRepository = productRepository;
@@ -63,6 +65,7 @@ public class DemoDataSeeder implements ApplicationRunner {
     this.vehicleRepository = vehicleRepository;
     this.orderMongoRepository = orderMongoRepository;
     this.passwordEncoder = passwordEncoder;
+    this.demoTelemetrySeeder = demoTelemetrySeeder;
     this.seedDemo = seedDemo;
   }
 
@@ -86,6 +89,10 @@ public class DemoDataSeeder implements ApplicationRunner {
     positionRepository.saveAll(data.getPositions());
     vehicleRepository.saveAll(data.getVehicles());
     orderMongoRepository.saveAll(data.getOrders());
+
+    // Deliberately last and inside the same fresh-database guard: the metrics store has no
+    // backfill, so without this the rover charts would be blank next to three weeks of orders.
+    demoTelemetrySeeder.seed(data.getVehicles());
 
     logSeedSummary(data);
   }
