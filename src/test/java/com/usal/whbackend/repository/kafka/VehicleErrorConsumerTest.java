@@ -57,4 +57,28 @@ class VehicleErrorConsumerTest {
     verify(vehicleEventPublisher)
         .broadcastVehicleError(eq("vhc-2"), eq("CONNECTION_LOST"), any(), any());
   }
+
+  @Test
+  void consume_malformedPayload_isLoggedAndSwallowed() {
+    consumer.consume("not-json");
+
+    verify(vehicleRepository, org.mockito.Mockito.never()).save(any());
+    verify(vehicleEventPublisher, org.mockito.Mockito.never())
+        .broadcastVehicleError(any(), any(), any(), any());
+  }
+
+  @Test
+  void consume_unknownVehicle_isIgnored() throws Exception {
+    when(vehicleRepository.findById("ghost")).thenReturn(Optional.empty());
+
+    String message =
+        new ObjectMapper()
+            .writeValueAsString(
+                new VehicleErrorMessage(
+                    "vehicle.error", "ghost", "E01", "boom", "2026-05-01T10:00:00Z"));
+
+    consumer.consume(message);
+
+    verify(vehicleRepository, org.mockito.Mockito.never()).save(any());
+  }
 }

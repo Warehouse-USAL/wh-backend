@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -100,7 +101,8 @@ class ProductControllerSecurityTest {
         .perform(
             post("/products")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"sku\":\"SKU-001\",\"name\":\"Test\",\"category\":\"electronics\",\"height\":1.0,\"width\":1.0,\"length\":1.0,\"weight\":1.0}"))
+                .content(
+                    "{\"sku\":\"SKU-001\",\"name\":\"Test\",\"category\":\"electronics\",\"height\":1.0,\"width\":1.0,\"length\":1.0,\"weight\":1.0}"))
         .andExpect(status().isCreated());
   }
 
@@ -121,5 +123,19 @@ class ProductControllerSecurityTest {
   void deleteProduct_withSuperadmin_returns204() throws Exception {
     doNothing().when(productService).deleteProduct(anyString());
     mockMvc.perform(delete("/products/prod-1")).andExpect(status().isNoContent());
+  }
+
+  @Test
+  @WithMockUser(roles = "OPERATOR")
+  void getCategories_isReadableByAnyAuthenticatedRole() throws Exception {
+    when(productService.getCategories()).thenReturn(java.util.List.of("TECNOLOGIA"));
+    mockMvc.perform(get("/products/categories")).andExpect(status().isOk());
+  }
+
+  @Test
+  @WithMockUser(roles = "PROVIDER")
+  void getProductLocation_isReadableByAnyAuthenticatedRole() throws Exception {
+    when(productService.getProductLocation("prod-1")).thenReturn(java.util.List.of());
+    mockMvc.perform(get("/products/prod-1/location")).andExpect(status().isOk());
   }
 }

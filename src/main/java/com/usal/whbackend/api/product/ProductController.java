@@ -62,6 +62,15 @@ public class ProductController {
             "pagination", Pagination.from(result)));
   }
 
+  @Operation(
+      summary = "List product categories",
+      description = "Returns the catalogue categories accepted by the API (RFC sec 3.3)")
+  @ApiResponse(responseCode = "200", description = "Category list")
+  @GetMapping("/categories")
+  public ResponseEntity<Map<String, Object>> getCategories() {
+    return ResponseEntity.ok(Map.of("categories", productService.getCategories()));
+  }
+
   @Operation(summary = "Get product by ID")
   @ApiResponse(responseCode = "200", description = "Product found")
   @ApiResponse(responseCode = "404", description = "PRODUCT_NOT_FOUND")

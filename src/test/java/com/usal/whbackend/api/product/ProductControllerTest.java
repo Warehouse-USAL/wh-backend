@@ -94,7 +94,8 @@ class ProductControllerTest {
         .perform(
             post("/products")
                 .contentType("application/json")
-                .content("{\"sku\":\"SKU-001\",\"name\":\"Test\",\"category\":\"TECNOLOGIA\",\"height\":10.0,\"width\":10.0,\"length\":10.0,\"weight\":1.0}"))
+                .content(
+                    "{\"sku\":\"SKU-001\",\"name\":\"Test\",\"category\":\"TECNOLOGIA\",\"height\":10.0,\"width\":10.0,\"length\":10.0,\"weight\":1.0}"))
         .andExpect(status().isCreated())
         .andExpect(jsonPath("$.product").exists())
         .andExpect(jsonPath("$.product.sku").value("SKU-001"));
@@ -294,13 +295,73 @@ class ProductControllerTest {
   @Test
   @WithMockUser
   void getProducts_invalidCategory_returns400() throws Exception {
-    when(productService.getProducts(org.mockito.ArgumentMatchers.eq("INVALID_CAT"), any(), any(), any(Pageable.class)))
-        .thenThrow(new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "INVALID_CATEGORY"));
+    when(productService.getProducts(
+            org.mockito.ArgumentMatchers.eq("INVALID_CAT"), any(), any(), any(Pageable.class)))
+        .thenThrow(
+            new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.BAD_REQUEST, "INVALID_CATEGORY"));
 
     mockMvc
         .perform(get("/products").param("category", "INVALID_CAT"))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.error.code").value("INVALID_CATEGORY"))
         .andExpect(jsonPath("$.error.message").value("La categoría indicada no existe."));
+  }
+
+  @Test
+  @WithMockUser
+  void getCategories_returns200WithCategoryList() throws Exception {
+    when(productService.getCategories())
+        .thenReturn(List.of("TECNOLOGIA", "HERRAMIENTAS", "ALIMENTOS", "OTROS"));
+
+    mockMvc
+        .perform(get("/products/categories"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.categories").isArray())
+        .andExpect(jsonPath("$.categories.length()").value(4))
+        .andExpect(jsonPath("$.categories[0]").value("TECNOLOGIA"))
+        .andExpect(jsonPath("$.categories[3]").value("OTROS"));
+  }
+
+  @Test
+  @WithMockUser
+  void getCategories_isNotShadowedByGetProductById() throws Exception {
+    when(productService.getCategories()).thenReturn(List.of("TECNOLOGIA"));
+    mockMvc.perform(get("/products/categories")).andExpect(status().isOk());
+    org.mockito.Mockito.verify(productService, org.mockito.Mockito.never())
+        .getProduct(anyString(), any());
+  }
+
+  @Test
+  @WithMockUser
+  void getProductLocation_returns200WithLocations() throws Exception {
+    when(productService.getProductLocation("prod-1"))
+        .thenReturn(
+            List.of(
+                new com.usal.whbackend.service.ProductService.ProductLocationEntry(
+                    "pos-1", "P01", 12, "line-1", 2, "zone-1", "A")));
+
+    mockMvc
+        .perform(get("/products/prod-1/location"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.locations[0].id_position").value("pos-1"))
+        .andExpect(jsonPath("$.locations[0].position_name").value("P01"))
+        .andExpect(jsonPath("$.locations[0].current_stock").value(12))
+        .andExpect(jsonPath("$.locations[0].number_line").value(2))
+        .andExpect(jsonPath("$.locations[0].zone_code").value("A"));
+  }
+
+  @Test
+  @WithMockUser
+  void getProductLocation_productNotFound_returns404() throws Exception {
+    when(productService.getProductLocation("ghost"))
+        .thenThrow(
+            new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.NOT_FOUND, "PRODUCT_NOT_FOUND"));
+
+    mockMvc
+        .perform(get("/products/ghost/location"))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.error.code").value("PRODUCT_NOT_FOUND"));
   }
 }

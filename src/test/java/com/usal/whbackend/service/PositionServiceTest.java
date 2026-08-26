@@ -9,11 +9,14 @@ import com.usal.whbackend.api.warehouse.position.UpdatePositionRequest;
 import com.usal.whbackend.domain.Line;
 import com.usal.whbackend.domain.Position;
 import com.usal.whbackend.domain.StockSize;
+import com.usal.whbackend.domain.Zone;
 import com.usal.whbackend.repository.LineRepository;
 import com.usal.whbackend.repository.PositionRepository;
 import com.usal.whbackend.repository.ProductRepository;
+import com.usal.whbackend.repository.ZoneRepository;
 import com.usal.whbackend.service.exception.LineNotFoundException;
 import com.usal.whbackend.service.exception.PositionAlreadyOccupiedException;
+import com.usal.whbackend.service.exception.PositionNotFoundException;
 import com.usal.whbackend.service.exception.StockExceedsCapacityException;
 import java.util.List;
 import java.util.Optional;
@@ -28,6 +31,7 @@ class PositionServiceTest {
 
   @Mock PositionRepository positionRepository;
   @Mock LineRepository lineRepository;
+  @Mock ZoneRepository zoneRepository;
   @Mock ProductRepository productRepository;
   @InjectMocks PositionService positionService;
 
@@ -165,5 +169,226 @@ class PositionServiceTest {
     Position result = positionService.updatePosition("p1", req);
 
     assertEquals(5, result.getCurrentStock());
+  }
+
+  private Zone zone(String id, String code) {
+    Zone z = new Zone();
+    z.setId(id);
+    z.setZoneCode(code);
+    return z;
+  }
+
+  @Test
+  void getPosition_notFound_throwsPositionNotFound() {
+    when(positionRepository.findById("bad")).thenReturn(Optional.empty());
+    assertThrows(PositionNotFoundException.class, () -> positionService.getPosition("bad"));
+  }
+
+  @Test
+  void getPosition_found_returnsPosition() {
+    when(positionRepository.findById("p1")).thenReturn(Optional.of(position("p1", "l1", "z1")));
+    assertEquals("p1", positionService.getPosition("p1").getId());
+  }
+
+  @Test
+  void createPosition_lineNotFound_throws() {
+    when(lineRepository.findById("bad")).thenReturn(Optional.empty());
+    CreatePositionRequest req = new CreatePositionRequest("P01", 10, StockSize.CAJA);
+    assertThrows(LineNotFoundException.class, () -> positionService.createPosition("bad", req));
+  }
+
+  @Test
+  void createPosition_inactiveLine_throwsBadRequest() {
+    Line l = line("l1", "z1");
+    l.setActive(false);
+    when(lineRepository.findById("l1")).thenReturn(Optional.of(l));
+    CreatePositionRequest req = new CreatePositionRequest("P01", 10, StockSize.CAJA);
+    var ex =
+        assertThrows(
+            org.springframework.web.server.ResponseStatusException.class,
+            () -> positionService.createPosition("l1", req));
+    assertEquals(org.springframework.http.HttpStatus.BAD_REQUEST, ex.getStatusCode());
+  }
+
+  @Test
+  void updatePosition_notFound_throwsPositionNotFound() {
+    when(positionRepository.findById("bad")).thenReturn(Optional.empty());
+    UpdatePositionRequest req = new UpdatePositionRequest(null, null, null, null, null, null);
+    assertThrows(PositionNotFoundException.class, () -> positionService.updatePosition("bad", req));
+  }
+
+  @Test
+  void updatePosition_unknownProduct_throwsNotFound() {
+    Position p = position("p1", "l1", "z1");
+    when(positionRepository.findById("p1")).thenReturn(Optional.of(p));
+    when(productRepository.existsById("ghost")).thenReturn(false);
+    UpdatePositionRequest req = new UpdatePositionRequest(null, null, null, null, "ghost", null);
+    var ex =
+        assertThrows(
+            org.springframework.web.server.ResponseStatusException.class,
+            () -> positionService.updatePosition("p1", req));
+    assertEquals(org.springframework.http.HttpStatus.NOT_FOUND, ex.getStatusCode());
+  }
+
+  @Test
+  void updatePosition_negativeStock_throwsStockExceedsCapacity() {
+    Position p = position("p1", "l1", "z1");
+    when(positionRepository.findById("p1")).thenReturn(Optional.of(p));
+    UpdatePositionRequest req = new UpdatePositionRequest(null, null, -1, null, null, null);
+    assertThrows(
+        StockExceedsCapacityException.class, () -> positionService.updatePosition("p1", req));
+  }
+
+  @Test
+  void updatePosition_assignsNewProductAndRenamesAndActivates() {
+    Position p = position("p1", "l1", "z1");
+    when(positionRepository.findById("p1")).thenReturn(Optional.of(p));
+    when(productRepository.existsById("product-A")).thenReturn(true);
+    when(positionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    UpdatePositionRequest req =
+        new UpdatePositionRequest("P99", true, 0, StockSize.PALLET, "product-A", null);
+    Position result = positionService.updatePosition("p1", req);
+
+    assertEquals("product-A", result.getProductId());
+    assertEquals("P99", result.getPositionName());
+    assertTrue(result.isActive());
+    assertEquals(StockSize.PALLET, result.getSizeStockToSave());
+  }
+
+  @Test
+  void updatePosition_sameProductReassigned_isAllowed() {
+    Position p = position("p1", "l1", "z1");
+    p.setProductId("product-A");
+    when(positionRepository.findById("p1")).thenReturn(Optional.of(p));
+    when(productRepository.existsById("product-A")).thenReturn(true);
+    when(positionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    UpdatePositionRequest req =
+        new UpdatePositionRequest(null, null, null, null, "product-A", null);
+    assertEquals("product-A", positionService.updatePosition("p1", req).getProductId());
+  }
+
+  @Test
+  void updatePosition_volumeCheckProductMissing_throwsNotFound() {
+    Position p = position("p1", "l1", "z1");
+    p.setProductId("product-1");
+    p.setSizeStockToSave(StockSize.PALLET);
+    when(positionRepository.findById("p1")).thenReturn(Optional.of(p));
+    when(productRepository.findById("product-1")).thenReturn(Optional.empty());
+
+    UpdatePositionRequest req = new UpdatePositionRequest(null, null, 1, null, null, null);
+    var ex =
+        assertThrows(
+            org.springframework.web.server.ResponseStatusException.class,
+            () -> positionService.updatePosition("p1", req));
+    assertEquals(org.springframework.http.HttpStatus.NOT_FOUND, ex.getStatusCode());
+  }
+
+  @Test
+  void deletePosition_notFound_throwsPositionNotFound() {
+    when(positionRepository.findById("bad")).thenReturn(Optional.empty());
+    assertThrows(PositionNotFoundException.class, () -> positionService.deletePosition("bad"));
+  }
+
+  // ── Flat listing (GET /warehouse/positions) ────────────────────────────────
+
+  @Test
+  void getPositionsFlat_occupiedOnly_excludesInactivePositions() {
+    // A soft-deleted position keeps its productId and currentStock (deletePosition only flips
+    // isActive), and stock in an inactive position is excluded from available stock everywhere
+    // else. The occupied listing must agree, or the dashboard shows a product parked in a
+    // position that GET /products reports as holding nothing.
+    Position p = position("p1", "l1", "z1");
+    p.setProductId("product-A");
+    p.setCurrentStock(42);
+    p.setActive(true);
+
+    when(positionRepository.findByIsActiveTrueAndProductIdNotNullAndCurrentStockGreaterThan(0))
+        .thenReturn(List.of(p));
+    when(lineRepository.findAllById(List.of("l1"))).thenReturn(List.of(line("l1", "z1")));
+    when(zoneRepository.findAllById(List.of("z1"))).thenReturn(List.of(zone("z1", "A")));
+
+    var result = positionService.getPositionsFlat(true);
+
+    assertEquals(1, result.size());
+    verify(positionRepository, never()).findAll();
+  }
+
+  @Test
+  void getPositionsFlat_occupiedOnly_queriesOccupiedAndDenormalises() {
+    Position p = position("p1", "l1", "z1");
+    p.setProductId("product-A");
+    p.setCurrentStock(42);
+    p.setActive(true); // the occupied finder only ever returns active positions
+    Line l = line("l1", "z1");
+    l.setNumberLine(3);
+
+    when(positionRepository.findByIsActiveTrueAndProductIdNotNullAndCurrentStockGreaterThan(0))
+        .thenReturn(List.of(p));
+    when(lineRepository.findAllById(List.of("l1"))).thenReturn(List.of(l));
+    when(zoneRepository.findAllById(List.of("z1"))).thenReturn(List.of(zone("z1", "A")));
+
+    var result = positionService.getPositionsFlat(true);
+
+    assertEquals(1, result.size());
+    assertEquals("p1", result.get(0).idPosition());
+    assertEquals("P01", result.get(0).positionName());
+    assertEquals("A", result.get(0).zoneCode());
+    assertEquals(3, result.get(0).numberLine());
+    assertEquals("product-A", result.get(0).productId());
+    assertEquals(42, result.get(0).currentStock());
+    assertTrue(result.get(0).isActive());
+    verify(positionRepository, never()).findAll();
+  }
+
+  @Test
+  void getPositionsFlat_allPositions_usesFindAll() {
+    Position p = position("p1", "l1", "z1");
+    when(positionRepository.findAll()).thenReturn(List.of(p));
+    when(lineRepository.findAllById(List.of("l1"))).thenReturn(List.of(line("l1", "z1")));
+    when(zoneRepository.findAllById(List.of("z1"))).thenReturn(List.of(zone("z1", "A")));
+
+    var result = positionService.getPositionsFlat(false);
+
+    assertEquals(1, result.size());
+    assertNull(result.get(0).productId());
+    assertFalse(result.get(0).isActive());
+    verify(positionRepository, never())
+        .findByIsActiveTrueAndProductIdNotNullAndCurrentStockGreaterThan(anyInt());
+  }
+
+  @Test
+  void getPositionsFlat_empty_shortCircuitsWithoutLookups() {
+    when(positionRepository.findByIsActiveTrueAndProductIdNotNullAndCurrentStockGreaterThan(0))
+        .thenReturn(List.of());
+    assertTrue(positionService.getPositionsFlat(true).isEmpty());
+    verifyNoInteractions(zoneRepository);
+  }
+
+  @Test
+  void getPositionsFlat_danglingLineAndZone_fallsBackToDefaults() {
+    Position p = position("p1", "l1", "z1");
+    when(positionRepository.findAll()).thenReturn(List.of(p));
+    when(lineRepository.findAllById(List.of("l1"))).thenReturn(List.of());
+    when(zoneRepository.findAllById(List.of("z1"))).thenReturn(List.of());
+
+    var result = positionService.getPositionsFlat(false);
+
+    assertEquals(0, result.get(0).numberLine());
+    assertNull(result.get(0).zoneCode());
+  }
+
+  @Test
+  void getPositionsFlat_nullLineAndZoneIds_areSkippedInLookup() {
+    Position p = position("p1", null, null);
+    when(positionRepository.findAll()).thenReturn(List.of(p));
+    when(lineRepository.findAllById(List.of())).thenReturn(List.of());
+    when(zoneRepository.findAllById(List.of())).thenReturn(List.of());
+
+    var result = positionService.getPositionsFlat(false);
+
+    assertEquals(1, result.size());
+    assertNull(result.get(0).zoneCode());
   }
 }
