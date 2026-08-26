@@ -12,6 +12,7 @@ import com.usal.whbackend.config.SecurityConfig;
 import com.usal.whbackend.domain.Line;
 import com.usal.whbackend.service.LineService;
 import com.usal.whbackend.service.exception.LineNotFoundException;
+import com.usal.whbackend.service.exception.LineNumberAlreadyExistsException;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -80,5 +81,63 @@ class LineControllerTest {
   void deleteLine_notFound_returns404() throws Exception {
     doThrow(new LineNotFoundException("l99")).when(lineService).deleteLine("l99");
     mockMvc.perform(delete("/warehouse/lines/l99")).andExpect(status().isNotFound());
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void updateLine_valid_returns200() throws Exception {
+    Line updated = line("l1", "z1");
+    updated.setNumberLine(7);
+    when(lineService.updateLine(eq("l1"), any())).thenReturn(updated);
+
+    mockMvc
+        .perform(
+            patch("/warehouse/lines/l1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"number_line\":7}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.number_line").value(7));
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void updateLine_duplicateNumber_returns409() throws Exception {
+    when(lineService.updateLine(eq("l1"), any()))
+        .thenThrow(new LineNumberAlreadyExistsException(7, "z1"));
+
+    mockMvc
+        .perform(
+            patch("/warehouse/lines/l1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"number_line\":7}"))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.error.code").value("LINE_NUMBER_ALREADY_EXISTS"));
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void updateLine_notFound_returns404() throws Exception {
+    when(lineService.updateLine(eq("ghost"), any())).thenThrow(new LineNotFoundException("ghost"));
+
+    mockMvc
+        .perform(
+            patch("/warehouse/lines/ghost")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"is_active\":true}"))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.error.code").value("LINE_NOT_FOUND"));
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void deleteLine_returns204() throws Exception {
+    mockMvc.perform(delete("/warehouse/lines/l1")).andExpect(status().isNoContent());
+    verify(lineService).deleteLine("l1");
+  }
+
+  @Test
+  @WithMockUser(roles = "OPERATOR")
+  void deleteLine_insufficientRole_returns403() throws Exception {
+    mockMvc.perform(delete("/warehouse/lines/l1")).andExpect(status().isForbidden());
   }
 }

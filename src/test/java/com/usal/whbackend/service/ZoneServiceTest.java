@@ -90,4 +90,55 @@ class ZoneServiceTest {
     zoneService.deleteZone("z1");
     verify(zoneRepository).save(argThat(saved -> !((Zone) saved).isActive()));
   }
+
+  @Test
+  void getZone_notFound_throwsZoneNotFound() {
+    when(zoneRepository.findById("bad")).thenReturn(Optional.empty());
+    assertThrows(ZoneNotFoundException.class, () -> zoneService.getZone("bad"));
+  }
+
+  @Test
+  void updateZone_allFields_appliesChanges() {
+    Zone z = zone("z1", "A");
+    when(zoneRepository.findById("z1")).thenReturn(Optional.of(z));
+    when(zoneRepository.findByZoneCode("B")).thenReturn(Optional.empty());
+    when(zoneRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    Zone result = zoneService.updateZone("z1", new UpdateZoneRequest("B", 42, true));
+
+    assertEquals("B", result.getZoneCode());
+    assertEquals(42, result.getMaxAllowedLines());
+    assertTrue(result.isActive());
+  }
+
+  @Test
+  void updateZone_keepingItsOwnCode_skipsUniquenessCheck() {
+    Zone z = zone("z1", "A");
+    when(zoneRepository.findById("z1")).thenReturn(Optional.of(z));
+    when(zoneRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    Zone result = zoneService.updateZone("z1", new UpdateZoneRequest("A", null, null));
+
+    assertEquals("A", result.getZoneCode());
+    verify(zoneRepository, never()).findByZoneCode(any());
+  }
+
+  @Test
+  void updateZone_noFields_leavesZoneUntouched() {
+    Zone z = zone("z1", "A");
+    when(zoneRepository.findById("z1")).thenReturn(Optional.of(z));
+    when(zoneRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    Zone result = zoneService.updateZone("z1", new UpdateZoneRequest(null, null, null));
+
+    assertEquals("A", result.getZoneCode());
+    assertEquals(10, result.getMaxAllowedLines());
+    assertFalse(result.isActive());
+  }
+
+  @Test
+  void deleteZone_notFound_throwsZoneNotFound() {
+    when(zoneRepository.findById("bad")).thenReturn(Optional.empty());
+    assertThrows(ZoneNotFoundException.class, () -> zoneService.deleteZone("bad"));
+  }
 }

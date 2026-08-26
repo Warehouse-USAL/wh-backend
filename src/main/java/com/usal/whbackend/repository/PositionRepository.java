@@ -14,6 +14,15 @@ public interface PositionRepository extends MongoRepository<Position, String> {
   List<Position> findByProductIdAndIsActiveTrueAndCurrentStockGreaterThanOrderByCreatedAtAsc(
       String productId, int minStock);
 
+  /**
+   * Flat dashboard listing — occupied positions only: an assigned product with stock on hand, in a
+   * position that is still active. Inactive positions are excluded for the same reason the stock
+   * queries above exclude them: {@code deletePosition} soft-deletes by flipping {@code isActive}
+   * without clearing {@code productId}/{@code currentStock}, so a deleted position still looks
+   * occupied on the document.
+   */
+  List<Position> findByIsActiveTrueAndProductIdNotNullAndCurrentStockGreaterThan(int minStock);
+
   List<Position> findByProductIdIn(List<String> productIds);
 
   /** Stock computation — only count active positions. */
