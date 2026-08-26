@@ -256,4 +256,124 @@ class CriteriaTranslatorTest {
     assertThatThrownBy(() -> translator.translate(request, orders))
         .satisfies(t -> assertThat(codeOf(t)).isEqualTo("UNKNOWN_FIELD"));
   }
+
+  private final EntityDescriptor products = registry.findByName("products").orElseThrow();
+
+  @Test
+  void rendersEveryPermittedOperator() {
+    // One assertion per operator, because each maps to a different Criteria method and a wrong
+    // mapping produces a query that runs and quietly returns the wrong rows.
+    Query q =
+        translator.translate(
+            request(
+                List.of(
+                    new Filter("status", "ne", "CANCELLED"),
+                    new Filter("created_at", "gt", "2026-01-01T00:00:00Z"),
+                    new Filter("destination_area", "nin", List.of("Z1", "Z2")),
+                    new Filter("cancel_reason", "exists", false))),
+            orders);
+
+    String rendered = q.getQueryObject().toJson();
+    assertThat(rendered).contains("$ne").contains("$gt").contains("$nin").contains("$exists");
+  }
+
+  @Test
+  void coercesNumbersAndBooleans() {
+    Query numeric =
+        translator.translate(request(List.of(new Filter("minimum_stock", "gte", 5))), products);
+    assertThat(numeric.getQueryObject().toJson()).contains("minimumStock");
+
+    Query numericFromText =
+        translator.translate(request(List.of(new Filter("minimum_stock", "gte", "5"))), products);
+    assertThat(numericFromText.getQueryObject().toJson()).contains("minimumStock");
+
+    Query bool = translator.translate(request(List.of(new Filter("active", "eq", true))), products);
+    assertThat(bool.getQueryObject().toJson()).contains("active");
+
+    Query boolFromText =
+        translator.translate(request(List.of(new Filter("active", "eq", "TRUE"))), products);
+    assertThat(boolFromText.getQueryObject().toJson()).contains("active");
+  }
+
+  @Test
+  void rejectsValuesThatCannotBeCoerced() {
+    assertThatThrownBy(
+            () -> translator.translate(request(List.of(new Filter("status", "eq", null))), orders))
+        .satisfies(t -> assertThat(codeOf(t)).isEqualTo("INVALID_FILTER_VALUE"));
+
+    assertThatThrownBy(
+            () ->
+                translator.translate(
+                    request(List.of(new Filter("minimum_stock", "eq", "abc"))), products))
+        .satisfies(t -> assertThat(codeOf(t)).isEqualTo("INVALID_FILTER_VALUE"));
+
+    assertThatThrownBy(
+            () ->
+                translator.translate(
+                    request(List.of(new Filter("active", "eq", "perhaps"))), products))
+        .satisfies(t -> assertThat(codeOf(t)).isEqualTo("INVALID_FILTER_VALUE"));
+
+    assertThatThrownBy(
+            () ->
+                translator.translate(
+                    request(List.of(new Filter("created_at", "gte", "last tuesday"))), orders))
+        .satisfies(t -> assertThat(codeOf(t)).isEqualTo("INVALID_FILTER_VALUE"));
+  }
+
+  @Test
+  void inAndNinNeedAnActualList() {
+    assertThatThrownBy(
+            () ->
+                translator.translate(
+                    request(List.of(new Filter("status", "in", "COMPLETED"))), orders))
+        .satisfies(t -> assertThat(codeOf(t)).isEqualTo("INVALID_FILTER_VALUE"));
+
+    assertThatThrownBy(
+            () ->
+                translator.translate(
+                    request(List.of(new Filter("status", "in", List.of()))), orders))
+        .satisfies(t -> assertThat(codeOf(t)).isEqualTo("INVALID_FILTER_VALUE"));
+  }
+
+  @Test
+  void honoursAnExplicitSortDirectionAndRejectsAnUnknownSortField() {
+    EntityQueryRequest ascending =
+        new EntityQueryRequest(
+            List.of(),
+            List.of(new SortSpec("created_at", "asc")),
+            List.of(),
+            0,
+            25,
+            null,
+            null,
+            null,
+            null);
+    assertThat(translator.translate(ascending, orders).getSortObject().toJson())
+        .contains("createdAt")
+        .contains("1");
+
+    EntityQueryRequest unknown =
+        new EntityQueryRequest(
+            List.of(),
+            List.of(new SortSpec("nope", "desc")),
+            List.of(),
+            0,
+            25,
+            null,
+            null,
+            null,
+            null);
+    assertThatThrownBy(() -> translator.translate(unknown, orders))
+        .satisfies(t -> assertThat(codeOf(t)).isEqualTo("UNKNOWN_FIELD"));
+  }
+
+  @Test
+  void normalisesPagingSoNoRequestCanAskForAnUnboundedPage() {
+    assertThat(CriteriaTranslator.normalizedPage(null)).isZero();
+    assertThat(CriteriaTranslator.normalizedPage(-4)).isZero();
+    assertThat(CriteriaTranslator.normalizedPage(7)).isEqualTo(7);
+    assertThat(CriteriaTranslator.normalizedSize(null)).isEqualTo(CriteriaTranslator.DEFAULT_SIZE);
+    assertThat(CriteriaTranslator.normalizedSize(10_000)).isEqualTo(CriteriaTranslator.MAX_SIZE);
+    assertThat(CriteriaTranslator.normalizedSize(0)).isEqualTo(1);
+  }
 }

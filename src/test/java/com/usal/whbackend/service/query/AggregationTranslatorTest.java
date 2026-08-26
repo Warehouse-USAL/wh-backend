@@ -551,4 +551,253 @@ class AggregationTranslatorTest {
                     positions))
         .satisfies(t -> assertThat(codeOf(t)).isEqualTo("QUERY_TOO_BROAD"));
   }
+
+  @Test
+  void tooManyAggregatesAreRefused() {
+    List<AggregateSpec> many = new ArrayList<>();
+    for (int i = 0; i < 11; i++) {
+      many.add(new AggregateSpec("count", null, "n" + i));
+    }
+    assertThatThrownBy(
+            () ->
+                translator.translate(
+                    request(window(), null, List.of(new GroupSpec("status", null, "s")), many),
+                    orders))
+        .satisfies(t -> assertThat(codeOf(t)).isEqualTo("QUERY_TOO_BROAD"));
+  }
+
+  @Test
+  void unknownNamesAreRejectedWhereverTheyAppear() {
+    List<Filter> withBadFilter = window();
+    withBadFilter.add(new Filter("nope", "eq", "x"));
+
+    assertThatThrownBy(
+            () ->
+                translator.translate(
+                    request(
+                        withBadFilter,
+                        null,
+                        List.of(new GroupSpec("status", null, "s")),
+                        List.of(new AggregateSpec("count", null, "n"))),
+                    orders))
+        .describedAs("filter")
+        .satisfies(t -> assertThat(codeOf(t)).isEqualTo("UNKNOWN_FIELD"));
+
+    assertThatThrownBy(
+            () ->
+                translator.translate(
+                    request(
+                        window(),
+                        null,
+                        List.of(new GroupSpec("nope", null, "s")),
+                        List.of(new AggregateSpec("count", null, "n"))),
+                    orders))
+        .describedAs("group key")
+        .satisfies(t -> assertThat(codeOf(t)).isEqualTo("UNKNOWN_FIELD"));
+
+    assertThatThrownBy(
+            () ->
+                translator.translate(
+                    request(
+                        window(),
+                        null,
+                        List.of(new GroupSpec("status", null, "s")),
+                        List.of(new AggregateSpec("sum", "nope", "n"))),
+                    orders))
+        .describedAs("aggregate field")
+        .satisfies(t -> assertThat(codeOf(t)).isEqualTo("UNKNOWN_FIELD"));
+  }
+
+  @Test
+  void bucketsAreRejectedOnNonDatesAndWhenTheNameIsNotAKnownBucket() {
+    assertThatThrownBy(
+            () ->
+                translator.translate(
+                    request(
+                        window(),
+                        null,
+                        List.of(new GroupSpec("status", "day", "d")),
+                        List.of(new AggregateSpec("count", null, "n"))),
+                    orders))
+        .describedAs("bucket on an enum")
+        .satisfies(t -> assertThat(codeOf(t)).isEqualTo("UNSUPPORTED_BUCKET"));
+
+    assertThatThrownBy(
+            () ->
+                translator.translate(
+                    request(
+                        window(),
+                        null,
+                        List.of(new GroupSpec("created_at", "fortnight", "d")),
+                        List.of(new AggregateSpec("count", null, "n"))),
+                    orders))
+        .describedAs("bucket nobody defined")
+        .satisfies(t -> assertThat(codeOf(t)).isEqualTo("UNSUPPORTED_BUCKET"));
+  }
+
+  @Test
+  void anUnknownAggregateOpIsRefused() {
+    assertThatThrownBy(
+            () ->
+                translator.translate(
+                    request(
+                        window(),
+                        null,
+                        List.of(new GroupSpec("status", null, "s")),
+                        List.of(new AggregateSpec("median", "items.quantity", "m"))),
+                    orders))
+        .satisfies(t -> assertThat(codeOf(t)).isEqualTo("UNSUPPORTED_AGGREGATION"));
+  }
+
+  @Test
+  void aggregatingAnArrayMemberStillNeedsTheUnwind() {
+    assertThatThrownBy(
+            () ->
+                translator.translate(
+                    request(
+                        window(),
+                        null,
+                        List.of(new GroupSpec("status", null, "s")),
+                        List.of(new AggregateSpec("sum", "items.quantity", "u"))),
+                    orders))
+        .satisfies(t -> assertThat(codeOf(t)).isEqualTo("UNWIND_REQUIRED"));
+  }
+
+  @Test
+  void noGroupKeysCollapsesToASingleRow() {
+    List<Document> pipeline =
+        pipelineOf(
+            request(window(), null, List.of(), List.of(new AggregateSpec("count", null, "total"))),
+            orders);
+
+    // "How many orders in total" — one row for the whole match, so _id is null.
+    assertThat(stage(pipeline, "$group")).containsEntry("_id", null);
+    assertThat(stage(pipeline, "$sort")).containsEntry("total", 1);
+  }
+
+  @Test
+  void sortAcceptsAscendingAndRejectsAMissingFieldName() {
+    EntityQueryRequest ascending =
+        new EntityQueryRequest(
+            window(),
+            List.of(new SortSpec("n", "asc")),
+            List.of(),
+            null,
+            null,
+            null,
+            List.of(new GroupSpec("status", null, "s")),
+            List.of(new AggregateSpec("count", null, "n")),
+            null);
+    assertThat(stage(pipelineOf(ascending, orders), "$sort")).containsEntry("n", 1);
+
+    EntityQueryRequest nameless =
+        new EntityQueryRequest(
+            window(),
+            List.of(new SortSpec(null, "asc")),
+            List.of(),
+            null,
+            null,
+            null,
+            List.of(new GroupSpec("status", null, "s")),
+            List.of(new AggregateSpec("count", null, "n")),
+            null);
+    assertThatThrownBy(() -> translator.translate(nameless, orders))
+        .satisfies(t -> assertThat(codeOf(t)).isEqualTo("UNKNOWN_FIELD"));
+  }
+
+  @Test
+  void filtersThatCannotBoundTheRangeAreSkippedWithoutMaskingTheRealError() {
+    // requireBoundedRange walks every filter looking for a usable date bound. Non-date fields and
+    // unparseable values must be stepped over rather than thrown on, so that a request carrying
+    // both a valid window and a junk value still reaches the real validation.
+    List<Filter> noisy = new ArrayList<>(window());
+    noisy.add(new Filter("status", "eq", "COMPLETED"));
+    noisy.add(new Filter("completed_at", "gte", "not-a-date"));
+
+    assertThatThrownBy(
+            () ->
+                translator.translate(
+                    request(
+                        noisy,
+                        null,
+                        List.of(new GroupSpec("status", null, "s")),
+                        List.of(new AggregateSpec("count", null, "n"))),
+                    orders))
+        .describedAs("the junk value is reported as such, not as a missing window")
+        .satisfies(t -> assertThat(codeOf(t)).isEqualTo("INVALID_FILTER_VALUE"));
+
+    // Same for an operator nobody defined: it surfaces as an operator problem, not as
+    // UNBOUNDED_RANGE, which is what would happen if the bound scan threw on the way past.
+    List<Filter> badOperator = new ArrayList<>(window());
+    badOperator.add(new Filter("created_at", "banana", "2026-08-01T00:00:00Z"));
+
+    assertThatThrownBy(
+            () ->
+                translator.translate(
+                    request(
+                        badOperator,
+                        null,
+                        List.of(new GroupSpec("status", null, "s")),
+                        List.of(new AggregateSpec("count", null, "n"))),
+                    orders))
+        .satisfies(t -> assertThat(codeOf(t)).isEqualTo("UNSUPPORTED_OPERATOR"));
+  }
+
+  @Test
+  void theTightestBoundsWin() {
+    // Several date filters can be present; the narrowest pair defines the window that gets
+    // measured against the cap, otherwise a wide-and-narrow pair would be judged on the wide one.
+    List<Filter> wideAndNarrow =
+        List.of(
+            new Filter("created_at", "gte", "2026-01-01T00:00:00Z"),
+            new Filter("created_at", "gte", "2026-08-01T00:00:00Z"),
+            new Filter("created_at", "lt", "2026-12-01T00:00:00Z"),
+            new Filter("created_at", "lt", "2026-08-20T00:00:00Z"));
+
+    assertThatCode(
+            () ->
+                translator.translate(
+                    request(
+                        wideAndNarrow,
+                        null,
+                        List.of(new GroupSpec("status", null, "s")),
+                        List.of(new AggregateSpec("count", null, "n"))),
+                    orders))
+        .doesNotThrowAnyException();
+  }
+
+  @Test
+  void anInvertedWindowIsRefused() {
+    List<Filter> backwards =
+        List.of(
+            new Filter("created_at", "gte", "2026-08-20T00:00:00Z"),
+            new Filter("created_at", "lt", "2026-08-01T00:00:00Z"));
+
+    assertThatThrownBy(
+            () ->
+                translator.translate(
+                    request(
+                        backwards,
+                        null,
+                        List.of(new GroupSpec("status", null, "s")),
+                        List.of(new AggregateSpec("count", null, "n"))),
+                    orders))
+        .satisfies(t -> assertThat(codeOf(t)).isEqualTo("QUERY_TOO_BROAD"));
+  }
+
+  @Test
+  void twoAggregatesCannotShareAnOutputName() {
+    assertThatThrownBy(
+            () ->
+                translator.translate(
+                    request(
+                        window(),
+                        "items",
+                        List.of(new GroupSpec("items.sku", null, "sku")),
+                        List.of(
+                            new AggregateSpec("sum", "items.quantity", "n"),
+                            new AggregateSpec("count", null, "n"))),
+                    orders))
+        .satisfies(t -> assertThat(codeOf(t)).isEqualTo("INVALID_ALIAS"));
+  }
 }

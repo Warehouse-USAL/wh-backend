@@ -229,4 +229,76 @@ class VictoriaMetricsRepositoryTest {
 
     assertThat(f.repository().hasAnySeries("wh_vehicle_state")).isFalse();
   }
+
+  @Test
+  void theProductionConstructorBuildsAClientWithTimeouts() {
+    // Port 1 is closed, so this exercises the real RestClient the application uses and proves a
+    // transport failure degrades to 503 rather than escaping as a 500.
+    VictoriaMetricsRepository real = new VictoriaMetricsRepository("http://127.0.0.1:1");
+
+    assertThatThrownBy(() -> real.queryRange("up", FROM, TO, "1m"))
+        .isInstanceOf(ResponseStatusException.class)
+        .satisfies(
+            t ->
+                assertThat(((ResponseStatusException) t).getStatusCode())
+                    .isEqualTo(HttpStatus.SERVICE_UNAVAILABLE));
+    assertThat(real.hasAnySeries("wh_vehicle_state")).isFalse();
+  }
+
+  @Test
+  void aResponseWithoutDataReadsAsNoSeries() {
+    Fixture f = fixture();
+    f.server()
+        .expect(requestTo(org.hamcrest.Matchers.containsString("query_range")))
+        .andRespond(withSuccess("{\"status\":\"success\"}", MediaType.APPLICATION_JSON));
+
+    assertThat(f.repository().queryRange("up", FROM, TO, "1m")).isEmpty();
+  }
+
+  @Test
+  void malformedPointsAreDroppedRatherThanFailingTheWholeSeries() {
+    Fixture f = fixture();
+    f.server()
+        .expect(requestTo(org.hamcrest.Matchers.containsString("query_range")))
+        .andRespond(
+            withSuccess(
+                """
+                {"status":"success","data":{"resultType":"matrix","result":[
+                  {"metric":{"vehicle_id":"v-1"},
+                   "values":[[1755648000,"79"],["bad","point"],[1755648300],[1755648600,"x"]]}
+                ]}}
+                """,
+                MediaType.APPLICATION_JSON));
+
+    // One good point survives; a dashboard gets a short series instead of an error.
+    assertThat(f.repository().queryRange("up", FROM, TO, "1m").get(0).points()).hasSize(1);
+  }
+
+  @Test
+  void anEmptySeriesListMeansNothingHasBeenSeededYet() {
+    Fixture f = fixture();
+    f.server()
+        .expect(requestTo(org.hamcrest.Matchers.containsString("/api/v1/series")))
+        .andRespond(
+            withSuccess("{\"status\":\"success\",\"data\":[]}", MediaType.APPLICATION_JSON));
+
+    assertThat(f.repository().hasAnySeries("wh_vehicle_state")).isFalse();
+  }
+
+  @Test
+  void aFailedBatchStopsTheImportInsteadOfPushingTheRest() {
+    Fixture f = fixture();
+    f.server()
+        .expect(requestTo(org.hamcrest.Matchers.containsString("/api/v1/import")))
+        .andRespond(withServerError());
+
+    // Only one request is expected: the second batch must not be attempted after the first fails.
+    assertThat(f.repository().importSeries(List.of(POINT, POINT, POINT, POINT), 2)).isFalse();
+    f.server().verify();
+  }
+
+  @Test
+  void importingNothingIsASuccessfulNoOp() {
+    assertThat(fixture().repository().importSeries(List.of(), 8)).isTrue();
+  }
 }

@@ -227,4 +227,50 @@ class EntityQueryServiceTest {
         .extracting(EntityDescriptor::name)
         .contains("positions");
   }
+
+  @Test
+  void anExplicitFieldListNarrowsTheResponse() {
+    when(mongoTemplate.count(any(), anyString())).thenReturn(1L);
+    when(mongoTemplate.find(any(), any(), anyString()))
+        .thenReturn(
+            List.of(
+                new Document("_id", "o-1")
+                    .append("status", "COMPLETED")
+                    .append("destinationArea", "Z1")));
+
+    EntityQueryRequest request =
+        new EntityQueryRequest(
+            List.of(), List.of(), List.of("id", "status"), 0, 25, null, null, null, null);
+
+    Page<Map<String, Object>> page = service().query("orders", request, Set.of(UserRole.DASHBOARD));
+
+    assertThat(page.getContent().get(0)).containsOnlyKeys("id", "status");
+  }
+
+  @Test
+  void groupedRowsRenderObjectIdsAsHexLikeEveryOtherEndpoint() {
+    org.bson.types.ObjectId oid = new org.bson.types.ObjectId();
+    when(mongoTemplate.aggregate(any(Aggregation.class), eq("orders"), eq(Document.class)))
+        .thenReturn(
+            new AggregationResults<>(
+                List.of(new Document("who", oid).append("n", 2)), new Document()));
+
+    Page<Map<String, Object>> page =
+        service().query("orders", grouped(), Set.of(UserRole.DASHBOARD));
+
+    // Reading raw Documents skips Spring Data's conversion, so without this an id serialises as
+    // a {date, timestamp} object instead of the string every other endpoint returns.
+    assertThat(page.getContent().get(0)).containsEntry("who", oid.toHexString());
+  }
+
+  @Test
+  void blowingTheInMemoryLimitAlsoReadsAsTooBroad() {
+    when(mongoTemplate.aggregate(any(Aggregation.class), eq("orders"), eq(Document.class)))
+        .thenThrow(
+            new UncategorizedMongoDbException(
+                "Sort exceeded memory limit of 104857600 bytes", new IllegalStateException()));
+
+    assertThatThrownBy(() -> service().query("orders", grouped(), Set.of(UserRole.DASHBOARD)))
+        .satisfies(t -> assertThat(codeOf(t)).isEqualTo("QUERY_TOO_BROAD"));
+  }
 }
