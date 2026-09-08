@@ -1,6 +1,7 @@
 package com.usal.whbackend.config;
 
 import com.usal.whbackend.repository.VictoriaMetricsRepository.SeriesData;
+import com.usal.whbackend.telemetry.VehicleStatusChange;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -39,8 +40,12 @@ public final class DemoTelemetryDataset {
   /** The label the collector attaches, so seeded points land on the same series as live ones. */
   static final String JOB = "wh-backend";
 
-  /** Category recorded for a transition that is not into or out of ERROR. */
-  private static final String NON_FAULT_CATEGORY = "UNCATEGORIZED";
+  /**
+   * Category recorded for a transition that is not into or out of OFFLINE — the same placeholder
+   * live traffic uses for exactly this case (see {@link VehicleStatusChange#UNCATEGORIZED}),
+   * referenced directly so the two can never silently drift apart.
+   */
+  private static final String NON_FAULT_CATEGORY = VehicleStatusChange.UNCATEGORIZED;
 
   private static final ZoneId LOCAL = ZoneId.of("America/Argentina/Buenos_Aires");
   private static final int SHIFT_START_HOUR = 8;
@@ -192,14 +197,18 @@ public final class DemoTelemetryDataset {
   }
 
   /**
-   * The fault category for one transition. Only a transition into or out of ERROR carries a real
-   * category — everything else (IDLE&lt;-&gt;BUSY and so on) is not a fault at all. Every fault
-   * episode picks one category and keeps it for both its entry and its recovery transition, cycled
-   * deterministically by episode number so a year of history exercises every category in {@link
-   * #faultCategories} rather than always the first one.
+   * The fault category for one transition. Only a transition into or out of OFFLINE carries a real
+   * category — everything else (IDLE&lt;-&gt;BUSY and so on) is not a fault at all. This matches
+   * the live system: {@code VehicleErrorConsumer} is the only place a real category is ever
+   * attached to a transition, and it always drives the vehicle to OFFLINE, never to the ERROR enum
+   * value (routine self-reported ERROR telemetry carries no error_code, so it would stay
+   * UNCATEGORIZED and isn't simulated as a distinct fault path here). Every fault episode picks one
+   * category and keeps it for both its entry and its recovery transition, cycled deterministically
+   * by episode number so a year of history exercises every category in {@link #faultCategories}
+   * rather than always the first one.
    */
   private String categoryFor(String from, String to, int tick) {
-    if (!"ERROR".equals(from) && !"ERROR".equals(to)) {
+    if (!"OFFLINE".equals(from) && !"OFFLINE".equals(to)) {
       return NON_FAULT_CATEGORY;
     }
     int episode = tick / FAULT_PERIOD_TICKS;
@@ -219,9 +228,12 @@ public final class DemoTelemetryDataset {
       return "OFFLINE";
     }
     // One rover fails on a cycle, so mean time between failures and the Pareto have something
-    // real to count rather than a single bar.
+    // real to count rather than a single bar. Target state is OFFLINE, not ERROR — that's what
+    // VehicleErrorConsumer actually sets on a real vehicle.error event, and it's the only path
+    // that carries a real fault category (see categoryFor). A permanently-parked vehicle never
+    // changes state, so it never emits a transition and can't be confused with a fault episode.
     if (index == 5 && tick % FAULT_PERIOD_TICKS < FAULT_LENGTH_TICKS) {
-      return "ERROR";
+      return "OFFLINE";
     }
 
     int hour = ZonedDateTime.ofInstant(Instant.ofEpochMilli(timestampMs), LOCAL).getHour();
@@ -241,7 +253,9 @@ public final class DemoTelemetryDataset {
         switch (state) {
           case "BUSY" -> charge - 2.1;
           case "IDLE" -> charge + 3.6;
-          case "ERROR" -> charge - 0.6;
+          // Covers both the permanently-parked rover and a faulting rover's OFFLINE episodes —
+          // a slow standby drain rather than collapsing straight to the floor.
+          case "OFFLINE" -> charge - 0.6;
           default -> 0;
         };
     return Math.max(3, Math.min(100, next));

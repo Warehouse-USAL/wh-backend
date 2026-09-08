@@ -89,7 +89,7 @@ class DemoTelemetryDatasetTest {
   void carriesRealFailuresSoMeanTimeBetweenFailuresHasSomethingToCount() {
     List<SeriesData> intoError =
         named(build(), "wh_vehicle_transitions").stream()
-            .filter(s -> "ERROR".equals(s.labels().get("to")))
+            .filter(s -> "OFFLINE".equals(s.labels().get("to")))
             .toList();
 
     assertThat(intoError).isNotEmpty();
@@ -105,7 +105,7 @@ class DemoTelemetryDatasetTest {
     // is what matters for the Pareto — every one of them should show up at least once.
     Set<String> categoriesUsed =
         named(build(), "wh_vehicle_transitions").stream()
-            .filter(s -> "ERROR".equals(s.labels().get("to")))
+            .filter(s -> "OFFLINE".equals(s.labels().get("to")))
             .filter(s -> s.values().get(s.values().size() - 1) > 0)
             .map(s -> s.labels().get("category"))
             .collect(Collectors.toSet());
@@ -121,13 +121,13 @@ class DemoTelemetryDatasetTest {
     List<SeriesData> all = named(build(), "wh_vehicle_transitions");
     Set<String> intoErrorCategories =
         all.stream()
-            .filter(s -> "ERROR".equals(s.labels().get("to")))
+            .filter(s -> "OFFLINE".equals(s.labels().get("to")))
             .filter(s -> s.values().get(s.values().size() - 1) > 0)
             .map(s -> s.labels().get("category"))
             .collect(Collectors.toSet());
     Set<String> outOfErrorCategories =
         all.stream()
-            .filter(s -> "ERROR".equals(s.labels().get("from")))
+            .filter(s -> "OFFLINE".equals(s.labels().get("from")))
             .filter(s -> s.values().get(s.values().size() - 1) > 0)
             .map(s -> s.labels().get("category"))
             .collect(Collectors.toSet());

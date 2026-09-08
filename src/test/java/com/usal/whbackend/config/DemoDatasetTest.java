@@ -123,6 +123,28 @@ class DemoDatasetTest {
   }
 
   @Test
+  void seededVehiclesCarryOperationSinceOnlyWhileOnline() {
+    for (Vehicle v : data.getVehicles()) {
+      if (v.getStatus() == VehicleStatus.OFFLINE || v.getStatus() == VehicleStatus.ERROR) {
+        assertThat(v.getOperationSince())
+            .as(
+                "%s vehicle %s has no ongoing operation window — VehicleTelemetryConsumer and"
+                    + " VehicleErrorConsumer both clear operation_since on any transition into"
+                    + " OFFLINE or ERROR",
+                v.getStatus(), v.getId())
+            .isNull();
+      } else {
+        assertThat(v.getOperationSince())
+            .as(
+                "vehicle %s (%s) should carry an operation_since for the dashboard to use",
+                v.getId(), v.getStatus())
+            .isNotNull()
+            .isBefore(Instant.now());
+      }
+    }
+  }
+
+  @Test
   void buildsAYearOfOrdersAcrossAllStatuses() {
     var orders = data.getOrders();
     // 25 near-term (unchanged) + 352 historical days * 2/day of COMPLETED/CANCELLED-only history.

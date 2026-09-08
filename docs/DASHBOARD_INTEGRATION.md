@@ -267,28 +267,35 @@ backend sepa cuál es. Son `null` en órdenes que no llegaron a esa etapa, y `av
 **1 · Histórico de fallas por rover**
 ```json
 {"metric":"wh.vehicle.transitions","from":"…","to":"…","step":"1h",
- "agg":"increase","group_by":["vehicle_id"],"filters":{"to":"ERROR"}}
+ "agg":"increase","group_by":["vehicle_id"],"filters":{"to":"OFFLINE"}}
 ```
 Cada punto son las fallas de ese rover en esa hora. Grafíquenlo tal cual.
+
+> **Por qué `to:"OFFLINE"` y no `to:"ERROR"`**: `VehicleErrorConsumer` — el único lugar del
+> backend donde llega un `error_code` real — pone al vehículo en `OFFLINE`, nunca en `ERROR`.
+> `ERROR` sólo aparece si el rover se autoreporta así en su telemetría de rutina, y ese camino
+> nunca trae `error_code` (por eso queda `UNCATEGORIZED` siempre). Si filtran por `to:"ERROR"`
+> en estas 4 consultas no van a ver ninguna falla categorizada, aunque hayan ocurrido.
 
 **2 · Pareto de fallas por categoría**
 ```json
 {"metric":"wh.vehicle.transitions","from":"…","to":"…","step":"6h",
- "agg":"increase","group_by":["category"],"filters":{"to":"ERROR"}}
+ "agg":"increase","group_by":["category"],"filters":{"to":"OFFLINE"}}
 ```
 > `category` ahora lleva el código real cuando el mensaje `vehicle.error` de la Central lo trae
 > (`CONNECTION_LOST`, `BATTERY_CRITICAL`, `MECHANICAL_FAULT`, `COLLISION`, `NAVIGATION_ERROR`, o
 > `OTHER` si llega un código que no está en esa lista — nunca se descarta el evento por un código
-> desconocido). Sigue siendo `UNCATEGORIZED` únicamente para las transiciones a `ERROR`
-> autoreportadas por telemetría de rutina, que no traen ningún código: no hay nada que
-> categorizar ahí. El Pareto ya no es una sola barra.
+> desconocido). Sigue siendo `UNCATEGORIZED` para las transiciones a `ERROR` autoreportadas por
+> telemetría de rutina (no traen ningún código: no hay nada que categorizar ahí) y también para
+> cualquier otra transición a `OFFLINE` que no haya pasado por `vehicle.error`. El Pareto ya no
+> es una sola barra.
 
 **3 · MTBF (tiempo promedio entre fallas)**
 
 Backend: las fallas. Ustedes: la división.
 ```json
 {"metric":"wh.vehicle.transitions","from":"…","to":"…","step":"6h",
- "agg":"increase","group_by":["vehicle_id"],"filters":{"to":"ERROR"}}
+ "agg":"increase","group_by":["vehicle_id"],"filters":{"to":"OFFLINE"}}
 ```
 ```js
 const fallas = serie.points.reduce((a, [, v]) => a + v, 0);
@@ -297,16 +304,19 @@ const mtbf   = fallas > 0 ? ventanaEnSegundos / fallas : null;   // null = no fa
 
 **4 · MTTR (tiempo promedio de recuperación)**
 
-Dos llamadas. La de arriba, más la fracción de tiempo en ERROR:
+Dos llamadas. La de arriba, más la fracción de tiempo en OFFLINE:
 ```json
 {"metric":"wh.vehicle.state","from":"…","to":"…","step":"6h",
- "agg":"avg","group_by":["vehicle_id"],"filters":{"state":"ERROR"}}
+ "agg":"avg","group_by":["vehicle_id"],"filters":{"state":"OFFLINE"}}
 ```
 ```js
 const fraccion = puntos.reduce((a, [, v]) => a + v, 0) / puntos.length;  // 0..1
 const mttr     = fallas > 0 ? (fraccion * ventanaEnSegundos) / fallas : null;
 ```
-Tiempo total en falla dividido por cantidad de fallas.
+Tiempo total en falla dividido por cantidad de fallas. `fallas` sale de la llamada 3, no de esta
+— si un rover nunca falló (`fallas === 0`) esta consulta igual puede devolver una fracción
+distinta de cero (por ejemplo un rover que quedó permanentemente `OFFLINE` sin pasar nunca por
+`vehicle.error`): el `fallas > 0 ? … : null` de arriba ya cubre ese caso.
 
 **5 · Rovers activos simultáneamente**
 ```json

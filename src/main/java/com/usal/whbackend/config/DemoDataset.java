@@ -336,17 +336,27 @@ public final class DemoDataset {
 
   private List<Vehicle> buildVehicles() {
     List<Vehicle> vehicles = new ArrayList<>();
-    vehicles.add(vehicle("veh-agv-01", "AGV-01", VehicleStatus.IDLE, 12.5, 4.0, 96, 3));
-    vehicles.add(vehicle("veh-agv-02", "AGV-02", VehicleStatus.IDLE, 30.0, 8.0, 88, 5));
-    vehicles.add(vehicle("veh-agv-03", "AGV-03", VehicleStatus.BUSY, 18.0, 15.0, 64, 1));
-    vehicles.add(vehicle("veh-agv-04", "AGV-04", VehicleStatus.BUSY, 42.0, 22.0, 57, 1));
-    vehicles.add(vehicle("veh-agv-05", "AGV-05", VehicleStatus.OFFLINE, 0.0, 0.0, 0, 720));
-    vehicles.add(vehicle("veh-agv-06", "AGV-06", VehicleStatus.ERROR, 25.0, 10.0, 12, 90));
+    vehicles.add(vehicle("veh-agv-01", "AGV-01", VehicleStatus.IDLE, 12.5, 4.0, 96, 3, 45L));
+    vehicles.add(vehicle("veh-agv-02", "AGV-02", VehicleStatus.IDLE, 30.0, 8.0, 88, 5, 120L));
+    vehicles.add(vehicle("veh-agv-03", "AGV-03", VehicleStatus.BUSY, 18.0, 15.0, 64, 1, 10L));
+    vehicles.add(vehicle("veh-agv-04", "AGV-04", VehicleStatus.BUSY, 42.0, 22.0, 57, 1, 200L));
+    // OFFLINE and ERROR both null out operationSince in the live system (VehicleTelemetryConsumer
+    // and VehicleErrorConsumer clear it on any transition into either state) — neither has an
+    // ongoing operation window to report, so neither gets one here.
+    vehicles.add(vehicle("veh-agv-05", "AGV-05", VehicleStatus.OFFLINE, 0.0, 0.0, 0, 720, null));
+    vehicles.add(vehicle("veh-agv-06", "AGV-06", VehicleStatus.ERROR, 25.0, 10.0, 12, 90, null));
     return vehicles;
   }
 
   private Vehicle vehicle(
-      String id, String name, VehicleStatus status, double x, double y, int battery, long minAgo) {
+      String id,
+      String name,
+      VehicleStatus status,
+      double x,
+      double y,
+      int battery,
+      long minAgo,
+      Long operationSinceDaysAgo) {
     Vehicle v = new Vehicle();
     v.setId(id);
     v.setName(name);
@@ -355,6 +365,9 @@ public final class DemoDataset {
     v.setPositionY(y);
     v.setBattery(battery);
     v.setLastSeenAt(now.minus(minAgo, ChronoUnit.MINUTES));
+    if (operationSinceDaysAgo != null) {
+      v.setOperationSince(now.minus(operationSinceDaysAgo, ChronoUnit.DAYS));
+    }
     return v;
   }
 
