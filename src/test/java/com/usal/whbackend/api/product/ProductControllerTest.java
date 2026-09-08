@@ -344,11 +344,29 @@ class ProductControllerTest {
     mockMvc
         .perform(get("/products/prod-1/location"))
         .andExpect(status().isOk())
+        .andExpect(jsonPath("$.total_stock").value(12))
         .andExpect(jsonPath("$.locations[0].id_position").value("pos-1"))
         .andExpect(jsonPath("$.locations[0].position_name").value("P01"))
         .andExpect(jsonPath("$.locations[0].current_stock").value(12))
         .andExpect(jsonPath("$.locations[0].number_line").value(2))
         .andExpect(jsonPath("$.locations[0].zone_code").value("A"));
+  }
+
+  @Test
+  @WithMockUser
+  void getProductLocation_multiplePositions_totalStockSumsAllPositions() throws Exception {
+    when(productService.getProductLocation("prod-1"))
+        .thenReturn(
+            List.of(
+                new com.usal.whbackend.service.ProductService.ProductLocationEntry(
+                    "pos-1", "P01", 12, "line-1", 2, "zone-1", "A"),
+                new com.usal.whbackend.service.ProductService.ProductLocationEntry(
+                    "pos-2", "P02", 30, "line-1", 2, "zone-1", "A")));
+
+    mockMvc
+        .perform(get("/products/prod-1/location"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.total_stock").value(42));
   }
 
   @Test

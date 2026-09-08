@@ -5,6 +5,7 @@ import com.usal.whbackend.api.warehouse.position.PositionSummaryResponse;
 import com.usal.whbackend.api.warehouse.position.UpdatePositionRequest;
 import com.usal.whbackend.domain.Line;
 import com.usal.whbackend.domain.Position;
+import com.usal.whbackend.domain.Product;
 import com.usal.whbackend.domain.StockSize;
 import com.usal.whbackend.domain.Zone;
 import com.usal.whbackend.repository.LineRepository;
@@ -16,6 +17,7 @@ import com.usal.whbackend.service.exception.PositionAlreadyOccupiedException;
 import com.usal.whbackend.service.exception.PositionNotFoundException;
 import com.usal.whbackend.service.exception.StockExceedsCapacityException;
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -182,4 +184,88 @@ public class PositionService {
     position.setActive(false);
     positionRepository.save(position);
   }
+
+  // ── Restock reception support ───────────────────────────────────────────────
+
+  /**
+   * Adds {@code quantity} units of {@code productId} to a position, enforcing the same guards as
+   * {@link #updatePosition}: the position must be active, single-product, within numeric capacity
+   * and within its volume budget. Used by reception registration to apply one assignment line —
+   * callers loop this per assignment, so a failure partway through leaves earlier assignments
+   * already applied (bounded by the caller's transaction, same as {@code StockDrainService.drain}).
+   */
+  public Position increaseStock(String positionId, String productId, int quantity) {
+    Position position =
+        positionRepository
+            .findById(positionId)
+            .orElseThrow(() -> new PositionNotFoundException(positionId));
+    if (!position.isActive()) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "POSITION_INACTIVE");
+    }
+    if (position.getProductId() != null && !position.getProductId().equals(productId)) {
+      throw new PositionAlreadyOccupiedException(positionId);
+    }
+
+    int newStock = position.getCurrentStock() + quantity;
+    if (newStock > position.getMaximumCapacity()) {
+      throw new StockExceedsCapacityException(newStock, position.getMaximumCapacity());
+    }
+
+    StockSize size = position.getSizeStockToSave();
+    if (size != null) {
+      Product product =
+          productRepository
+              .findById(productId)
+              .orElseThrow(
+                  () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "PRODUCT_NOT_FOUND"));
+      double totalVolume = product.getVolume() * newStock;
+      if (totalVolume > size.getVolumeCm3()) {
+        int maxAllowed =
+            product.getVolume() > 0 ? (int) (size.getVolumeCm3() / product.getVolume()) : 0;
+        throw new StockExceedsCapacityException(newStock, maxAllowed);
+      }
+    }
+
+    position.setProductId(productId);
+    position.setCurrentStock(newStock);
+    return positionRepository.save(position);
+  }
+
+  /**
+   * Candidate positions for placing an incoming reception: active, sized for {@code deliveryUnit},
+   * and either empty or already holding {@code productId} (a position holds a single product).
+   * Ordered by descending available capacity so an operator fills the roomiest position first.
+   */
+  public List<AvailablePosition> getAvailablePositions(
+      String productId, StockSize deliveryUnit, int quantity) {
+    if (quantity <= 0) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "INVALID_QUANTITY");
+    }
+    Product product =
+        productRepository
+            .findById(productId)
+            .filter(Product::isActive)
+            .orElseThrow(
+                () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "PRODUCT_NOT_FOUND"));
+
+    return positionRepository.findByIsActiveTrueAndSizeStockToSave(deliveryUnit).stream()
+        .filter(p -> p.getProductId() == null || p.getProductId().equals(productId))
+        .map(p -> toAvailablePosition(p, product, deliveryUnit))
+        .filter(ap -> ap.availableUnits() > 0)
+        .sorted(Comparator.comparingInt(AvailablePosition::availableUnits).reversed())
+        .toList();
+  }
+
+  private AvailablePosition toAvailablePosition(
+      Position p, Product product, StockSize deliveryUnit) {
+    int byCount = p.getMaximumCapacity() - p.getCurrentStock();
+    int byVolume =
+        product.getVolume() > 0
+            ? (int) (deliveryUnit.getVolumeCm3() / product.getVolume()) - p.getCurrentStock()
+            : byCount;
+    int available = Math.max(0, Math.min(byCount, byVolume));
+    return new AvailablePosition(p.getId(), p.getPositionName(), available);
+  }
+
+  public record AvailablePosition(String positionId, String positionName, int availableUnits) {}
 }

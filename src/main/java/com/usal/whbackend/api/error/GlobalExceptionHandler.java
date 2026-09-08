@@ -7,6 +7,8 @@ import com.usal.whbackend.service.exception.LineNotFoundException;
 import com.usal.whbackend.service.exception.LineNumberAlreadyExistsException;
 import com.usal.whbackend.service.exception.PositionAlreadyOccupiedException;
 import com.usal.whbackend.service.exception.PositionNotFoundException;
+import com.usal.whbackend.service.exception.ReceptionNotFoundException;
+import com.usal.whbackend.service.exception.RestockOrderNotFoundException;
 import com.usal.whbackend.service.exception.StockExceedsCapacityException;
 import com.usal.whbackend.service.exception.UserNotFoundException;
 import com.usal.whbackend.service.exception.ZoneCodeAlreadyExistsException;
@@ -108,7 +110,21 @@ public class GlobalExceptionHandler {
                   + " guión bajo."),
           Map.entry(
               "UNBOUNDED_RANGE",
-              "Una consulta agrupada debe acotarse con un filtro de fecha (ej: created_at >=)."));
+              "Una consulta agrupada debe acotarse con un filtro de fecha (ej: created_at >=)."),
+          Map.entry("RESTOCK_ORDER_NOT_FOUND", "La orden de restock solicitada no existe."),
+          Map.entry("RECEPTION_NOT_FOUND", "El remito solicitado no existe."),
+          Map.entry(
+              "ASSIGNMENT_QUANTITY_MISMATCH",
+              "La suma de las cantidades asignadas a posiciones no coincide con la cantidad"
+                  + " recibida."),
+          Map.entry(
+              "RESTOCK_ORDER_PRODUCT_MISMATCH",
+              "La orden de restock referenciada corresponde a otro producto."),
+          Map.entry(
+              "POSITION_INACTIVE", "La posición no está activa y no puede recibir mercadería."),
+          Map.entry(
+              "INVALID_DELIVERY_UNIT",
+              "Unidad de entrega inválida. Valores aceptados: CAJA, MEDIO_PALLET, PALLET."));
 
   @ExceptionHandler(AccessDeniedException.class)
   public ResponseEntity<ErrorResponse> handleAccessDenied(AccessDeniedException ex) {
@@ -214,6 +230,19 @@ public class GlobalExceptionHandler {
       StockExceedsCapacityException ex) {
     return ResponseEntity.status(HttpStatus.BAD_REQUEST)
         .body(ErrorResponse.of("STOCK_EXCEEDS_CAPACITY", ex.getMessage()));
+  }
+
+  @ExceptionHandler(RestockOrderNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleRestockOrderNotFound(
+      RestockOrderNotFoundException ex) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(ErrorResponse.of("RESTOCK_ORDER_NOT_FOUND", ex.getMessage()));
+  }
+
+  @ExceptionHandler(ReceptionNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleReceptionNotFound(ReceptionNotFoundException ex) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(ErrorResponse.of("RECEPTION_NOT_FOUND", ex.getMessage()));
   }
 
   @ExceptionHandler(FileNotFoundException.class)

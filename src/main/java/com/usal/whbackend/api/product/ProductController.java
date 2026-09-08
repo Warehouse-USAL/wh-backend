@@ -127,11 +127,14 @@ public class ProductController {
 
   @Operation(
       summary = "Get product locations",
-      description = "Returns positions where this product is stored")
+      description = "Returns total stock and the positions where this product is stored")
   @ApiResponse(responseCode = "200", description = "Product locations found")
   @ApiResponse(responseCode = "404", description = "PRODUCT_NOT_FOUND")
   @GetMapping("/{id}/location")
   public ResponseEntity<Map<String, Object>> getProductLocation(@PathVariable String id) {
-    return ResponseEntity.ok(Map.of("locations", productService.getProductLocation(id)));
+    var locations = productService.getProductLocation(id);
+    int totalStock =
+        locations.stream().mapToInt(ProductService.ProductLocationEntry::currentStock).sum();
+    return ResponseEntity.ok(Map.of("total_stock", totalStock, "locations", locations));
   }
 }

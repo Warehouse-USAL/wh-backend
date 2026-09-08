@@ -2,6 +2,7 @@ package com.usal.whbackend.api.warehouse.position;
 
 import com.usal.whbackend.domain.Position;
 import com.usal.whbackend.domain.Product;
+import com.usal.whbackend.domain.StockSize;
 import com.usal.whbackend.repository.ProductRepository;
 import com.usal.whbackend.service.PositionService;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -102,5 +103,18 @@ public class PositionController {
     return ResponseEntity.ok(
         new FitValidationResponse(
             fits, productVolume, containerVolume, requiredVolume, maxQuantityAllowed));
+  }
+
+  @GetMapping("/warehouse/positions/available")
+  public ResponseEntity<Map<String, Object>> getAvailablePositions(
+      @RequestParam String productId,
+      @RequestParam StockSize deliveryUnit,
+      @RequestParam int quantity) {
+    return ResponseEntity.ok(
+        Map.of(
+            "positions",
+            positionService.getAvailablePositions(productId, deliveryUnit, quantity).stream()
+                .map(AvailablePositionResponse::from)
+                .toList()));
   }
 }

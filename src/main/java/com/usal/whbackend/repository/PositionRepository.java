@@ -1,11 +1,15 @@
 package com.usal.whbackend.repository;
 
 import com.usal.whbackend.domain.Position;
+import com.usal.whbackend.domain.StockSize;
 import java.util.List;
 import org.springframework.data.mongodb.repository.MongoRepository;
 
 public interface PositionRepository extends MongoRepository<Position, String> {
   List<Position> findByIdLine(String idLine);
+
+  /** Candidates for `GET /warehouse/positions/available` — sized for the given delivery unit. */
+  List<Position> findByIsActiveTrueAndSizeStockToSave(StockSize sizeStockToSave);
 
   List<Position> findByProductIdAndCurrentStockGreaterThanOrderByCreatedAtAsc(
       String productId, int minStock);
