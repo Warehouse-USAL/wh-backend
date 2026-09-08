@@ -19,15 +19,14 @@ public enum StockSize {
   }
 
   /**
-   * Lenient parser that accepts both the current names and the legacy pre-rename
-   * vocabulary (PEQUENO/MEDIANO/GRANDE and the English/feminine spellings),
-   * mapping them onto the current model ordered by volume. Documents written by
-   * older versions and clients still sending the old values keep working instead
-   * of failing with "No enum constant ... StockSize.MEDIANO".
+   * Lenient parser that accepts both the current names and the legacy pre-rename vocabulary
+   * (PEQUENO/MEDIANO/GRANDE and the English/feminine spellings), mapping them onto the current
+   * model ordered by volume. Documents written by older versions and clients still sending the old
+   * values keep working instead of failing with "No enum constant ... StockSize.MEDIANO".
    *
-   * <p>Used both by Jackson (request bodies, via {@code @JsonCreator}) and by the
-   * Mongo read converter ({@code MongoConfig}). Serialization is unchanged — the
-   * canonical enum name is always written back.
+   * <p>Used both by Jackson (request bodies, via {@code @JsonCreator}) and by the Mongo read
+   * converter ({@code MongoConfig}). Serialization is unchanged — the canonical enum name is always
+   * written back.
    */
   @JsonCreator
   public static StockSize fromValue(String raw) {

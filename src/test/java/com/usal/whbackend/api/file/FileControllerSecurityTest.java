@@ -30,8 +30,8 @@ class FileControllerSecurityTest {
   @MockitoBean StorageService storageService;
   @MockitoBean JwtService jwtService;
 
-  private final MockMultipartFile fakeFile = new MockMultipartFile(
-      "file", "test.jpg", MediaType.IMAGE_JPEG_VALUE, "data".getBytes());
+  private final MockMultipartFile fakeFile =
+      new MockMultipartFile("file", "test.jpg", MediaType.IMAGE_JPEG_VALUE, "data".getBytes());
 
   @Test
   @WithMockUser(roles = "PROVIDER")
@@ -54,9 +54,7 @@ class FileControllerSecurityTest {
   void upload_withAdminSales_returns200() throws Exception {
     org.mockito.BDDMockito.given(storageService.upload(any(), anyString()))
         .willReturn("/api/v1/files/images/uuid.jpg");
-    mockMvc
-        .perform(multipart("/api/v1/files/upload").file(fakeFile))
-        .andExpect(status().isOk());
+    mockMvc.perform(multipart("/api/v1/files/upload").file(fakeFile)).andExpect(status().isOk());
   }
 
   @Test
@@ -64,9 +62,7 @@ class FileControllerSecurityTest {
   void upload_withAdminWarehouse_returns200() throws Exception {
     org.mockito.BDDMockito.given(storageService.upload(any(), anyString()))
         .willReturn("/api/v1/files/images/uuid.jpg");
-    mockMvc
-        .perform(multipart("/api/v1/files/upload").file(fakeFile))
-        .andExpect(status().isOk());
+    mockMvc.perform(multipart("/api/v1/files/upload").file(fakeFile)).andExpect(status().isOk());
   }
 
   @Test
@@ -74,45 +70,34 @@ class FileControllerSecurityTest {
   void upload_withSuperadmin_returns200() throws Exception {
     org.mockito.BDDMockito.given(storageService.upload(any(), anyString()))
         .willReturn("/api/v1/files/images/uuid.jpg");
-    mockMvc
-        .perform(multipart("/api/v1/files/upload").file(fakeFile))
-        .andExpect(status().isOk());
+    mockMvc.perform(multipart("/api/v1/files/upload").file(fakeFile)).andExpect(status().isOk());
   }
 
   @Test
   @WithMockUser(roles = "ADMIN_SALES")
   void delete_withAdminSales_returns403() throws Exception {
-    mockMvc
-        .perform(delete("/api/v1/files/images/test.jpg"))
-        .andExpect(status().isForbidden());
+    mockMvc.perform(delete("/api/v1/files/images/test.jpg")).andExpect(status().isForbidden());
   }
 
   @Test
   @WithMockUser(roles = "ADMIN_WAREHOUSE")
   void delete_withAdminWarehouse_returns204() throws Exception {
-    mockMvc
-        .perform(delete("/api/v1/files/images/test.jpg"))
-        .andExpect(status().isNoContent());
+    mockMvc.perform(delete("/api/v1/files/images/test.jpg")).andExpect(status().isNoContent());
   }
 
   @Test
   @WithMockUser(roles = "SUPERADMIN")
   void delete_withSuperadmin_returns204() throws Exception {
-    mockMvc
-        .perform(delete("/api/v1/files/images/test.jpg"))
-        .andExpect(status().isNoContent());
+    mockMvc.perform(delete("/api/v1/files/images/test.jpg")).andExpect(status().isNoContent());
   }
 
   @Test
   void serve_withoutAuth_returns200() throws Exception {
-    var obj = new StorageService.StoredObject(
-        new java.io.ByteArrayInputStream("data".getBytes()),
-        MediaType.IMAGE_JPEG_VALUE,
-        4);
+    var obj =
+        new StorageService.StoredObject(
+            new java.io.ByteArrayInputStream("data".getBytes()), MediaType.IMAGE_JPEG_VALUE, 4);
     org.mockito.BDDMockito.given(storageService.getObject("images/test.jpg")).willReturn(obj);
 
-    mockMvc
-        .perform(get("/api/v1/files/images/test.jpg"))
-        .andExpect(status().isOk());
+    mockMvc.perform(get("/api/v1/files/images/test.jpg")).andExpect(status().isOk());
   }
 }

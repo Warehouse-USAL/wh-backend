@@ -318,4 +318,44 @@ class PositionControllerTest {
         .andExpect(jsonPath("$.fits").value(true))
         .andExpect(jsonPath("$.max_quantity_allowed").value(0));
   }
+
+  // ── GET /warehouse/positions/available ──────────────────────────────────────
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void getAvailablePositions_returns200WithSortedCandidates() throws Exception {
+    when(positionService.getAvailablePositions("product-1", StockSize.PALLET, 10))
+        .thenReturn(
+            List.of(
+                new PositionService.AvailablePosition("pos-1", "A-01-01", 60),
+                new PositionService.AvailablePosition("pos-2", "A-02-03", 22)));
+
+    mockMvc
+        .perform(
+            get("/warehouse/positions/available")
+                .param("productId", "product-1")
+                .param("deliveryUnit", "PALLET")
+                .param("quantity", "10"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.positions[0].position_id").value("pos-1"))
+        .andExpect(jsonPath("$.positions[0].available_units").value(60))
+        .andExpect(jsonPath("$.positions[1].position_id").value("pos-2"));
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void getAvailablePositions_productNotFound_returns404() throws Exception {
+    when(positionService.getAvailablePositions("ghost", StockSize.PALLET, 10))
+        .thenThrow(
+            new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.NOT_FOUND, "PRODUCT_NOT_FOUND"));
+
+    mockMvc
+        .perform(
+            get("/warehouse/positions/available")
+                .param("productId", "ghost")
+                .param("deliveryUnit", "PALLET")
+                .param("quantity", "10"))
+        .andExpect(status().isNotFound());
+  }
 }

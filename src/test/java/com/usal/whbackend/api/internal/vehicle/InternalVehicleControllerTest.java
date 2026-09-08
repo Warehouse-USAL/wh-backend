@@ -44,7 +44,8 @@ class InternalVehicleControllerTest {
         .perform(
             patch("/internal/vehicles/VHC-001")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content("{\"status\":\"offline\",\"position_x\":3.0,\"position_y\":7.0,\"battery\":20}"))
+                .content(
+                    "{\"status\":\"offline\",\"position_x\":3.0,\"position_y\":7.0,\"battery\":20}"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.id").value("VHC-001"))
         .andExpect(jsonPath("$.status").value("offline"))
