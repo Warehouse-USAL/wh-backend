@@ -131,7 +131,7 @@ class EntityQueryServiceTest {
   void catalogIsScopedToTheCallersRoles() {
     assertThat(service().catalog(Set.of(UserRole.DASHBOARD)))
         .extracting(EntityDescriptor::name)
-        .containsExactlyInAnyOrder("orders", "products", "vehicles", "positions")
+        .containsExactlyInAnyOrder("orders", "products", "vehicles", "positions", "receptions")
         // The point of the assertion: a dashboard sees what it needs and never the user table.
         .doesNotContain("users");
     assertThat(service().catalog(Set.of(UserRole.ADMIN_SYSTEM)))
@@ -226,6 +226,33 @@ class EntityQueryServiceTest {
     assertThat(service().catalog(Set.of(UserRole.DASHBOARD)))
         .extracting(EntityDescriptor::name)
         .contains("positions");
+  }
+
+  @Test
+  void receptionsAreQueryableSoStockMovementsHaveAStockInSource() {
+    // Receptions are the only stock-IN event; without this entity the movements chart would have
+    // no source at all for the "in" side (the "out" side comes from completed orders).
+    assertThat(service().catalog(Set.of(UserRole.DASHBOARD)))
+        .extracting(EntityDescriptor::name)
+        .contains("receptions");
+  }
+
+  @Test
+  void receptionsRequireABoundedRangeLikeAnyOtherAppendOnlyEventLog() {
+    EntityQueryRequest unbounded =
+        new EntityQueryRequest(
+            List.of(),
+            List.of(),
+            List.of(),
+            null,
+            null,
+            null,
+            List.of(),
+            List.of(new AggregateSpec("count", null, "n")),
+            null);
+
+    assertThatThrownBy(() -> service().query("receptions", unbounded, Set.of(UserRole.DASHBOARD)))
+        .satisfies(t -> assertThat(codeOf(t)).isEqualTo("UNBOUNDED_RANGE"));
   }
 
   @Test

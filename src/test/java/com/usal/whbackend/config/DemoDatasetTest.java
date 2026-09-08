@@ -12,6 +12,7 @@ import com.usal.whbackend.domain.User;
 import com.usal.whbackend.domain.UserRole;
 import com.usal.whbackend.domain.Vehicle;
 import com.usal.whbackend.domain.VehicleStatus;
+import java.time.Instant;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -122,15 +123,73 @@ class DemoDatasetTest {
   }
 
   @Test
-  void buildsTwentyFiveOrdersAcrossAllStatuses() {
+  void seededVehiclesCarryOperationSinceOnlyWhileOnline() {
+    for (Vehicle v : data.getVehicles()) {
+      if (v.getStatus() == VehicleStatus.OFFLINE || v.getStatus() == VehicleStatus.ERROR) {
+        assertThat(v.getOperationSince())
+            .as(
+                "%s vehicle %s has no ongoing operation window — VehicleTelemetryConsumer and"
+                    + " VehicleErrorConsumer both clear operation_since on any transition into"
+                    + " OFFLINE or ERROR",
+                v.getStatus(), v.getId())
+            .isNull();
+      } else {
+        assertThat(v.getOperationSince())
+            .as(
+                "vehicle %s (%s) should carry an operation_since for the dashboard to use",
+                v.getId(), v.getStatus())
+            .isNotNull()
+            .isBefore(Instant.now());
+      }
+    }
+  }
+
+  @Test
+  void buildsAYearOfOrdersAcrossAllStatuses() {
     var orders = data.getOrders();
-    assertThat(orders).hasSize(25);
+    // 25 near-term (unchanged) + 352 historical days * 2/day of COMPLETED/CANCELLED-only history.
+    assertThat(orders).hasSize(729);
     Map<OrderStatus, Long> byStatus =
         orders.stream().collect(Collectors.groupingBy(Order::getStatus, Collectors.counting()));
     assertThat(byStatus.get(OrderStatus.PENDING)).isEqualTo(7);
     assertThat(byStatus.get(OrderStatus.IN_PROGRESS)).isEqualTo(2);
-    assertThat(byStatus.get(OrderStatus.COMPLETED)).isEqualTo(13);
-    assertThat(byStatus.get(OrderStatus.CANCELLED)).isEqualTo(3);
+    assertThat(byStatus.get(OrderStatus.COMPLETED)).isEqualTo(616);
+    assertThat(byStatus.get(OrderStatus.CANCELLED)).isEqualTo(104);
+  }
+
+  @Test
+  void ordersSpanRoughlyAFullYear() {
+    Instant oldest =
+        data.getOrders().stream().map(Order::getCreatedAt).min(Instant::compareTo).orElseThrow();
+    Instant newest =
+        data.getOrders().stream().map(Order::getCreatedAt).max(Instant::compareTo).orElseThrow();
+
+    assertThat(java.time.Duration.between(oldest, newest))
+        .isGreaterThan(java.time.Duration.ofDays(360));
+  }
+
+  @Test
+  void everyPriorityLevelIsRepresented() {
+    Map<com.usal.whbackend.domain.OrderPriority, Long> byPriority =
+        data.getOrders().stream()
+            .collect(Collectors.groupingBy(Order::getPriority, Collectors.counting()));
+
+    for (com.usal.whbackend.domain.OrderPriority priority :
+        com.usal.whbackend.domain.OrderPriority.values()) {
+      assertThat(byPriority.get(priority)).as("count for %s", priority).isPositive();
+    }
+  }
+
+  @Test
+  void historicalOrdersAreOnlyCompletedOrCancelled() {
+    // The near-term batch reaches back at most 13 days; anything older is historical, which never
+    // emits PENDING/IN_PROGRESS — a year-old order in either state would be a standing bug.
+    Instant cutoff = Instant.now().minus(java.time.Duration.ofDays(14));
+    for (Order o : data.getOrders()) {
+      if (o.getCreatedAt().isBefore(cutoff)) {
+        assertThat(o.getStatus()).isIn(OrderStatus.COMPLETED, OrderStatus.CANCELLED);
+      }
+    }
   }
 
   @Test
@@ -237,5 +296,70 @@ class DemoDatasetTest {
         .collect(
             Collectors.groupingBy(
                 OrderItem::getProductId, Collectors.summingInt(OrderItem::getQuantity)));
+  }
+
+  // ── Restock/reception history ───────────────────────────────────────────────
+
+  @Test
+  void buildsAYearOfRestockOrdersAndReceptions() {
+    assertThat(data.getRestockOrders()).hasSize(73);
+    assertThat(data.getReceptions()).hasSize(73);
+  }
+
+  @Test
+  void everyReceptionReferencesAValidProductAndPosition() {
+    Set<String> productIds =
+        data.getProducts().stream().map(Product::getId).collect(Collectors.toSet());
+    Set<String> positionIds =
+        data.getPositions().stream().map(Position::getId).collect(Collectors.toSet());
+
+    for (com.usal.whbackend.domain.Reception r : data.getReceptions()) {
+      assertThat(productIds).contains(r.getProductId());
+      assertThat(r.getAssignments()).isNotEmpty();
+      for (var assignment : r.getAssignments()) {
+        assertThat(positionIds).contains(assignment.getPositionId());
+      }
+      int assigned =
+          r.getAssignments().stream()
+              .mapToInt(com.usal.whbackend.domain.Reception.Assignment::getQuantity)
+              .sum();
+      assertThat(assigned).isEqualTo(r.getQuantityReceived());
+    }
+  }
+
+  @Test
+  void mostReceptionsLinkBackToARestockOrderButNotAll() {
+    Set<String> restockOrderIds =
+        data.getRestockOrders().stream()
+            .map(com.usal.whbackend.domain.RestockOrder::getId)
+            .collect(Collectors.toSet());
+    var receptions = data.getReceptions();
+
+    long linked = receptions.stream().filter(r -> r.getRestockOrderId() != null).count();
+    long unlinked = receptions.size() - linked;
+
+    assertThat(linked).as("most receptions reference a restock order").isGreaterThan(0);
+    assertThat(unlinked).as("a reception need not reference an order").isGreaterThan(0);
+    receptions.stream()
+        .map(com.usal.whbackend.domain.Reception::getRestockOrderId)
+        .filter(id -> id != null)
+        .forEach(id -> assertThat(restockOrderIds).contains(id));
+  }
+
+  @Test
+  void receptionHistorySpansRoughlyAFullYear() {
+    Instant oldest =
+        data.getReceptions().stream()
+            .map(com.usal.whbackend.domain.Reception::getCreatedAt)
+            .min(Instant::compareTo)
+            .orElseThrow();
+    Instant newest =
+        data.getReceptions().stream()
+            .map(com.usal.whbackend.domain.Reception::getCreatedAt)
+            .max(Instant::compareTo)
+            .orElseThrow();
+
+    assertThat(java.time.Duration.between(oldest, newest))
+        .isGreaterThan(java.time.Duration.ofDays(350));
   }
 }

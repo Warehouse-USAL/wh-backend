@@ -6,8 +6,8 @@ import com.usal.whbackend.repository.VictoriaMetricsRepository;
 import com.usal.whbackend.repository.VictoriaMetricsRepository.SeriesData;
 import com.usal.whbackend.service.metrics.MetricDescriptor;
 import com.usal.whbackend.service.metrics.MetricRegistry;
+import com.usal.whbackend.telemetry.ErrorCode;
 import com.usal.whbackend.telemetry.OtelTelemetryAdapter;
-import com.usal.whbackend.telemetry.VehicleStatusChange;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
@@ -31,8 +31,14 @@ public class DemoTelemetrySeeder {
 
   private static final Logger log = LoggerFactory.getLogger(DemoTelemetrySeeder.class);
 
-  /** Series per request. Keeps any single import body to a few hundred kilobytes. */
-  private static final int BATCH_SIZE = 8;
+  /**
+   * Series per request. Keeps any single import body to a few hundred kilobytes — the original
+   * value of 8 was sized for a week at 5-minute resolution (2,016 points/series). Series are now a
+   * year at 30-minute resolution ({@link DemoTelemetryDataset#DAYS} / {@link
+   * DemoTelemetryDataset#RESOLUTION}, 17,520 points/series, ~8.7x longer), so this is scaled down
+   * by the same factor to keep the per-request payload in the same ballpark.
+   */
+  private static final int BATCH_SIZE = 1;
 
   private final VictoriaMetricsRepository victoriaMetrics;
   private final MetricRegistry metricRegistry;
@@ -80,7 +86,12 @@ public class DemoTelemetrySeeder {
                 transitions.get(),
                 vehicles.stream().map(Vehicle::getId).toList(),
                 Arrays.stream(VehicleStatus.values()).map(Enum::name).toList(),
-                VehicleStatusChange.UNCATEGORIZED)
+                // Every real category but OTHER, so the seeded Pareto shows a spread rather than
+                // a single bar; OTHER is the live fallback for a code this enum does not know yet.
+                Arrays.stream(ErrorCode.values())
+                    .filter(code -> code != ErrorCode.OTHER)
+                    .map(Enum::name)
+                    .toList())
             .build();
 
     if (victoriaMetrics.importSeries(series, BATCH_SIZE)) {

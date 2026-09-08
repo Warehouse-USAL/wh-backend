@@ -2,6 +2,7 @@ package com.usal.whbackend.api.order;
 
 import com.usal.whbackend.domain.Order;
 import com.usal.whbackend.domain.OrderItem;
+import com.usal.whbackend.domain.OrderPriority;
 import com.usal.whbackend.domain.OrderStatus;
 import java.time.Instant;
 import java.util.List;
@@ -15,7 +16,8 @@ public record OrderResponse(
     String assignedVehicleId,
     AddressResponse address,
     Timestamps timestamps,
-    String cancelReason) {
+    String cancelReason,
+    OrderPriority priority) {
 
   public OrderResponse {
     items = items == null ? null : List.copyOf(items);
@@ -56,6 +58,7 @@ public record OrderResponse(
         order.getAssignedVehicleId(),
         address,
         new Timestamps(order.getCreatedAt(), order.getStartedAt(), order.getCompletedAt()),
-        order.getCancelReason());
+        order.getCancelReason(),
+        order.getPriority());
   }
 }

@@ -237,6 +237,53 @@ class OrderServiceTest {
     verify(orderEventPublisher).broadcastOrderUpdate(saved);
   }
 
+  @Test
+  void createOrder_omittedPriority_defaultsToMedium() {
+    Product p = new Product();
+    p.setId("prod-1");
+    p.setSku("SKU-001");
+    p.setActive(true);
+    p.setMaxQuantityPerOrder(5);
+    p.setMinimumStock(2);
+    when(productRepository.findById("prod-1")).thenReturn(Optional.of(p));
+    when(productService.computeAvailableStock("prod-1")).thenReturn(10);
+    when(productService.computeReservedStock("prod-1")).thenReturn(0);
+    when(orderRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    Order result =
+        orderService.createOrder(
+            new CreateOrderRequest(
+                List.of(new OrderItemRequest("prod-1", 2)), "AREA-A", validAddress()),
+            "user-1");
+
+    assertEquals(com.usal.whbackend.domain.OrderPriority.MEDIUM, result.getPriority());
+  }
+
+  @Test
+  void createOrder_explicitPriority_isRespected() {
+    Product p = new Product();
+    p.setId("prod-1");
+    p.setSku("SKU-001");
+    p.setActive(true);
+    p.setMaxQuantityPerOrder(5);
+    p.setMinimumStock(2);
+    when(productRepository.findById("prod-1")).thenReturn(Optional.of(p));
+    when(productService.computeAvailableStock("prod-1")).thenReturn(10);
+    when(productService.computeReservedStock("prod-1")).thenReturn(0);
+    when(orderRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    Order result =
+        orderService.createOrder(
+            new CreateOrderRequest(
+                List.of(new OrderItemRequest("prod-1", 2)),
+                "AREA-A",
+                validAddress(),
+                com.usal.whbackend.domain.OrderPriority.URGENT),
+            "user-1");
+
+    assertEquals(com.usal.whbackend.domain.OrderPriority.URGENT, result.getPriority());
+  }
+
   // ── cancelOrder ────────────────────────────────────────────────────────────
 
   @Test

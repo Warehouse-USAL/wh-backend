@@ -5,6 +5,8 @@ import com.usal.whbackend.repository.LineRepository;
 import com.usal.whbackend.repository.OrderMongoRepository;
 import com.usal.whbackend.repository.PositionRepository;
 import com.usal.whbackend.repository.ProductRepository;
+import com.usal.whbackend.repository.ReceptionRepository;
+import com.usal.whbackend.repository.RestockOrderRepository;
 import com.usal.whbackend.repository.UserRepository;
 import com.usal.whbackend.repository.VehicleRepository;
 import com.usal.whbackend.repository.ZoneRepository;
@@ -42,6 +44,8 @@ public class DemoDataSeeder implements ApplicationRunner {
   private final PositionRepository positionRepository;
   private final VehicleRepository vehicleRepository;
   private final OrderMongoRepository orderMongoRepository;
+  private final RestockOrderRepository restockOrderRepository;
+  private final ReceptionRepository receptionRepository;
   private final PasswordEncoder passwordEncoder;
   private final DemoTelemetrySeeder demoTelemetrySeeder;
   private final boolean seedDemo;
@@ -54,6 +58,8 @@ public class DemoDataSeeder implements ApplicationRunner {
       PositionRepository positionRepository,
       VehicleRepository vehicleRepository,
       OrderMongoRepository orderMongoRepository,
+      RestockOrderRepository restockOrderRepository,
+      ReceptionRepository receptionRepository,
       PasswordEncoder passwordEncoder,
       DemoTelemetrySeeder demoTelemetrySeeder,
       @Value("${SEED_DEMO:false}") boolean seedDemo) {
@@ -64,6 +70,8 @@ public class DemoDataSeeder implements ApplicationRunner {
     this.positionRepository = positionRepository;
     this.vehicleRepository = vehicleRepository;
     this.orderMongoRepository = orderMongoRepository;
+    this.restockOrderRepository = restockOrderRepository;
+    this.receptionRepository = receptionRepository;
     this.passwordEncoder = passwordEncoder;
     this.demoTelemetrySeeder = demoTelemetrySeeder;
     this.seedDemo = seedDemo;
@@ -89,6 +97,8 @@ public class DemoDataSeeder implements ApplicationRunner {
     positionRepository.saveAll(data.getPositions());
     vehicleRepository.saveAll(data.getVehicles());
     orderMongoRepository.saveAll(data.getOrders());
+    restockOrderRepository.saveAll(data.getRestockOrders());
+    receptionRepository.saveAll(data.getReceptions());
 
     // Deliberately last and inside the same fresh-database guard: the metrics store has no
     // backfill, so without this the rover charts would be blank next to three weeks of orders.
@@ -101,14 +111,16 @@ public class DemoDataSeeder implements ApplicationRunner {
     List<User> users = data.getUsers();
     log.info(
         "Seeded demo data: {} users, {} products, {} zones, {} lines, {} positions, {} vehicles,"
-            + " {} orders.",
+            + " {} orders (spanning a year), {} restock orders, {} receptions.",
         users.size(),
         data.getProducts().size(),
         data.getZones().size(),
         data.getLines().size(),
         data.getPositions().size(),
         data.getVehicles().size(),
-        data.getOrders().size());
+        data.getOrders().size(),
+        data.getRestockOrders().size(),
+        data.getReceptions().size());
     log.info("Demo accounts (shared password '{}'):", DemoDataset.SHARED_PASSWORD);
     for (User u : users) {
       log.info("  {} — {}", u.getEmail(), u.getRole());

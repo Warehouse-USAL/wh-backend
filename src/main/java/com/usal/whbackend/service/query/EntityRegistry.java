@@ -44,6 +44,7 @@ public class EntityRegistry {
               List.of(
                   FieldDescriptor.of("id", FieldType.STRING),
                   FieldDescriptor.of("status", FieldType.ENUM),
+                  FieldDescriptor.of("priority", FieldType.ENUM),
                   FieldDescriptor.of("requestedByUserId", FieldType.STRING),
                   FieldDescriptor.of("destinationArea", FieldType.STRING),
                   FieldDescriptor.of("assignedVehicleId", FieldType.STRING),
@@ -102,7 +103,8 @@ public class EntityRegistry {
                   FieldDescriptor.of("positionX", FieldType.NUMBER),
                   FieldDescriptor.of("positionY", FieldType.NUMBER),
                   FieldDescriptor.of("currentOrderId", FieldType.STRING),
-                  FieldDescriptor.of("lastSeenAt", FieldType.INSTANT)),
+                  FieldDescriptor.of("lastSeenAt", FieldType.INSTANT),
+                  FieldDescriptor.of("operationSince", FieldType.INSTANT)),
               "name",
               Set.of(),
               false),
@@ -129,6 +131,22 @@ public class EntityRegistry {
               // date window would drop every pallet racked before it and understate the total
               // with no error at all.
               false),
+          // Stock IN events (see Reception's javadoc: the only operation that increases
+          // Position.currentStock). Append-only like orders, so it takes the short constructor —
+          // bounded range required, no unwindable arrays.
+          new EntityDescriptor(
+              "receptions",
+              "receptions",
+              WAREHOUSE_ADMINS,
+              List.of(
+                  FieldDescriptor.of("id", FieldType.STRING),
+                  FieldDescriptor.of("productId", FieldType.STRING),
+                  FieldDescriptor.of("restockOrderId", FieldType.STRING),
+                  FieldDescriptor.of("quantityReceived", FieldType.NUMBER),
+                  FieldDescriptor.of("deliveryUnit", FieldType.ENUM),
+                  FieldDescriptor.of("supplier", FieldType.STRING),
+                  FieldDescriptor.of("createdAt", FieldType.INSTANT)),
+              "createdAt"),
           new EntityDescriptor(
               "users",
               "users",

@@ -151,7 +151,10 @@ services:
   victoriametrics:
     image: victoriametrics/victoria-metrics:v1.111.0
     command:
-      - "-retentionPeriod=30d"
+      # Was 30d. The demo seed now backfills a full year of fleet history (DemoTelemetrySeeder)
+      # so the dashboard has something to build MTBF/MTTR/Pareto charts against — at 30d, VM's
+      # own retention would silently evict everything older than a month right after seeding it.
+      - "-retentionPeriod=400d"
       - "-httpListenAddr=:8428"
       # Without this VM sizes its caches at -memory.allowedPercent=60 of host RAM (~5GB on a
       # dev laptop). The prod box is a shared HP ProLiant already running five containers, so

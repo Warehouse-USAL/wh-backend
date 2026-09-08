@@ -22,6 +22,12 @@ public class Vehicle {
   private String currentOrderId;
   private Instant lastSeenAt;
 
+  // Set when this vehicle transitions OFFLINE -> IDLE/BUSY (see VehicleTelemetryConsumer), i.e.
+  // when it comes back online. Null until the first such transition is observed. Deliberately not
+  // "time since registration": a vehicle that has been offline for a week and just reconnected has
+  // zero hours of operation, not a week's worth.
+  private Instant operationSince;
+
   public Vehicle() {}
 
   public String getId() {
@@ -86,5 +92,13 @@ public class Vehicle {
 
   public void setLastSeenAt(Instant lastSeenAt) {
     this.lastSeenAt = lastSeenAt;
+  }
+
+  public Instant getOperationSince() {
+    return operationSince;
+  }
+
+  public void setOperationSince(Instant operationSince) {
+    this.operationSince = operationSince;
   }
 }

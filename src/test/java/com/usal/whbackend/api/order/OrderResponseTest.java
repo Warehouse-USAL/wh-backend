@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import com.usal.whbackend.domain.Address;
 import com.usal.whbackend.domain.Order;
 import com.usal.whbackend.domain.OrderItem;
+import com.usal.whbackend.domain.OrderPriority;
 import com.usal.whbackend.domain.OrderStatus;
 import java.time.Instant;
 import java.util.List;
@@ -28,7 +29,8 @@ class OrderResponseTest {
             "vehicle-1",
             address,
             new OrderResponse.Timestamps(now, now, now),
-            "cancelled");
+            "cancelled",
+            OrderPriority.HIGH);
 
     assertEquals("id-1", response.id());
     assertEquals(OrderStatus.PENDING, response.status());
@@ -44,6 +46,7 @@ class OrderResponseTest {
     assertEquals(now, response.timestamps().startedAt());
     assertEquals(now, response.timestamps().completedAt());
     assertEquals("cancelled", response.cancelReason());
+    assertEquals(OrderPriority.HIGH, response.priority());
 
     assertEquals("p-1", item.productId());
     assertEquals("SKU-1", item.sku());
@@ -65,6 +68,7 @@ class OrderResponseTest {
     Order order = new Order();
     order.setId("ord-1");
     order.setStatus(OrderStatus.IN_PROGRESS);
+    order.setPriority(OrderPriority.URGENT);
     order.setRequestedByUserId("usr-1");
     order.setItems(List.of(new OrderItem("prod-1", "SKU-1", 3)));
     order.setDestinationArea("AREA-A");
@@ -94,6 +98,7 @@ class OrderResponseTest {
     assertEquals(started, r.timestamps().startedAt());
     assertEquals(completed, r.timestamps().completedAt());
     assertEquals("none", r.cancelReason());
+    assertEquals(OrderPriority.URGENT, r.priority());
   }
 
   @Test
@@ -112,8 +117,19 @@ class OrderResponseTest {
   @Test
   void constructor_nullItems_staysNull() {
     OrderResponse r =
-        new OrderResponse("id", OrderStatus.PENDING, "u", null, null, null, null, null, null);
+        new OrderResponse("id", OrderStatus.PENDING, "u", null, null, null, null, null, null, null);
     assertNull(r.items());
+  }
+
+  @Test
+  void from_orderWithoutPriority_yieldsNullPriority() {
+    Order order = new Order();
+    order.setId("ord-3");
+    order.setStatus(OrderStatus.PENDING);
+
+    OrderResponse r = OrderResponse.from(order);
+
+    assertNull(r.priority());
   }
 
   @Test
@@ -146,5 +162,17 @@ class OrderResponseTest {
   @Test
   void createOrderRequest_nullItems_staysNull() {
     assertNull(new CreateOrderRequest(null, "AREA-A", null).items());
+  }
+
+  @Test
+  void createOrderRequest_threeArgConstructor_leavesPriorityNull() {
+    assertNull(new CreateOrderRequest(List.of(), "AREA-A", null).priority());
+  }
+
+  @Test
+  void createOrderRequest_fourArgConstructor_carriesPriority() {
+    CreateOrderRequest request =
+        new CreateOrderRequest(List.of(), "AREA-A", null, OrderPriority.URGENT);
+    assertEquals(OrderPriority.URGENT, request.priority());
   }
 }
