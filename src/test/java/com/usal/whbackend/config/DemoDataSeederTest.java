@@ -12,6 +12,8 @@ import com.usal.whbackend.domain.Line;
 import com.usal.whbackend.domain.Order;
 import com.usal.whbackend.domain.Position;
 import com.usal.whbackend.domain.Product;
+import com.usal.whbackend.domain.Reception;
+import com.usal.whbackend.domain.RestockOrder;
 import com.usal.whbackend.domain.User;
 import com.usal.whbackend.domain.Vehicle;
 import com.usal.whbackend.domain.Zone;
@@ -19,6 +21,8 @@ import com.usal.whbackend.repository.LineRepository;
 import com.usal.whbackend.repository.OrderMongoRepository;
 import com.usal.whbackend.repository.PositionRepository;
 import com.usal.whbackend.repository.ProductRepository;
+import com.usal.whbackend.repository.ReceptionRepository;
+import com.usal.whbackend.repository.RestockOrderRepository;
 import com.usal.whbackend.repository.UserRepository;
 import com.usal.whbackend.repository.VehicleRepository;
 import com.usal.whbackend.repository.ZoneRepository;
@@ -38,6 +42,8 @@ class DemoDataSeederTest {
   @Mock PositionRepository positionRepository;
   @Mock VehicleRepository vehicleRepository;
   @Mock OrderMongoRepository orderMongoRepository;
+  @Mock RestockOrderRepository restockOrderRepository;
+  @Mock ReceptionRepository receptionRepository;
   @Mock PasswordEncoder passwordEncoder;
   @Mock DemoTelemetrySeeder demoTelemetrySeeder;
 
@@ -50,6 +56,8 @@ class DemoDataSeederTest {
         positionRepository,
         vehicleRepository,
         orderMongoRepository,
+        restockOrderRepository,
+        receptionRepository,
         passwordEncoder,
         demoTelemetrySeeder,
         seedDemo);
@@ -67,6 +75,8 @@ class DemoDataSeederTest {
         positionRepository,
         vehicleRepository,
         orderMongoRepository,
+        restockOrderRepository,
+        receptionRepository,
         passwordEncoder);
   }
 
@@ -85,6 +95,8 @@ class DemoDataSeederTest {
         positionRepository,
         vehicleRepository,
         orderMongoRepository,
+        restockOrderRepository,
+        receptionRepository,
         passwordEncoder);
   }
 
@@ -101,9 +113,13 @@ class DemoDataSeederTest {
     verify(lineRepository).saveAll(argThat((Iterable<Line> it) -> count(it) == 7));
     verify(positionRepository).saveAll(argThat((Iterable<Position> it) -> count(it) == 35));
     verify(vehicleRepository).saveAll(argThat((Iterable<Vehicle> it) -> count(it) == 6));
-    verify(orderMongoRepository).saveAll(argThat((Iterable<Order> it) -> count(it) == 25));
+    // 25 near-term (unchanged) + 352 historical days * 2/day = 729: a year of history, not just
+    // the ~3-week near-term window.
+    verify(orderMongoRepository).saveAll(argThat((Iterable<Order> it) -> count(it) == 729));
+    verify(restockOrderRepository).saveAll(argThat((Iterable<RestockOrder> it) -> count(it) == 73));
+    verify(receptionRepository).saveAll(argThat((Iterable<Reception> it) -> count(it) == 73));
     // Seeded inside the same fresh-database guard: the metrics store has no backfill, so the
-    // rover charts would otherwise be blank next to three weeks of orders.
+    // rover charts would otherwise be blank next to a year of orders.
     verify(demoTelemetrySeeder).seed(argThat((java.util.List<Vehicle> it) -> it.size() == 6));
   }
 

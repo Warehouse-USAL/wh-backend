@@ -17,6 +17,7 @@ public class Order {
 
   @Id private String id;
   private OrderStatus status;
+  private OrderPriority priority;
 
   // Existing OrderMongoRepository.findByRequestedByUserId scans without this.
   @Indexed private String requestedByUserId;
@@ -50,6 +51,14 @@ public class Order {
 
   public void setStatus(OrderStatus status) {
     this.status = status;
+  }
+
+  public OrderPriority getPriority() {
+    return priority;
+  }
+
+  public void setPriority(OrderPriority priority) {
+    this.priority = priority;
   }
 
   public String getRequestedByUserId() {

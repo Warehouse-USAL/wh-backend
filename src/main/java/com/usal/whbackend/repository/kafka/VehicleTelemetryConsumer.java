@@ -46,12 +46,19 @@ public class VehicleTelemetryConsumer {
                 // once it is saved the previous value is gone.
                 VehicleStatus previous = vehicle.getStatus();
                 VehicleStatus current = VehicleStatus.valueOf(msg.status().toUpperCase());
+                Instant timestamp = Instant.parse(msg.timestamp());
 
                 vehicle.setPositionX(msg.position().x());
                 vehicle.setPositionY(msg.position().y());
                 vehicle.setBattery(msg.battery());
                 vehicle.setStatus(current);
-                vehicle.setLastSeenAt(Instant.parse(msg.timestamp()));
+                vehicle.setLastSeenAt(timestamp);
+                // Coming back online starts a fresh operation window: a vehicle that was offline
+                // for a week and just reconnected has zero hours of operation, not a week's worth.
+                if (previous == VehicleStatus.OFFLINE
+                    && (current == VehicleStatus.IDLE || current == VehicleStatus.BUSY)) {
+                  vehicle.setOperationSince(timestamp);
+                }
                 Vehicle saved = vehicleRepository.save(vehicle);
                 vehicleEventPublisher.broadcastVehicleUpdate(saved);
                 // Recorded last, and only for a vehicle that exists: persistence is the primary

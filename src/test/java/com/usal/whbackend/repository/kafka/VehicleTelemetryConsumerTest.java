@@ -15,6 +15,7 @@ import com.usal.whbackend.service.VehicleEventPublisher;
 import com.usal.whbackend.telemetry.TelemetryPort;
 import com.usal.whbackend.telemetry.VehicleSample;
 import com.usal.whbackend.telemetry.VehicleStatusChange;
+import java.time.Instant;
 import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -37,6 +38,11 @@ class VehicleTelemetryConsumerTest {
   }
 
   private static String message(String vehicleId, int battery) throws Exception {
+    return message(vehicleId, battery, "busy", "2026-05-01T10:00:00Z");
+  }
+
+  private static String message(String vehicleId, int battery, String status, String timestamp)
+      throws Exception {
     return new ObjectMapper()
         .writeValueAsString(
             new VehicleTelemetryMessage(
@@ -44,8 +50,8 @@ class VehicleTelemetryConsumerTest {
                 vehicleId,
                 new VehicleTelemetryMessage.Position(14.2, 9.1),
                 battery,
-                "busy",
-                "2026-05-01T10:00:00Z"));
+                status,
+                timestamp));
   }
 
   @Test
@@ -134,6 +140,68 @@ class VehicleTelemetryConsumerTest {
     consumer.consume(message("vhc-1", 79));
 
     verify(telemetry, never()).recordStatusTransition(any());
+  }
+
+  @Test
+  void offlineToIdleTransitionStartsAFreshOperationWindow() throws Exception {
+    Vehicle vehicle = new Vehicle();
+    vehicle.setId("vhc-1");
+    vehicle.setStatus(VehicleStatus.OFFLINE);
+    when(vehicleRepository.findById("vhc-1")).thenReturn(Optional.of(vehicle));
+    when(vehicleRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    consumer.consume(message("vhc-1", 79, "idle", "2026-05-01T10:00:00Z"));
+
+    ArgumentCaptor<Vehicle> captor = ArgumentCaptor.forClass(Vehicle.class);
+    verify(vehicleRepository).save(captor.capture());
+    assertEquals(Instant.parse("2026-05-01T10:00:00Z"), captor.getValue().getOperationSince());
+  }
+
+  @Test
+  void offlineToBusyTransitionStartsAFreshOperationWindow() throws Exception {
+    Vehicle vehicle = new Vehicle();
+    vehicle.setId("vhc-1");
+    vehicle.setStatus(VehicleStatus.OFFLINE);
+    when(vehicleRepository.findById("vhc-1")).thenReturn(Optional.of(vehicle));
+    when(vehicleRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    consumer.consume(message("vhc-1", 79, "busy", "2026-05-01T10:00:00Z"));
+
+    ArgumentCaptor<Vehicle> captor = ArgumentCaptor.forClass(Vehicle.class);
+    verify(vehicleRepository).save(captor.capture());
+    assertEquals(Instant.parse("2026-05-01T10:00:00Z"), captor.getValue().getOperationSince());
+  }
+
+  @Test
+  void aTransitionBetweenTwoOnlineStatesDoesNotResetOperationSince() throws Exception {
+    Vehicle vehicle = new Vehicle();
+    vehicle.setId("vhc-1");
+    vehicle.setStatus(VehicleStatus.IDLE);
+    Instant original = Instant.parse("2026-04-01T00:00:00Z");
+    vehicle.setOperationSince(original);
+    when(vehicleRepository.findById("vhc-1")).thenReturn(Optional.of(vehicle));
+    when(vehicleRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    consumer.consume(message("vhc-1", 79, "busy", "2026-05-01T10:00:00Z"));
+
+    ArgumentCaptor<Vehicle> captor = ArgumentCaptor.forClass(Vehicle.class);
+    verify(vehicleRepository).save(captor.capture());
+    assertEquals(original, captor.getValue().getOperationSince());
+  }
+
+  @Test
+  void aVehicleReportingOfflineDoesNotGetAnOperationWindow() throws Exception {
+    Vehicle vehicle = new Vehicle();
+    vehicle.setId("vhc-1");
+    vehicle.setStatus(VehicleStatus.OFFLINE);
+    when(vehicleRepository.findById("vhc-1")).thenReturn(Optional.of(vehicle));
+    when(vehicleRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    consumer.consume(message("vhc-1", 79, "offline", "2026-05-01T10:00:00Z"));
+
+    ArgumentCaptor<Vehicle> captor = ArgumentCaptor.forClass(Vehicle.class);
+    verify(vehicleRepository).save(captor.capture());
+    assertEquals(null, captor.getValue().getOperationSince());
   }
 
   @Test

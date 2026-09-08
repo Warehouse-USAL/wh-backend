@@ -89,7 +89,7 @@ escritura. No pueden romper nada desde el dashboard aunque se equivoquen.
 
 ### `GET /query/catalog`
 
-Devuelve `["orders", "products", "vehicles", "positions"]` con sus campos:
+Devuelve `["orders", "products", "vehicles", "positions", "receptions"]` con sus campos:
 
 ```json
 {
@@ -102,8 +102,10 @@ Devuelve `["orders", "products", "vehicles", "positions"]` con sus campos:
 }
 ```
 
-`orders` expone 14 campos. Consulten el catálogo en vez de copiar una lista de esta guía: el
-catálogo es la fuente de verdad y no se desactualiza.
+`orders` expone 15 campos (incluye `priority`: `low`/`medium`/`high`/`urgent`, opcional en la
+creación, `medium` si no se especifica). `receptions` es nuevo: los eventos de stock ENTRANTE —
+`vehicles` ahora también expone `operation_since`. Consulten el catálogo en vez de copiar una
+lista de esta guía: el catálogo es la fuente de verdad y no se desactualiza.
 
 ---
 
@@ -159,8 +161,10 @@ estuvo ocupado la mitad del bloque aporta 0.5.
 Si quieren un número entero tipo "ahora mismo", usen un `step` chico (`1m`, `5m`). Si quieren
 "actividad de la flota en 24h", un `step` grande es exactamente lo que buscan.
 
-**2. Retención: 30 días.** VictoriaMetrics guarda 30 días y `from`/`to` no pueden abarcar más de
-31. Para el histórico de un semestre habría que subir la retención — díganos si lo necesitan.
+**2. Retención: ~400 días.** VictoriaMetrics ahora guarda poco más de un año (subimos la
+retención — antes eran 30 días). Lo que **no** cambió es el límite por consulta: `from`/`to` de
+una misma llamada siguen sin poder abarcar más de 31 días. Para graficar el año completo, encadenen
+llamadas de a 31 días — el histórico está ahí, sólo no entra en una consulta sola.
 
 ---
 
@@ -272,9 +276,12 @@ Cada punto son las fallas de ese rover en esa hora. Grafíquenlo tal cual.
 {"metric":"wh.vehicle.transitions","from":"…","to":"…","step":"6h",
  "agg":"increase","group_by":["category"],"filters":{"to":"ERROR"}}
 ```
-> Hoy `category` es siempre `UNCATEGORIZED` — el dominio tiene un único estado `ERROR` sin
-> taxonomía. La etiqueta ya está publicada, así que cuando el equipo de rovers acuerde una lista
-> de códigos, el Pareto se llena solo **sin cambios de su lado**. Mientras tanto es una sola barra.
+> `category` ahora lleva el código real cuando el mensaje `vehicle.error` de la Central lo trae
+> (`CONNECTION_LOST`, `BATTERY_CRITICAL`, `MECHANICAL_FAULT`, `COLLISION`, `NAVIGATION_ERROR`, o
+> `OTHER` si llega un código que no está en esa lista — nunca se descarta el evento por un código
+> desconocido). Sigue siendo `UNCATEGORIZED` únicamente para las transiciones a `ERROR`
+> autoreportadas por telemetría de rutina, que no traen ningún código: no hay nada que
+> categorizar ahí. El Pareto ya no es una sola barra.
 
 **3 · MTBF (tiempo promedio entre fallas)**
 
@@ -465,13 +472,20 @@ rovers y dejen el resto del dashboard vivo.
 
 Levantando el stack con `SEED_DEMO=true` sobre una base vacía obtienen:
 
-- 13 usuarios, 24 productos, 35 posiciones, 6 rovers, 25 órdenes (~3 semanas)
-- **7 días de historial de flota ya cargado** — 44 series
+- 13 usuarios, 24 productos, 35 posiciones, 6 rovers
+- **729 órdenes cubriendo un año completo** (25 recientes de los últimos ~13 días, con el mismo
+  mix de estados de siempre, más 704 históricas COMPLETED/CANCELLED repartidas en los 352 días
+  anteriores) — con las 4 prioridades representadas
+- 73 órdenes de reposición + 73 recepciones repartidas en el año, para el gráfico de movimientos
+  de stock
+- **365 días de historial de flota ya cargado**, a resolución de 30 minutos (antes eran 7 días a
+  5 minutos — un año entero a esa resolución habría sido ~13× más puntos por serie de lo que
+  `/api/v1/import` conviene recibir de una sola vez)
 
 Ese último punto importa: el almacén de métricas no tiene backfill, así que sin la semilla los
 gráficos de rovers arrancarían vacíos. Con ella tienen datos para graficar desde el minuto cero,
-incluyendo un rover parado toda la semana y otro que falla periódicamente, para que "rovers
-activos" y MTBF muestren algo real.
+incluyendo un rover parado todo el año y otro que falla periódicamente con categorías de falla
+variadas, para que "rovers activos", MTBF/MTTR y el Pareto por categoría muestren algo real.
 
 Todas las cuentas usan `Demo1234!`.
 

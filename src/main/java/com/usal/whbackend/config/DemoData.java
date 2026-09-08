@@ -4,6 +4,8 @@ import com.usal.whbackend.domain.Line;
 import com.usal.whbackend.domain.Order;
 import com.usal.whbackend.domain.Position;
 import com.usal.whbackend.domain.Product;
+import com.usal.whbackend.domain.Reception;
+import com.usal.whbackend.domain.RestockOrder;
 import com.usal.whbackend.domain.User;
 import com.usal.whbackend.domain.Vehicle;
 import com.usal.whbackend.domain.Zone;
@@ -22,6 +24,8 @@ public final class DemoData {
   private final List<Position> positions;
   private final List<Vehicle> vehicles;
   private final List<Order> orders;
+  private final List<RestockOrder> restockOrders;
+  private final List<Reception> receptions;
 
   public DemoData(
       List<User> users,
@@ -30,7 +34,9 @@ public final class DemoData {
       List<Line> lines,
       List<Position> positions,
       List<Vehicle> vehicles,
-      List<Order> orders) {
+      List<Order> orders,
+      List<RestockOrder> restockOrders,
+      List<Reception> receptions) {
     this.users = List.copyOf(users);
     this.products = List.copyOf(products);
     this.zones = List.copyOf(zones);
@@ -38,6 +44,8 @@ public final class DemoData {
     this.positions = List.copyOf(positions);
     this.vehicles = List.copyOf(vehicles);
     this.orders = List.copyOf(orders);
+    this.restockOrders = List.copyOf(restockOrders);
+    this.receptions = List.copyOf(receptions);
   }
 
   public List<User> getUsers() {
@@ -66,5 +74,13 @@ public final class DemoData {
 
   public List<Order> getOrders() {
     return List.copyOf(orders);
+  }
+
+  public List<RestockOrder> getRestockOrders() {
+    return List.copyOf(restockOrders);
+  }
+
+  public List<Reception> getReceptions() {
+    return List.copyOf(receptions);
   }
 }

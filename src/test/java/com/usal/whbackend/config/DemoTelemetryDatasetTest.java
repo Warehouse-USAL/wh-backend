@@ -7,6 +7,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
@@ -15,6 +16,8 @@ class DemoTelemetryDatasetTest {
   private static final Instant NOW = Instant.parse("2026-08-23T12:00:00Z");
   private static final List<String> VEHICLES = List.of("v-1", "v-2", "v-3", "v-4", "v-5", "v-6");
   private static final List<String> STATES = List.of("IDLE", "BUSY", "OFFLINE", "ERROR");
+  private static final List<String> FAULT_CATEGORIES =
+      List.of("CONNECTION_LOST", "BATTERY_CRITICAL", "MECHANICAL_FAULT");
 
   private static List<SeriesData> build() {
     return new DemoTelemetryDataset(
@@ -24,7 +27,7 @@ class DemoTelemetryDatasetTest {
             "wh_vehicle_transitions",
             VEHICLES,
             STATES,
-            "UNCATEGORIZED")
+            FAULT_CATEGORIES)
         .build();
   }
 
@@ -93,6 +96,58 @@ class DemoTelemetryDatasetTest {
     double mostFailuresOnOneRover =
         intoError.stream().mapToDouble(s -> s.values().get(s.values().size() - 1)).max().orElse(0);
     assertThat(mostFailuresOnOneRover).isGreaterThan(1.0);
+  }
+
+  @Test
+  void faultsCycleThroughEveryOfferedCategorySoParetoHasARealSpread() {
+    // Not containsExactlyInAnyOrderElementsOf: a fault can start from either BUSY or IDLE, so the
+    // same category can back two distinct (from, to, category) series. The set of categories used
+    // is what matters for the Pareto — every one of them should show up at least once.
+    Set<String> categoriesUsed =
+        named(build(), "wh_vehicle_transitions").stream()
+            .filter(s -> "ERROR".equals(s.labels().get("to")))
+            .filter(s -> s.values().get(s.values().size() - 1) > 0)
+            .map(s -> s.labels().get("category"))
+            .collect(Collectors.toSet());
+
+    assertThat(categoriesUsed).containsExactlyInAnyOrderElementsOf(FAULT_CATEGORIES);
+  }
+
+  @Test
+  void aRecoveryIsTaggedWithTheSameCategoryAsTheFaultItRecoversFrom() {
+    // Compared as sets, not multisets: a fault can start from either BUSY or IDLE and recover
+    // into either, so the exact number of (from/to, category) series need not line up 1:1 — what
+    // must hold is that recovery uses only categories that some fault actually carried.
+    List<SeriesData> all = named(build(), "wh_vehicle_transitions");
+    Set<String> intoErrorCategories =
+        all.stream()
+            .filter(s -> "ERROR".equals(s.labels().get("to")))
+            .filter(s -> s.values().get(s.values().size() - 1) > 0)
+            .map(s -> s.labels().get("category"))
+            .collect(Collectors.toSet());
+    Set<String> outOfErrorCategories =
+        all.stream()
+            .filter(s -> "ERROR".equals(s.labels().get("from")))
+            .filter(s -> s.values().get(s.values().size() - 1) > 0)
+            .map(s -> s.labels().get("category"))
+            .collect(Collectors.toSet());
+
+    assertThat(outOfErrorCategories).isEqualTo(intoErrorCategories);
+  }
+
+  @Test
+  void nonFaultTransitionsAreNotAttributedToAFaultCategory() {
+    List<SeriesData> idleBusy =
+        named(build(), "wh_vehicle_transitions").stream()
+            .filter(
+                s ->
+                    Set.of("IDLE", "BUSY").contains(s.labels().get("from"))
+                        && Set.of("IDLE", "BUSY").contains(s.labels().get("to")))
+            .toList();
+
+    assertThat(idleBusy).isNotEmpty();
+    assertThat(idleBusy)
+        .allSatisfy(s -> assertThat(s.labels().get("category")).isEqualTo("UNCATEGORIZED"));
   }
 
   @Test

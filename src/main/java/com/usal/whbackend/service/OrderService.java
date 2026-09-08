@@ -4,6 +4,7 @@ import com.usal.whbackend.api.order.CreateOrderRequest;
 import com.usal.whbackend.domain.Address;
 import com.usal.whbackend.domain.Order;
 import com.usal.whbackend.domain.OrderItem;
+import com.usal.whbackend.domain.OrderPriority;
 import com.usal.whbackend.domain.OrderStatus;
 import com.usal.whbackend.domain.Product;
 import com.usal.whbackend.domain.Vehicle;
@@ -174,6 +175,7 @@ public class OrderService {
 
       Order order = new Order();
       order.setStatus(OrderStatus.PENDING);
+      order.setPriority(request.priority() != null ? request.priority() : OrderPriority.MEDIUM);
       order.setRequestedByUserId(userId);
       order.setItems(items);
       order.setDestinationArea(request.destinationArea());

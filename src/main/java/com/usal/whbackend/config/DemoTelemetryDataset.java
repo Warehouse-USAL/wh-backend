@@ -28,20 +28,28 @@ import java.util.Map;
  */
 public final class DemoTelemetryDataset {
 
-  public static final int DAYS = 7;
-  public static final Duration RESOLUTION = Duration.ofMinutes(5);
+  // A full year at 5-minute resolution (the original resolution) would be ~105k ticks/vehicle —
+  // several times the point count VictoriaMetrics' /api/v1/import is comfortable receiving in one
+  // seed run, and a proportionally larger in-memory build. 30-minute resolution keeps a year of
+  // history smooth enough for any dashboard chart while keeping both bounded, the same trade-off
+  // a real long-range retention policy makes by downsampling older data.
+  public static final int DAYS = 365;
+  public static final Duration RESOLUTION = Duration.ofMinutes(30);
 
   /** The label the collector attaches, so seeded points land on the same series as live ones. */
   static final String JOB = "wh-backend";
+
+  /** Category recorded for a transition that is not into or out of ERROR. */
+  private static final String NON_FAULT_CATEGORY = "UNCATEGORIZED";
 
   private static final ZoneId LOCAL = ZoneId.of("America/Argentina/Buenos_Aires");
   private static final int SHIFT_START_HOUR = 8;
   private static final int SHIFT_END_HOUR = 20;
 
   /** Ticks between the start of one simulated fault and the next, on the failing rover. */
-  private static final int FAULT_PERIOD_TICKS = 216; // 18h at 5-minute resolution
+  private static final int FAULT_PERIOD_TICKS = 36; // 18h at 30-minute resolution
 
-  private static final int FAULT_LENGTH_TICKS = 8; // 40 minutes
+  private static final int FAULT_LENGTH_TICKS = 2; // 60 minutes
 
   private final Instant now;
   private final String stateSeries;
@@ -49,7 +57,7 @@ public final class DemoTelemetryDataset {
   private final String transitionsSeries;
   private final List<String> vehicleIds;
   private final List<String> states;
-  private final String category;
+  private final List<String> faultCategories;
 
   public DemoTelemetryDataset(
       Instant now,
@@ -58,14 +66,14 @@ public final class DemoTelemetryDataset {
       String transitionsSeries,
       List<String> vehicleIds,
       List<String> states,
-      String category) {
+      List<String> faultCategories) {
     this.now = now;
     this.stateSeries = stateSeries;
     this.batterySeries = batterySeries;
     this.transitionsSeries = transitionsSeries;
     this.vehicleIds = List.copyOf(vehicleIds);
     this.states = List.copyOf(states);
-    this.category = category;
+    this.faultCategories = List.copyOf(faultCategories);
   }
 
   public List<SeriesData> build() {
@@ -104,7 +112,8 @@ public final class DemoTelemetryDataset {
       String state = stateAt(index, timestampMs, t);
 
       if (previous != null && !previous.equals(state)) {
-        transitionCounts.merge(previous + ">" + state, 1L, Long::sum);
+        String category = categoryFor(previous, state, t);
+        transitionCounts.merge(previous + ">" + state + ">" + category, 1L, Long::sum);
       }
       previous = state;
 
@@ -160,7 +169,7 @@ public final class DemoTelemetryDataset {
             timestamps));
     transitionValues.forEach(
         (pair, values) -> {
-          String[] fromTo = pair.split(">");
+          String[] parts = pair.split(">");
           series.add(
               new SeriesData(
                   Map.of(
@@ -171,15 +180,30 @@ public final class DemoTelemetryDataset {
                       "vehicle_id",
                       vehicleId,
                       "from",
-                      fromTo[0],
+                      parts[0],
                       "to",
-                      fromTo[1],
+                      parts[1],
                       "category",
-                      category),
+                      parts[2]),
                   values,
                   transitionTimestamps));
         });
     return series;
+  }
+
+  /**
+   * The fault category for one transition. Only a transition into or out of ERROR carries a real
+   * category — everything else (IDLE&lt;-&gt;BUSY and so on) is not a fault at all. Every fault
+   * episode picks one category and keeps it for both its entry and its recovery transition, cycled
+   * deterministically by episode number so a year of history exercises every category in {@link
+   * #faultCategories} rather than always the first one.
+   */
+  private String categoryFor(String from, String to, int tick) {
+    if (!"ERROR".equals(from) && !"ERROR".equals(to)) {
+      return NON_FAULT_CATEGORY;
+    }
+    int episode = tick / FAULT_PERIOD_TICKS;
+    return faultCategories.get(Math.floorMod(episode, faultCategories.size()));
   }
 
   /**
@@ -211,11 +235,13 @@ public final class DemoTelemetryDataset {
   }
 
   private double chargeAfter(double charge, String state) {
+    // Deltas are per-tick, not per-hour: scaled by 6x from the original 5-minute-resolution
+    // values to hold the same %/hour drain and charge rate now that each tick spans 30 minutes.
     double next =
         switch (state) {
-          case "BUSY" -> charge - 0.35;
-          case "IDLE" -> charge + 0.6;
-          case "ERROR" -> charge - 0.1;
+          case "BUSY" -> charge - 2.1;
+          case "IDLE" -> charge + 3.6;
+          case "ERROR" -> charge - 0.6;
           default -> 0;
         };
     return Math.max(3, Math.min(100, next));

@@ -20,6 +20,7 @@ class VehicleTest {
     vehicle.setBattery(85);
     vehicle.setCurrentOrderId("order-1");
     vehicle.setLastSeenAt(now);
+    vehicle.setOperationSince(now);
 
     assertEquals("id-1", vehicle.getId());
     assertEquals("Rover-01", vehicle.getName());
@@ -29,5 +30,6 @@ class VehicleTest {
     assertEquals(85, vehicle.getBattery());
     assertEquals("order-1", vehicle.getCurrentOrderId());
     assertEquals(now, vehicle.getLastSeenAt());
+    assertEquals(now, vehicle.getOperationSince());
   }
 }

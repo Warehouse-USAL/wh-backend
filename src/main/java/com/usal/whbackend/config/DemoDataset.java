@@ -4,10 +4,13 @@ import com.usal.whbackend.domain.Address;
 import com.usal.whbackend.domain.Line;
 import com.usal.whbackend.domain.Order;
 import com.usal.whbackend.domain.OrderItem;
+import com.usal.whbackend.domain.OrderPriority;
 import com.usal.whbackend.domain.OrderStatus;
 import com.usal.whbackend.domain.Position;
 import com.usal.whbackend.domain.Product;
 import com.usal.whbackend.domain.ProductCategory;
+import com.usal.whbackend.domain.Reception;
+import com.usal.whbackend.domain.RestockOrder;
 import com.usal.whbackend.domain.StockSize;
 import com.usal.whbackend.domain.User;
 import com.usal.whbackend.domain.UserRole;
@@ -52,6 +55,21 @@ public final class DemoDataset {
   private static final int POSITIONS_PER_LINE = 5;
   private static final int POSITION_MAX_CAPACITY = 500;
 
+  // How far back the historical order batch reaches, so the dashboard has a full year to chart
+  // instead of the ~3 weeks the near-term batch alone covers. Starts after the near-term window
+  // (which reaches back 13 days) rather than at day 1, so the two batches do not overlap.
+  private static final int HISTORICAL_START_DAY = 14;
+  private static final int HISTORICAL_END_DAY = 365;
+  private static final int HISTORICAL_ORDERS_PER_DAY = 2;
+
+  // Cadence for the restock/reception history: one request-and-delivery pair every N days,
+  // cycling through every product round-robin, so the stock-movements chart has a year of
+  // stock-IN events to plot alongside the orders' stock-OUT signal.
+  private static final int RECEPTION_INTERVAL_DAYS = 5;
+  private static final String[] SUPPLIERS = {
+    "Distribuidora del Sur S.A.", "Importadora Andina Ltda.", "Mayorista Rioplatense"
+  };
+
   private static final String[] DESTINATIONS = {
     "Depósito Central",
     "Sucursal Pocitos",
@@ -85,8 +103,13 @@ public final class DemoDataset {
     buildWarehouse(products, zones, lines, positions);
     List<Vehicle> vehicles = buildVehicles();
     List<Order> orders = buildOrders(users, products, vehicles);
+    orders.addAll(buildHistoricalOrders(users, products, vehicles, orders.size()));
     simulateStock(products, positions, orders);
-    return new DemoData(users, products, zones, lines, positions, vehicles, orders);
+    List<RestockOrder> restockOrders = new ArrayList<>();
+    List<Reception> receptions = new ArrayList<>();
+    buildReceptionHistory(products, positions, restockOrders, receptions);
+    return new DemoData(
+        users, products, zones, lines, positions, vehicles, orders, restockOrders, receptions);
   }
 
   // ── Users ────────────────────────────────────────────────────────────────────
@@ -368,15 +391,27 @@ public final class DemoDataset {
       Vehicle vehicle,
       int daysAgo,
       String cancelReason) {
+    return makeOrder(
+        n, status, users, products, vehicle, now.minus(daysAgo, ChronoUnit.DAYS), cancelReason);
+  }
+
+  private Order makeOrder(
+      int n,
+      OrderStatus status,
+      List<User> users,
+      List<Product> products,
+      Vehicle vehicle,
+      Instant created,
+      String cancelReason) {
     Order o = new Order();
     String id = String.format("o-%04d", n);
     o.setId(id);
     o.setStatus(status);
+    o.setPriority(OrderPriority.values()[Math.floorMod(n, OrderPriority.values().length)]);
     o.setRequestedByUserId(users.get(n % users.size()).getId());
     o.setItems(buildItems(n, products));
     o.setDestinationArea(DESTINATIONS[n % DESTINATIONS.length]);
     o.setAddress(montevideoAddress(n * 7));
-    Instant created = now.minus(daysAgo, ChronoUnit.DAYS);
     o.setCreatedAt(created);
 
     switch (status) {
@@ -386,9 +421,11 @@ public final class DemoDataset {
         vehicle.setCurrentOrderId(id);
       }
       case COMPLETED -> {
-        Instant started = created.plus(3, ChronoUnit.HOURS);
+        // Jittered by n rather than a fixed 3h/5h pair, so a year of history has real cycle-time
+        // variance instead of every completed order taking exactly the same 5 hours.
+        Instant started = created.plus(1 + Math.floorMod(n, 4), ChronoUnit.HOURS);
         o.setStartedAt(started);
-        o.setCompletedAt(started.plus(5, ChronoUnit.HOURS));
+        o.setCompletedAt(started.plus(1 + Math.floorMod(n * 3, 6), ChronoUnit.HOURS));
         o.setAssignedVehicleId(vehicle.getId());
       }
       case CANCELLED -> o.setCancelReason(cancelReason);
@@ -397,6 +434,102 @@ public final class DemoDataset {
       }
     }
     return o;
+  }
+
+  // ── Historical orders (past year, COMPLETED/CANCELLED only) ────────────────────
+
+  /**
+   * Extends the near-term batch built by {@link #buildOrders} back across a full year, so charts
+   * bucketed by day or hour have real history instead of ~3 weeks of data next to a 365-day axis.
+   * Deliberately COMPLETED/CANCELLED only: a year-old PENDING or IN_PROGRESS order would be a
+   * standing bug in any real system, so seeding one would be seeding a lie.
+   */
+  private List<Order> buildHistoricalOrders(
+      List<User> users, List<Product> products, List<Vehicle> vehicles, int startIndex) {
+    List<Order> orders = new ArrayList<>();
+    String[] reasons = {
+      "Stock insuficiente", "Cancelado por el cliente", "Dirección de entrega incorrecta"
+    };
+    int n = startIndex;
+    for (int daysAgo = HISTORICAL_START_DAY; daysAgo <= HISTORICAL_END_DAY; daysAgo++) {
+      for (int slot = 0; slot < HISTORICAL_ORDERS_PER_DAY; slot++) {
+        n++;
+        boolean cancelled = n % 7 == 0;
+        OrderStatus status = cancelled ? OrderStatus.CANCELLED : OrderStatus.COMPLETED;
+        Vehicle vehicle = cancelled ? null : vehicles.get(n % vehicles.size());
+        String reason = cancelled ? reasons[n % reasons.length] : null;
+        int hourOfDay = (n * 7) % 24;
+        Instant created =
+            now.minus(daysAgo, ChronoUnit.DAYS)
+                .truncatedTo(ChronoUnit.DAYS)
+                .plus(hourOfDay, ChronoUnit.HOURS);
+        orders.add(makeOrder(n, status, users, products, vehicle, created, reason));
+      }
+    }
+    return orders;
+  }
+
+  // ── Restock/reception history (past year, stock-IN events) ─────────────────────
+
+  /**
+   * A restock order + linked reception every {@link #RECEPTION_INTERVAL_DAYS}, cycling through
+   * every product, so the stock-movements chart (#54/#55) has a year of stock-IN events. Every
+   * fifth reception omits the {@code restockOrderId} link, matching {@link Reception}'s real
+   * contract: a reception need not reference an order.
+   *
+   * <p>Deliberately does not touch {@link Position#getCurrentStock()} — {@link #simulateStock}
+   * already derives a self-consistent stock picture from orders alone, and reconciling that
+   * simulation against an independent reception history is not needed for what this seeds the data
+   * for: exercising the {@code /query/receptions} chart with plausible stock-IN events.
+   */
+  private void buildReceptionHistory(
+      List<Product> products,
+      List<Position> positions,
+      List<RestockOrder> restockOrders,
+      List<Reception> receptions) {
+    int n = 0;
+    for (int daysAgo = HISTORICAL_END_DAY;
+        daysAgo >= RECEPTION_INTERVAL_DAYS;
+        daysAgo -= RECEPTION_INTERVAL_DAYS) {
+      n++;
+      Product product = products.get(n % products.size());
+      Position position =
+          positions.stream()
+              .filter(p -> product.getId().equals(p.getProductId()))
+              .findFirst()
+              .orElse(null);
+      if (position == null) {
+        continue;
+      }
+
+      int quantity = 40 + (n % 6) * 20;
+      Instant requestedAt = now.minus(daysAgo + 1, ChronoUnit.DAYS);
+      Instant receivedAt = now.minus(daysAgo, ChronoUnit.DAYS);
+      String supplier = SUPPLIERS[n % SUPPLIERS.length];
+
+      RestockOrder restockOrder = new RestockOrder();
+      restockOrder.setId(String.format("ro-%04d", n));
+      restockOrder.setProductId(product.getId());
+      restockOrder.setQuantityRequested(quantity);
+      restockOrder.setSupplier(supplier);
+      restockOrder.setRequestedByUserId("u-warehouse");
+      restockOrder.setCreatedAt(requestedAt);
+      restockOrders.add(restockOrder);
+
+      boolean linked = n % 5 != 0;
+
+      Reception reception = new Reception();
+      reception.setId(String.format("rec-%04d", n));
+      reception.setRestockOrderId(linked ? restockOrder.getId() : null);
+      reception.setProductId(product.getId());
+      reception.setQuantityReceived(quantity);
+      reception.setDeliveryUnit(StockSize.values()[n % StockSize.values().length]);
+      reception.setSupplier(supplier);
+      reception.setAssignments(List.of(new Reception.Assignment(position.getId(), quantity)));
+      reception.setReceivedByUserId("u-warehouse");
+      reception.setCreatedAt(receivedAt);
+      receptions.add(reception);
+    }
   }
 
   private List<OrderItem> buildItems(int n, List<Product> products) {

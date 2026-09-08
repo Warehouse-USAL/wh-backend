@@ -6,8 +6,8 @@ import com.usal.whbackend.repository.VictoriaMetricsRepository;
 import com.usal.whbackend.repository.VictoriaMetricsRepository.SeriesData;
 import com.usal.whbackend.service.metrics.MetricDescriptor;
 import com.usal.whbackend.service.metrics.MetricRegistry;
+import com.usal.whbackend.telemetry.ErrorCode;
 import com.usal.whbackend.telemetry.OtelTelemetryAdapter;
-import com.usal.whbackend.telemetry.VehicleStatusChange;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
@@ -80,7 +80,12 @@ public class DemoTelemetrySeeder {
                 transitions.get(),
                 vehicles.stream().map(Vehicle::getId).toList(),
                 Arrays.stream(VehicleStatus.values()).map(Enum::name).toList(),
-                VehicleStatusChange.UNCATEGORIZED)
+                // Every real category but OTHER, so the seeded Pareto shows a spread rather than
+                // a single bar; OTHER is the live fallback for a code this enum does not know yet.
+                Arrays.stream(ErrorCode.values())
+                    .filter(code -> code != ErrorCode.OTHER)
+                    .map(Enum::name)
+                    .toList())
             .build();
 
     if (victoriaMetrics.importSeries(series, BATCH_SIZE)) {

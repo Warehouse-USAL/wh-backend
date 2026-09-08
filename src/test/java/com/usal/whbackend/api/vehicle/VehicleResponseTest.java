@@ -10,6 +10,7 @@ class VehicleResponseTest {
   @Test
   void recordAccessors() {
     Instant now = Instant.now();
+    Instant since = now.minusSeconds(3600);
     VehicleResponse response =
         new VehicleResponse(
             "id-1",
@@ -18,7 +19,8 @@ class VehicleResponseTest {
             new VehicleResponse.Position(10.5, 20.3),
             85,
             "order-1",
-            now);
+            now,
+            since);
 
     assertEquals("id-1", response.id());
     assertEquals("Rover-01", response.name());
@@ -28,5 +30,30 @@ class VehicleResponseTest {
     assertEquals(85, response.battery());
     assertEquals("order-1", response.currentOrderId());
     assertEquals(now, response.lastSeenAt());
+    assertEquals(since, response.operationSince());
+  }
+
+  @Test
+  void from_vehicleWithoutOperationSince_yieldsNullOperationSince() {
+    com.usal.whbackend.domain.Vehicle vehicle = new com.usal.whbackend.domain.Vehicle();
+    vehicle.setId("v-1");
+    vehicle.setStatus(com.usal.whbackend.domain.VehicleStatus.OFFLINE);
+
+    VehicleResponse r = VehicleResponse.from(vehicle);
+
+    assertNull(r.operationSince());
+  }
+
+  @Test
+  void from_vehicleWithOperationSince_mapsIt() {
+    com.usal.whbackend.domain.Vehicle vehicle = new com.usal.whbackend.domain.Vehicle();
+    vehicle.setId("v-1");
+    vehicle.setStatus(com.usal.whbackend.domain.VehicleStatus.IDLE);
+    Instant since = Instant.parse("2026-05-01T10:00:00Z");
+    vehicle.setOperationSince(since);
+
+    VehicleResponse r = VehicleResponse.from(vehicle);
+
+    assertEquals(since, r.operationSince());
   }
 }
