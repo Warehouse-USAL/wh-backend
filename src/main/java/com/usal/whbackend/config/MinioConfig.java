@@ -23,10 +23,7 @@ public class MinioConfig {
 
   @Bean
   public MinioClient minioClient() {
-    return MinioClient.builder()
-        .endpoint(endpoint)
-        .credentials(accessKey, secretKey)
-        .build();
+    return MinioClient.builder().endpoint(endpoint).credentials(accessKey, secretKey).build();
   }
 
   /**
@@ -46,18 +43,43 @@ public class MinioConfig {
           log.info("Bucket '{}' created successfully", bucket);
         }
       } catch (Exception e) {
-        log.warn("Could not verify/create bucket '{}': {}. Uploads will fail until MinIO is available.",
-            bucket, e.getMessage());
+        log.warn(
+            "Could not verify/create bucket '{}': {}. Uploads will fail until MinIO is available.",
+            bucket,
+            e.getMessage());
       }
     };
   }
 
-  public String getEndpoint() { return endpoint; }
-  public void setEndpoint(String endpoint) { this.endpoint = endpoint; }
-  public String getAccessKey() { return accessKey; }
-  public void setAccessKey(String accessKey) { this.accessKey = accessKey; }
-  public String getSecretKey() { return secretKey; }
-  public void setSecretKey(String secretKey) { this.secretKey = secretKey; }
-  public String getBucket() { return bucket; }
-  public void setBucket(String bucket) { this.bucket = bucket; }
+  public String getEndpoint() {
+    return endpoint;
+  }
+
+  public void setEndpoint(String endpoint) {
+    this.endpoint = endpoint;
+  }
+
+  public String getAccessKey() {
+    return accessKey;
+  }
+
+  public void setAccessKey(String accessKey) {
+    this.accessKey = accessKey;
+  }
+
+  public String getSecretKey() {
+    return secretKey;
+  }
+
+  public void setSecretKey(String secretKey) {
+    this.secretKey = secretKey;
+  }
+
+  public String getBucket() {
+    return bucket;
+  }
+
+  public void setBucket(String bucket) {
+    this.bucket = bucket;
+  }
 }

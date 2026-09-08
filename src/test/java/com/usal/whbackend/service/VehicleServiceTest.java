@@ -9,7 +9,6 @@ import com.usal.whbackend.api.vehicle.RegisterVehicleRequest;
 import com.usal.whbackend.domain.Vehicle;
 import com.usal.whbackend.domain.VehicleStatus;
 import com.usal.whbackend.repository.VehicleRepository;
-import com.usal.whbackend.service.VehicleEventPublisher;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -136,8 +135,7 @@ class VehicleServiceTest {
     when(vehicleRepository.save(any(Vehicle.class))).thenAnswer(inv -> inv.getArgument(0));
 
     Instant now = Instant.parse("2026-01-01T00:00:00Z");
-    PatchVehicleRequest request =
-        new PatchVehicleRequest("busy", 5.0, 10.0, 80, "ORDER-99", now);
+    PatchVehicleRequest request = new PatchVehicleRequest("busy", 5.0, 10.0, 80, "ORDER-99", now);
     Vehicle result = vehicleService.updateVehicle("VHC-002", request);
 
     assertEquals(VehicleStatus.BUSY, result.getStatus());

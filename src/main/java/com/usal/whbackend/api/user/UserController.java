@@ -113,26 +113,25 @@ public class UserController {
     return UserResponse.from(user);
   }
 
- @Operation(summary = "Self-service change password")
-@ApiResponse(responseCode = "200", description = "Contraseña actualizada correctamente.")
-@ApiResponse(responseCode = "400", description = "WRONG_CURRENT_PASSWORD or SAME_PASSWORD")
-@ApiResponse(responseCode = "401", description = "Unauthorized")
-@PostMapping("/me/change-password")
-public ResponseEntity<Map<String, String>> changePassword(
-    @Valid @RequestBody ChangePasswordRequest request,
-    org.springframework.security.core.Authentication authentication
-) {
-  userService.changeMyPassword(authentication.getName(), request);
-  return ResponseEntity.ok(Map.of("message", "Contraseña actualizada correctamente."));
-}
+  @Operation(summary = "Self-service change password")
+  @ApiResponse(responseCode = "200", description = "Contraseña actualizada correctamente.")
+  @ApiResponse(responseCode = "400", description = "WRONG_CURRENT_PASSWORD or SAME_PASSWORD")
+  @ApiResponse(responseCode = "401", description = "Unauthorized")
+  @PostMapping("/me/change-password")
+  public ResponseEntity<Map<String, String>> changePassword(
+      @Valid @RequestBody ChangePasswordRequest request,
+      org.springframework.security.core.Authentication authentication) {
+    userService.changeMyPassword(authentication.getName(), request);
+    return ResponseEntity.ok(Map.of("message", "Contraseña actualizada correctamente."));
+  }
 
-@Operation(summary = "Update own profile (name and/or address)")
-@ApiResponse(responseCode = "200", description = "Profile updated")
-@ApiResponse(responseCode = "401", description = "Unauthorized")
-@PatchMapping("/me")
-public ResponseEntity<UserResponse> updateMe(
-    @RequestBody UpdateMeRequest request,
-    org.springframework.security.core.Authentication authentication) {
-  return ResponseEntity.ok(toResponse(userService.updateMe(authentication.getName(), request)));
-}
+  @Operation(summary = "Update own profile (name and/or address)")
+  @ApiResponse(responseCode = "200", description = "Profile updated")
+  @ApiResponse(responseCode = "401", description = "Unauthorized")
+  @PatchMapping("/me")
+  public ResponseEntity<UserResponse> updateMe(
+      @RequestBody UpdateMeRequest request,
+      org.springframework.security.core.Authentication authentication) {
+    return ResponseEntity.ok(toResponse(userService.updateMe(authentication.getName(), request)));
+  }
 }

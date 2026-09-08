@@ -5,5 +5,4 @@ import jakarta.validation.constraints.NotBlank;
 
 public record ChangePasswordRequest(
     @NotBlank @JsonProperty("current_password") String currentPassword,
-    @NotBlank @JsonProperty("new_password") String newPassword
-) {}
+    @NotBlank @JsonProperty("new_password") String newPassword) {}

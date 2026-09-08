@@ -5,5 +5,4 @@ public record FitValidationResponse(
     double productVolume,
     double containerVolume,
     double requiredVolume,
-    int maxQuantityAllowed
-) {}
+    int maxQuantityAllowed) {}
