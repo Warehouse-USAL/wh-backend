@@ -1,5 +1,7 @@
 package com.usal.whbackend.api.error;
 
+import com.fasterxml.jackson.databind.exc.InvalidFormatException;
+import com.usal.whbackend.domain.StockSize;
 import com.usal.whbackend.service.exception.AccountDisabledException;
 import com.usal.whbackend.service.exception.EmailAlreadyExistsException;
 import com.usal.whbackend.service.exception.InvalidCredentialsException;
@@ -25,6 +27,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -184,9 +187,28 @@ public class GlobalExceptionHandler {
   @ExceptionHandler(HttpMessageNotReadableException.class)
   public ResponseEntity<ErrorResponse> handleMalformedRequest(HttpMessageNotReadableException ex) {
     log.warn("Malformed request body: {}", ex.getMessage());
+    for (Throwable cause = ex.getCause(); cause != null; cause = cause.getCause()) {
+      if (cause instanceof InvalidFormatException ife && ife.getTargetType() == StockSize.class) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+            .body(ErrorResponse.of("INVALID_DELIVERY_UNIT", MESSAGES.get("INVALID_DELIVERY_UNIT")));
+      }
+    }
     return ResponseEntity.status(HttpStatus.BAD_REQUEST)
         .body(
             ErrorResponse.of("MALFORMED_REQUEST", "El cuerpo de la solicitud no es JSON válido."));
+  }
+
+  @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+  public ResponseEntity<ErrorResponse> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
+    if (ex.getRequiredType() == StockSize.class) {
+      return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+          .body(ErrorResponse.of("INVALID_DELIVERY_UNIT", MESSAGES.get("INVALID_DELIVERY_UNIT")));
+    }
+    return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+        .body(
+            ErrorResponse.of(
+                "INVALID_QUERY_PARAMETER",
+                "El parámetro '" + ex.getName() + "' tiene un formato inválido."));
   }
 
   @ExceptionHandler(ZoneNotFoundException.class)

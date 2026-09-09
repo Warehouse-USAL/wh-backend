@@ -26,4 +26,13 @@
         <Bug pattern="EI_EXPOSE_REP"/>
         <Class name="~com\.usal\.whbackend\.api\.(metrics\.MetricsQueryRequest|query\.EntityQueryRequest)"/>
     </Match>
+    <!-- Result carries the Vehicle document straight out of the atomic findAndModify it just ran —
+         the same live, intentionally-mutable Spring Data Mongo document every other Vehicle-returning
+         method in this codebase hands back uncopied. Defensive-copying it here would be inconsistent
+         with that pattern and serves no purpose (callers only ever read it before it's serialised or
+         broadcast). -->
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Class name="~com\.usal\.whbackend\.repository\.kafka\.VehicleUpdateExecutor\$Result"/>
+    </Match>
 </FindBugsFilter>

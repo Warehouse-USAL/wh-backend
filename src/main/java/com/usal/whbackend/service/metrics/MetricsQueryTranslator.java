@@ -118,11 +118,11 @@ public class MetricsQueryTranslator {
    */
   private String escape(String value) {
     if (value == null) {
-      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "UNKNOWN_DIMENSION");
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "INVALID_FILTER_VALUE");
     }
     for (int i = 0; i < value.length(); i++) {
       if (Character.isISOControl(value.charAt(i))) {
-        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "UNKNOWN_DIMENSION");
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "INVALID_FILTER_VALUE");
       }
     }
     return value.replace("\\", "\\\\").replace("\"", "\\\"");
