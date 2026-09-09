@@ -39,8 +39,9 @@ class FileControllerTest {
   void upload_returnsUrlAndKey() throws Exception {
     when(storageService.upload(any(), anyString())).thenReturn("/api/v1/files/images/uuid.jpg");
 
-    MockMultipartFile file = new MockMultipartFile(
-        "file", "test.jpg", MediaType.IMAGE_JPEG_VALUE, "fake-image".getBytes());
+    MockMultipartFile file =
+        new MockMultipartFile(
+            "file", "test.jpg", MediaType.IMAGE_JPEG_VALUE, "fake-image".getBytes());
 
     mockMvc
         .perform(multipart("/api/v1/files/upload").file(file))
@@ -52,10 +53,11 @@ class FileControllerTest {
   @Test
   @WithMockUser
   void serve_returnsImage() throws Exception {
-    var obj = new StorageService.StoredObject(
-        new java.io.ByteArrayInputStream("fake-data".getBytes()),
-        MediaType.IMAGE_JPEG_VALUE,
-        9);
+    var obj =
+        new StorageService.StoredObject(
+            new java.io.ByteArrayInputStream("fake-data".getBytes()),
+            MediaType.IMAGE_JPEG_VALUE,
+            9);
     when(storageService.getObject("images/test.jpg")).thenReturn(obj);
 
     mockMvc
@@ -70,32 +72,24 @@ class FileControllerTest {
   void delete_returns204() throws Exception {
     doNothing().when(storageService).delete("images/test.jpg");
 
-    mockMvc
-        .perform(delete("/api/v1/files/images/test.jpg"))
-        .andExpect(status().isNoContent());
+    mockMvc.perform(delete("/api/v1/files/images/test.jpg")).andExpect(status().isNoContent());
   }
 
   // ── Path traversal protection ──────────────────────────────────────────────
 
   @Test
   void serve_withPathTraversal_returnsBadRequest() throws Exception {
-    mockMvc
-        .perform(get("/api/v1/files/%2e%2e/test.jpg"))
-        .andExpect(status().isBadRequest());
+    mockMvc.perform(get("/api/v1/files/%2e%2e/test.jpg")).andExpect(status().isBadRequest());
   }
 
   @Test
   void serve_withEncodedSlash_returnsBadRequest() throws Exception {
-    mockMvc
-        .perform(get("/api/v1/files/images/test%2ejpg"))
-        .andExpect(status().isBadRequest());
+    mockMvc.perform(get("/api/v1/files/images/test%2ejpg")).andExpect(status().isBadRequest());
   }
 
   @Test
   @WithMockUser(roles = "ADMIN_WAREHOUSE")
   void delete_withPathTraversal_returnsBadRequest() throws Exception {
-    mockMvc
-        .perform(delete("/api/v1/files/%2e%2e/test.jpg"))
-        .andExpect(status().isBadRequest());
+    mockMvc.perform(delete("/api/v1/files/%2e%2e/test.jpg")).andExpect(status().isBadRequest());
   }
 }

@@ -4,6 +4,7 @@ import com.usal.whbackend.api.order.CreateOrderRequest;
 import com.usal.whbackend.domain.Address;
 import com.usal.whbackend.domain.Order;
 import com.usal.whbackend.domain.OrderItem;
+import com.usal.whbackend.domain.OrderPriority;
 import com.usal.whbackend.domain.OrderStatus;
 import com.usal.whbackend.domain.Product;
 import com.usal.whbackend.domain.Vehicle;
@@ -11,6 +12,7 @@ import com.usal.whbackend.domain.VehicleStatus;
 import com.usal.whbackend.repository.OrderRepository;
 import com.usal.whbackend.repository.ProductRepository;
 import com.usal.whbackend.repository.VehicleRepository;
+import com.usal.whbackend.repository.kafka.VehicleUpdateExecutor;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
@@ -21,6 +23,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,6 +36,7 @@ public class OrderService {
   private final ProductRepository productRepository;
   private final ProductService productService;
   private final VehicleRepository vehicleRepository;
+  private final VehicleUpdateExecutor vehicleUpdateExecutor;
   private final StockDrainPort stockDrainPort;
   private final List<OrderEventPublisher> orderEventPublishers;
   private final List<StockEventPublisher> stockEventPublishers;
@@ -56,6 +60,7 @@ public class OrderService {
       ProductRepository productRepository,
       ProductService productService,
       VehicleRepository vehicleRepository,
+      VehicleUpdateExecutor vehicleUpdateExecutor,
       StockDrainPort stockDrainPort,
       List<OrderEventPublisher> orderEventPublishers,
       List<StockEventPublisher> stockEventPublishers) {
@@ -63,6 +68,7 @@ public class OrderService {
     this.productRepository = productRepository;
     this.productService = productService;
     this.vehicleRepository = vehicleRepository;
+    this.vehicleUpdateExecutor = vehicleUpdateExecutor;
     this.stockDrainPort = stockDrainPort;
     this.orderEventPublishers = List.copyOf(orderEventPublishers);
     this.stockEventPublishers = List.copyOf(stockEventPublishers);
@@ -174,6 +180,7 @@ public class OrderService {
 
       Order order = new Order();
       order.setStatus(OrderStatus.PENDING);
+      order.setPriority(request.priority() != null ? request.priority() : OrderPriority.MEDIUM);
       order.setRequestedByUserId(userId);
       order.setItems(items);
       order.setDestinationArea(request.destinationArea());
@@ -230,14 +237,9 @@ public class OrderService {
 
     String previousVehicleId = order.getAssignedVehicleId();
     if (previousVehicleId != null && !previousVehicleId.equals(vehicleId)) {
-      vehicleRepository
-          .findById(previousVehicleId)
-          .ifPresent(
-              old -> {
-                old.setCurrentOrderId(null);
-                old.setStatus(VehicleStatus.IDLE);
-                vehicleRepository.save(old);
-              });
+      vehicleUpdateExecutor.apply(
+          previousVehicleId,
+          previous -> new Update().set("currentOrderId", null).set("status", VehicleStatus.IDLE));
     }
 
     if (order.getStatus() == OrderStatus.PENDING) {
@@ -246,9 +248,9 @@ public class OrderService {
     order.setStatus(OrderStatus.IN_PROGRESS);
     order.setAssignedVehicleId(vehicleId);
 
-    vehicle.setCurrentOrderId(orderId);
-    vehicle.setStatus(VehicleStatus.BUSY);
-    vehicleRepository.save(vehicle);
+    vehicleUpdateExecutor.apply(
+        vehicleId,
+        previous -> new Update().set("currentOrderId", orderId).set("status", VehicleStatus.BUSY));
 
     Order saved = orderRepository.update(order);
     orderEventPublishers.forEach(p -> p.broadcastOrderUpdate(saved));

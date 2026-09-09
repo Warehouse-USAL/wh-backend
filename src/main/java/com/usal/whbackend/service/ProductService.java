@@ -12,6 +12,7 @@ import com.usal.whbackend.repository.ProductRepository;
 import com.usal.whbackend.repository.ZoneRepository;
 import com.usal.whbackend.service.storage.StorageService;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -108,6 +109,11 @@ public class ProductService {
     } catch (IllegalArgumentException e) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "INVALID_CATEGORY");
     }
+  }
+
+  /** Returns the catalogue categories the API accepts, in declaration order. */
+  public List<String> getCategories() {
+    return Arrays.stream(ProductCategory.values()).map(ProductCategory::name).toList();
   }
 
   public Page<ProductResponse> getProducts(
@@ -235,21 +241,21 @@ public class ProductService {
       product.setCategory(upperCategory);
     }
     if (request.images() != null) {
-      Set<String> oldUrls = product.getImages() != null
-          ? product.getImages().stream()
-              .map(Product.ProductImage::getUrl)
+      Set<String> oldUrls =
+          product.getImages() != null
+              ? product.getImages().stream()
+                  .map(Product.ProductImage::getUrl)
+                  .filter(Objects::nonNull)
+                  .collect(Collectors.toSet())
+              : Set.of();
+      Set<String> newUrls =
+          request.images().stream()
               .filter(Objects::nonNull)
-              .collect(Collectors.toSet())
-          : Set.of();
-      Set<String> newUrls = request.images().stream()
-          .filter(Objects::nonNull)
-          .map(CreateProductRequest.ImageRequest::url)
-          .filter(Objects::nonNull)
-          .collect(Collectors.toSet());
+              .map(CreateProductRequest.ImageRequest::url)
+              .filter(Objects::nonNull)
+              .collect(Collectors.toSet());
 
-      oldUrls.stream()
-          .filter(url -> !newUrls.contains(url))
-          .forEach(this::deleteImageUrl);
+      oldUrls.stream().filter(url -> !newUrls.contains(url)).forEach(this::deleteImageUrl);
 
       product.setImages(
           request.images().stream()

@@ -16,18 +16,23 @@ import com.usal.whbackend.domain.VehicleStatus;
 import com.usal.whbackend.repository.OrderRepository;
 import com.usal.whbackend.repository.ProductRepository;
 import com.usal.whbackend.repository.VehicleRepository;
+import com.usal.whbackend.repository.kafka.VehicleUpdateExecutor;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Function;
+import org.bson.Document;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.web.server.ResponseStatusException;
 
 @ExtendWith(MockitoExtension.class)
@@ -37,6 +42,7 @@ class OrderServiceTest {
   @Mock ProductRepository productRepository;
   @Mock ProductService productService;
   @Mock VehicleRepository vehicleRepository;
+  @Mock VehicleUpdateExecutor vehicleUpdateExecutor;
   @Mock StockDrainPort stockDrainPort;
   @Mock OrderEventPublisher orderEventPublisher;
   @Mock StockEventPublisher stockEventPublisher;
@@ -50,9 +56,22 @@ class OrderServiceTest {
             productRepository,
             productService,
             vehicleRepository,
+            vehicleUpdateExecutor,
             stockDrainPort,
             List.of(orderEventPublisher),
             List.of(stockEventPublisher));
+  }
+
+  /**
+   * Captures the {@code Update} a {@code vehicleUpdateExecutor.apply(vehicleId, builder)} call
+   * would apply, by invoking the captured builder function against a throwaway previous state.
+   */
+  @SuppressWarnings("unchecked")
+  private Document capturedSetFields(String vehicleId) {
+    ArgumentCaptor<Function<Vehicle, Update>> captor = ArgumentCaptor.forClass(Function.class);
+    verify(vehicleUpdateExecutor).apply(eq(vehicleId), captor.capture());
+    Update update = captor.getValue().apply(new Vehicle());
+    return (Document) update.getUpdateObject().get("$set");
   }
 
   // ── getOrders ──────────────────────────────────────────────────────────────
@@ -237,6 +256,53 @@ class OrderServiceTest {
     verify(orderEventPublisher).broadcastOrderUpdate(saved);
   }
 
+  @Test
+  void createOrder_omittedPriority_defaultsToMedium() {
+    Product p = new Product();
+    p.setId("prod-1");
+    p.setSku("SKU-001");
+    p.setActive(true);
+    p.setMaxQuantityPerOrder(5);
+    p.setMinimumStock(2);
+    when(productRepository.findById("prod-1")).thenReturn(Optional.of(p));
+    when(productService.computeAvailableStock("prod-1")).thenReturn(10);
+    when(productService.computeReservedStock("prod-1")).thenReturn(0);
+    when(orderRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    Order result =
+        orderService.createOrder(
+            new CreateOrderRequest(
+                List.of(new OrderItemRequest("prod-1", 2)), "AREA-A", validAddress()),
+            "user-1");
+
+    assertEquals(com.usal.whbackend.domain.OrderPriority.MEDIUM, result.getPriority());
+  }
+
+  @Test
+  void createOrder_explicitPriority_isRespected() {
+    Product p = new Product();
+    p.setId("prod-1");
+    p.setSku("SKU-001");
+    p.setActive(true);
+    p.setMaxQuantityPerOrder(5);
+    p.setMinimumStock(2);
+    when(productRepository.findById("prod-1")).thenReturn(Optional.of(p));
+    when(productService.computeAvailableStock("prod-1")).thenReturn(10);
+    when(productService.computeReservedStock("prod-1")).thenReturn(0);
+    when(orderRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    Order result =
+        orderService.createOrder(
+            new CreateOrderRequest(
+                List.of(new OrderItemRequest("prod-1", 2)),
+                "AREA-A",
+                validAddress(),
+                com.usal.whbackend.domain.OrderPriority.URGENT),
+            "user-1");
+
+    assertEquals(com.usal.whbackend.domain.OrderPriority.URGENT, result.getPriority());
+  }
+
   // ── cancelOrder ────────────────────────────────────────────────────────────
 
   @Test
@@ -377,9 +443,9 @@ class OrderServiceTest {
 
     assertEquals(OrderStatus.IN_PROGRESS, result.getStatus());
     assertEquals("vehicle-1", result.getAssignedVehicleId());
-    verify(vehicleRepository).save(vehicle);
-    assertEquals(VehicleStatus.BUSY, vehicle.getStatus());
-    assertEquals("order-1", vehicle.getCurrentOrderId());
+    Document set = capturedSetFields("vehicle-1");
+    assertEquals(VehicleStatus.BUSY, set.get("status"));
+    assertEquals("order-1", set.get("currentOrderId"));
     verify(orderEventPublisher).broadcastOrderUpdate(saved);
   }
 
@@ -395,24 +461,20 @@ class OrderServiceTest {
     Vehicle newVehicle = new Vehicle();
     newVehicle.setId("vehicle-2");
 
-    Vehicle oldVehicle = new Vehicle();
-    oldVehicle.setId("vehicle-old");
-
     Order saved = new Order();
     saved.setId("order-1");
     saved.setStatus(OrderStatus.IN_PROGRESS);
 
     when(orderRepository.findById("order-1")).thenReturn(Optional.of(order));
     when(vehicleRepository.findById("vehicle-2")).thenReturn(Optional.of(newVehicle));
-    when(vehicleRepository.findById("vehicle-old")).thenReturn(Optional.of(oldVehicle));
     when(orderRepository.update(any())).thenReturn(saved);
 
     orderService.assignVehicle("order-1", "vehicle-2");
 
     assertEquals(originalStart, order.getStartedAt());
-    assertEquals(VehicleStatus.IDLE, oldVehicle.getStatus());
-    assertNull(oldVehicle.getCurrentOrderId());
-    verify(vehicleRepository).save(oldVehicle);
+    Document set = capturedSetFields("vehicle-old");
+    assertEquals(VehicleStatus.IDLE, set.get("status"));
+    assertNull(set.get("currentOrderId"));
   }
 
   @Test
@@ -552,8 +614,7 @@ class OrderServiceTest {
 
     ResponseStatusException ex =
         assertThrows(
-            ResponseStatusException.class,
-            () -> orderService.changeStatus("ord-1", "in_progress"));
+            ResponseStatusException.class, () -> orderService.changeStatus("ord-1", "in_progress"));
 
     assertEquals(409, ex.getStatusCode().value());
     assertEquals("ORDER_NOT_MODIFIABLE", ex.getReason());
@@ -567,8 +628,7 @@ class OrderServiceTest {
 
     ResponseStatusException ex =
         assertThrows(
-            ResponseStatusException.class,
-            () -> orderService.changeStatus("ord-1", "completed"));
+            ResponseStatusException.class, () -> orderService.changeStatus("ord-1", "completed"));
 
     assertEquals(409, ex.getStatusCode().value());
     assertEquals("ORDER_NOT_MODIFIABLE", ex.getReason());
@@ -587,8 +647,7 @@ class OrderServiceTest {
   @Test
   void changeStatus_nullStatus_throws400() {
     ResponseStatusException ex =
-        assertThrows(
-            ResponseStatusException.class, () -> orderService.changeStatus("ord-1", null));
+        assertThrows(ResponseStatusException.class, () -> orderService.changeStatus("ord-1", null));
 
     assertEquals(400, ex.getStatusCode().value());
     assertEquals("INVALID_STATUS", ex.getReason());
@@ -619,5 +678,158 @@ class OrderServiceTest {
 
     assertEquals(404, ex.getStatusCode().value());
     assertEquals("ORDER_NOT_FOUND", ex.getReason());
+  }
+
+  @Test
+  void createOrder_blankDestination_throws400() {
+    CreateOrderRequest req =
+        new CreateOrderRequest(List.of(new OrderItemRequest("prod-1", 1)), "   ", validAddress());
+    ResponseStatusException ex =
+        assertThrows(ResponseStatusException.class, () -> orderService.createOrder(req, "user-1"));
+    assertEquals("DESTINATION_AREA_REQUIRED", ex.getReason());
+  }
+
+  @Test
+  void createOrder_nullItems_throws400() {
+    CreateOrderRequest req = new CreateOrderRequest(null, "AREA-A", validAddress());
+    ResponseStatusException ex =
+        assertThrows(ResponseStatusException.class, () -> orderService.createOrder(req, "user-1"));
+    assertEquals("ITEMS_REQUIRED", ex.getReason());
+  }
+
+  @Test
+  void createOrder_blankAddressStreet_throws400() {
+    CreateOrderRequest req =
+        new CreateOrderRequest(
+            List.of(new OrderItemRequest("prod-1", 1)),
+            "AREA-A",
+            new AddressRequest("  ", null, null, "C1043"));
+    ResponseStatusException ex =
+        assertThrows(ResponseStatusException.class, () -> orderService.createOrder(req, "user-1"));
+    assertEquals("MISSING_ADDRESS_STREET", ex.getReason());
+  }
+
+  @Test
+  void createOrder_blankAddressPostalCode_throws400() {
+    CreateOrderRequest req =
+        new CreateOrderRequest(
+            List.of(new OrderItemRequest("prod-1", 1)),
+            "AREA-A",
+            new AddressRequest("Av. Corrientes 1234", null, null, "  "));
+    ResponseStatusException ex =
+        assertThrows(ResponseStatusException.class, () -> orderService.createOrder(req, "user-1"));
+    assertEquals("MISSING_ADDRESS_POSTAL_CODE", ex.getReason());
+  }
+
+  @Test
+  void createOrder_inactiveProduct_throws400() {
+    Product p = new Product();
+    p.setId("prod-1");
+    p.setSku("SKU-001");
+    p.setActive(false);
+    when(productRepository.findById("prod-1")).thenReturn(Optional.of(p));
+
+    CreateOrderRequest req =
+        new CreateOrderRequest(
+            List.of(new OrderItemRequest("prod-1", 1)), "AREA-A", validAddress());
+    ResponseStatusException ex =
+        assertThrows(ResponseStatusException.class, () -> orderService.createOrder(req, "user-1"));
+    assertEquals("PRODUCT_INACTIVE", ex.getReason());
+  }
+
+  @Test
+  void createOrder_quantityAboveProductLimit_throws400() {
+    Product p = new Product();
+    p.setId("prod-1");
+    p.setSku("SKU-001");
+    p.setActive(true);
+    p.setMaxQuantityPerOrder(3);
+    when(productRepository.findById("prod-1")).thenReturn(Optional.of(p));
+
+    CreateOrderRequest req =
+        new CreateOrderRequest(
+            List.of(new OrderItemRequest("prod-1", 4)), "AREA-A", validAddress());
+    ResponseStatusException ex =
+        assertThrows(ResponseStatusException.class, () -> orderService.createOrder(req, "user-1"));
+    assertEquals("QUANTITY_EXCEEDS_LIMIT", ex.getReason());
+  }
+
+  @Test
+  void assignVehicle_vehicleBusyWithAnotherOrder_throws409() {
+    Order order = new Order();
+    order.setId("ord-1");
+    order.setStatus(OrderStatus.PENDING);
+    Vehicle vehicle = new Vehicle();
+    vehicle.setId("veh-1");
+    vehicle.setStatus(VehicleStatus.BUSY);
+    vehicle.setCurrentOrderId("ord-other");
+    when(orderRepository.findById("ord-1")).thenReturn(Optional.of(order));
+    when(vehicleRepository.findById("veh-1")).thenReturn(Optional.of(vehicle));
+
+    ResponseStatusException ex =
+        assertThrows(
+            ResponseStatusException.class, () -> orderService.assignVehicle("ord-1", "veh-1"));
+    assertEquals(409, ex.getStatusCode().value());
+    assertEquals("VEHICLE_ALREADY_BUSY", ex.getReason());
+  }
+
+  @Test
+  void assignVehicle_vehicleBusyWithSameOrder_isAllowed() {
+    Order order = new Order();
+    order.setId("ord-1");
+    order.setStatus(OrderStatus.IN_PROGRESS);
+    Vehicle vehicle = new Vehicle();
+    vehicle.setId("veh-1");
+    vehicle.setStatus(VehicleStatus.BUSY);
+    vehicle.setCurrentOrderId("ord-1");
+    when(orderRepository.findById("ord-1")).thenReturn(Optional.of(order));
+    when(vehicleRepository.findById("veh-1")).thenReturn(Optional.of(vehicle));
+    when(orderRepository.update(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    Order result = orderService.assignVehicle("ord-1", "veh-1");
+
+    assertEquals("veh-1", result.getAssignedVehicleId());
+  }
+
+  @Test
+  void assignVehicle_reassignment_releasesThePreviousVehicle() {
+    Order order = new Order();
+    order.setId("ord-1");
+    order.setStatus(OrderStatus.IN_PROGRESS);
+    order.setAssignedVehicleId("veh-old");
+
+    Vehicle newVehicle = new Vehicle();
+    newVehicle.setId("veh-new");
+    newVehicle.setStatus(VehicleStatus.IDLE);
+
+    when(orderRepository.findById("ord-1")).thenReturn(Optional.of(order));
+    when(vehicleRepository.findById("veh-new")).thenReturn(Optional.of(newVehicle));
+    when(orderRepository.update(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    Order result = orderService.assignVehicle("ord-1", "veh-new");
+
+    assertEquals("veh-new", result.getAssignedVehicleId());
+    Document set = capturedSetFields("veh-old");
+    assertNull(set.get("currentOrderId"));
+    assertEquals(VehicleStatus.IDLE, set.get("status"));
+  }
+
+  @Test
+  void assignVehicle_reassignmentWhenPreviousVehicleIsGone_stillSucceeds() {
+    Order order = new Order();
+    order.setId("ord-1");
+    order.setStatus(OrderStatus.IN_PROGRESS);
+    order.setAssignedVehicleId("veh-old");
+
+    Vehicle newVehicle = new Vehicle();
+    newVehicle.setId("veh-new");
+    newVehicle.setStatus(VehicleStatus.IDLE);
+
+    when(orderRepository.findById("ord-1")).thenReturn(Optional.of(order));
+    when(vehicleRepository.findById("veh-new")).thenReturn(Optional.of(newVehicle));
+    when(vehicleUpdateExecutor.apply(eq("veh-old"), any())).thenReturn(Optional.empty());
+    when(orderRepository.update(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    assertEquals("veh-new", orderService.assignVehicle("ord-1", "veh-new").getAssignedVehicleId());
   }
 }

@@ -1,0 +1,38 @@
+meta {
+  name: Query Metric
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{baseUrl}}/metrics/query
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "metric": "wh.vehicle.battery",
+    "from": "2026-08-23T00:00:00Z",
+    "to": "2026-08-23T23:59:59Z",
+    "step": "5m",
+    "filters": {},
+    "group_by": ["vehicle_id"],
+    "agg": "avg"
+  }
+}
+
+docs {
+  Returns chart-ready series: series[].points is a list of [epochSeconds, value] pairs.
+
+  `filters` selects which data is considered; `group_by` decides how it is split into series.
+
+  Rejections: UNKNOWN_METRIC, UNKNOWN_DIMENSION, UNSUPPORTED_AGGREGATION, QUERY_TOO_BROAD (400),
+  METRICS_UNAVAILABLE (503) when the metrics store is unreachable.
+
+  Guard rails: range <= 31d, step >= 10s, <= 11000 points per series, <= 100 series.
+}

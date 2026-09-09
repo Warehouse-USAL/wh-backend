@@ -18,16 +18,11 @@ public record CreateProductRequest(
     @Schema(description = "Technical spec list") List<SpecRequest> specs,
     @Min(0) @Schema(description = "Maximum units a single order can request")
         Integer maxQuantityPerOrder,
-    @Min(0) @Schema(description = "Minimum stock threshold for restock alert")
-        Integer minimumStock,
-    @NotNull @Min(0) @Schema(description = "Product height in cm")
-        Double height,
-    @NotNull @Min(0) @Schema(description = "Product width in cm")
-        Double width,
-    @NotNull @Min(0) @Schema(description = "Product length in cm")
-        Double length,
-    @NotNull @Min(0) @Schema(description = "Product weight in kg/g")
-        Double weight) {
+    @Min(0) @Schema(description = "Minimum stock threshold for restock alert") Integer minimumStock,
+    @NotNull @Min(0) @Schema(description = "Product height in cm") Double height,
+    @NotNull @Min(0) @Schema(description = "Product width in cm") Double width,
+    @NotNull @Min(0) @Schema(description = "Product length in cm") Double length,
+    @NotNull @Min(0) @Schema(description = "Product weight in kg/g") Double weight) {
 
   public CreateProductRequest {
     images = images == null ? null : List.copyOf(images);

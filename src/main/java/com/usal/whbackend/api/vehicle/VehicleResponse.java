@@ -10,7 +10,8 @@ public record VehicleResponse(
     Position position,
     int battery,
     String currentOrderId,
-    Instant lastSeenAt) {
+    Instant lastSeenAt,
+    Instant operationSince) {
 
   public record Position(double x, double y) {}
 
@@ -22,6 +23,7 @@ public record VehicleResponse(
         new Position(vehicle.getPositionX(), vehicle.getPositionY()),
         vehicle.getBattery(),
         vehicle.getCurrentOrderId(),
-        vehicle.getLastSeenAt());
+        vehicle.getLastSeenAt(),
+        vehicle.getOperationSince());
   }
 }

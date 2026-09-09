@@ -1,0 +1,22 @@
+meta {
+  name: Get Query Catalog
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/query/catalog
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+docs {
+  Lists the entities the caller may query, each with its queryable fields, their types and
+  the operators each field permits. Mirrors GET /metrics/catalog.
+
+  Entities the caller cannot reach are omitted rather than listed as forbidden.
+}

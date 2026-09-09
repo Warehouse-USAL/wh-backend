@@ -29,7 +29,9 @@ public class Product {
   private double width;
   private double length;
   private double weight;
-  private Instant createdAt;
+
+  // Default sort for /query/products.
+  @Indexed private Instant createdAt;
 
   public Product() {}
 

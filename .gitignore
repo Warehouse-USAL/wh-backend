@@ -58,6 +58,8 @@ logs/
 !docker-compose*.yml
 !docker-compose*.yaml
 !application-docker.yml
+# Collector config is bind-mounted by docker-compose — the stack cannot start without it.
+!config/otel/*.yml
 !.github/**
 
 # ─── Local data (bind-mounted Docker volumes) ─────────────────────────────────

@@ -6,8 +6,11 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.usal.whbackend.api.user.ChangePasswordRequest;
 import com.usal.whbackend.api.user.CreateUserRequest;
+import com.usal.whbackend.api.user.UpdateMeRequest;
 import com.usal.whbackend.api.user.UpdateUserRequest;
+import com.usal.whbackend.domain.Address;
 import com.usal.whbackend.domain.User;
 import com.usal.whbackend.domain.UserRole;
 import com.usal.whbackend.repository.UserRepository;
@@ -24,7 +27,9 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.web.server.ResponseStatusException;
 
 @ExtendWith(MockitoExtension.class)
 class UserServiceTest {
@@ -176,6 +181,149 @@ class UserServiceTest {
   void resetPassword_unknownId_throwsUserNotFound() {
     when(userRepository.findById("999")).thenReturn(Optional.empty());
     assertThatThrownBy(() -> userService.resetPassword("999", "newpass"))
+        .isInstanceOf(UserNotFoundException.class);
+  }
+
+  @Test
+  void getUsers_invalidRole_throwsBadRequest() {
+    Pageable pageable = PageRequest.of(0, 10);
+    assertThatThrownBy(() -> userService.getUsers("NOT_A_ROLE", null, pageable))
+        .isInstanceOf(ResponseStatusException.class)
+        .extracting(e -> ((ResponseStatusException) e).getStatusCode())
+        .isEqualTo(HttpStatus.BAD_REQUEST);
+  }
+
+  @Test
+  void updateUser_roleAndActive_areApplied() {
+    User u = sample("USR-001");
+    when(userRepository.findById("USR-001")).thenReturn(Optional.of(u));
+    when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    User result =
+        userService.updateUser("USR-001", new UpdateUserRequest("Renamed", "OPERATOR", false));
+
+    assertThat(result.getName()).isEqualTo("Renamed");
+    assertThat(result.getRole()).isEqualTo(UserRole.OPERATOR);
+    assertThat(result.isActive()).isFalse();
+  }
+
+  @Test
+  void updateUser_noFields_leavesUserUntouched() {
+    User u = sample("USR-001");
+    when(userRepository.findById("USR-001")).thenReturn(Optional.of(u));
+    when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    User result = userService.updateUser("USR-001", new UpdateUserRequest(null, null, null));
+
+    assertThat(result.getName()).isEqualTo("Test User");
+    assertThat(result.getRole()).isEqualTo(UserRole.ADMIN_SALES);
+    assertThat(result.isActive()).isTrue();
+  }
+
+  // ── changeMyPassword ──────────────────────────────────────────────────────
+
+  @Test
+  void changeMyPassword_validCurrentPassword_reencodesAndSaves() {
+    User u = sample("USR-001");
+    u.setPasswordHash("old-hash");
+    when(userRepository.findById("USR-001")).thenReturn(Optional.of(u));
+    when(passwordEncoder.matches("old", "old-hash")).thenReturn(true);
+    when(passwordEncoder.matches("new", "old-hash")).thenReturn(false);
+    when(passwordEncoder.encode("new")).thenReturn("new-hash");
+
+    userService.changeMyPassword("USR-001", new ChangePasswordRequest("old", "new"));
+
+    assertThat(u.getPasswordHash()).isEqualTo("new-hash");
+    verify(userRepository).save(u);
+  }
+
+  @Test
+  void changeMyPassword_wrongCurrentPassword_throwsBadRequest() {
+    User u = sample("USR-001");
+    u.setPasswordHash("old-hash");
+    when(userRepository.findById("USR-001")).thenReturn(Optional.of(u));
+    when(passwordEncoder.matches("wrong", "old-hash")).thenReturn(false);
+
+    ChangePasswordRequest req = new ChangePasswordRequest("wrong", "new");
+    assertThatThrownBy(() -> userService.changeMyPassword("USR-001", req))
+        .isInstanceOf(ResponseStatusException.class)
+        .hasMessageContaining("WRONG_CURRENT_PASSWORD");
+    verify(userRepository, org.mockito.Mockito.never()).save(any());
+  }
+
+  @Test
+  void changeMyPassword_samePassword_throwsBadRequest() {
+    User u = sample("USR-001");
+    u.setPasswordHash("old-hash");
+    when(userRepository.findById("USR-001")).thenReturn(Optional.of(u));
+    when(passwordEncoder.matches("old", "old-hash")).thenReturn(true);
+
+    ChangePasswordRequest req = new ChangePasswordRequest("old", "old");
+    assertThatThrownBy(() -> userService.changeMyPassword("USR-001", req))
+        .isInstanceOf(ResponseStatusException.class)
+        .hasMessageContaining("SAME_PASSWORD");
+    verify(userRepository, org.mockito.Mockito.never()).save(any());
+  }
+
+  @Test
+  void changeMyPassword_unknownUser_throwsUserNotFound() {
+    when(userRepository.findById("999")).thenReturn(Optional.empty());
+    ChangePasswordRequest req = new ChangePasswordRequest("old", "new");
+    assertThatThrownBy(() -> userService.changeMyPassword("999", req))
+        .isInstanceOf(UserNotFoundException.class);
+  }
+
+  // ── updateMe ──────────────────────────────────────────────────────────────
+
+  @Test
+  void updateMe_nameAndAddress_areApplied() {
+    User u = sample("USR-001");
+    when(userRepository.findById("USR-001")).thenReturn(Optional.of(u));
+    when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    User result =
+        userService.updateMe(
+            "USR-001",
+            new UpdateMeRequest(
+                "New Name", new UpdateMeRequest.AddressRequest("Calle 1", "B", "3", "1000")));
+
+    assertThat(result.getName()).isEqualTo("New Name");
+    Address address = result.getAddress();
+    assertThat(address).isNotNull();
+    assertThat(address.getStreet()).isEqualTo("Calle 1");
+    assertThat(address.getDepartment()).isEqualTo("B");
+    assertThat(address.getFloor()).isEqualTo("3");
+    assertThat(address.getPostalCode()).isEqualTo("1000");
+  }
+
+  @Test
+  void updateMe_onlyName_leavesAddressNull() {
+    User u = sample("USR-001");
+    when(userRepository.findById("USR-001")).thenReturn(Optional.of(u));
+    when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    User result = userService.updateMe("USR-001", new UpdateMeRequest("Only Name", null));
+
+    assertThat(result.getName()).isEqualTo("Only Name");
+    assertThat(result.getAddress()).isNull();
+  }
+
+  @Test
+  void updateMe_emptyRequest_leavesUserUntouched() {
+    User u = sample("USR-001");
+    when(userRepository.findById("USR-001")).thenReturn(Optional.of(u));
+    when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    User result = userService.updateMe("USR-001", new UpdateMeRequest(null, null));
+
+    assertThat(result.getName()).isEqualTo("Test User");
+  }
+
+  @Test
+  void updateMe_unknownUser_throwsUserNotFound() {
+    when(userRepository.findById("999")).thenReturn(Optional.empty());
+    UpdateMeRequest req = new UpdateMeRequest("x", null);
+    assertThatThrownBy(() -> userService.updateMe("999", req))
         .isInstanceOf(UserNotFoundException.class);
   }
 }

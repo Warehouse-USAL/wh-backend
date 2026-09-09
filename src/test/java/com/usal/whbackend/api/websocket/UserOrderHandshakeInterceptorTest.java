@@ -70,4 +70,35 @@ class UserOrderHandshakeInterceptorTest {
     assertFalse(interceptor.beforeHandshake(request, response, handler, attrs));
     verify(response).setStatusCode(HttpStatus.FORBIDDEN);
   }
+
+  @Test
+  void beforeHandshake_queryWithoutTokenParam_returnsFalse() {
+    when(request.getURI()).thenReturn(URI.create("/ws/v1/orders/usr-1?foo=bar&baz=qux"));
+
+    assertFalse(interceptor.beforeHandshake(request, response, handler, new HashMap<>()));
+    verify(response).setStatusCode(HttpStatus.FORBIDDEN);
+  }
+
+  @Test
+  void beforeHandshake_tokenAfterOtherParams_isFound() {
+    when(request.getURI()).thenReturn(URI.create("/ws/v1/orders/usr-1?foo=bar&token=t"));
+    when(jwtService.isTokenValid("t")).thenReturn(true);
+    when(jwtService.extractUserId("t")).thenReturn("usr-1");
+
+    assertTrue(interceptor.beforeHandshake(request, response, handler, new HashMap<>()));
+  }
+
+  @Test
+  void beforeHandshake_trailingSlashPath_stillExtractsUserId() {
+    when(request.getURI()).thenReturn(URI.create("/ws/v1/orders/usr-1/?token=t"));
+    when(jwtService.isTokenValid("t")).thenReturn(true);
+    when(jwtService.extractUserId("t")).thenReturn("usr-1");
+
+    assertTrue(interceptor.beforeHandshake(request, response, handler, new HashMap<>()));
+  }
+
+  @Test
+  void afterHandshake_isANoOp() {
+    assertDoesNotThrow(() -> interceptor.afterHandshake(request, response, handler, null));
+  }
 }

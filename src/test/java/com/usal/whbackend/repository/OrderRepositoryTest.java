@@ -1,6 +1,9 @@
 package com.usal.whbackend.repository;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -8,10 +11,10 @@ import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.usal.whbackend.domain.Address;
 import com.usal.whbackend.domain.Order;
 import com.usal.whbackend.domain.OrderItem;
 import com.usal.whbackend.domain.OrderStatus;
-import tools.jackson.databind.ObjectMapper;
 import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -27,6 +30,7 @@ import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
+import tools.jackson.databind.ObjectMapper;
 
 @ExtendWith(MockitoExtension.class)
 class OrderRepositoryTest {
@@ -122,5 +126,103 @@ class OrderRepositoryTest {
 
     assertEquals(0, result.getTotalElements());
     verify(mongoTemplate).find(any(Query.class), eq(Order.class));
+  }
+
+  @Test
+  void update_savesWithoutPublishingToKafka() throws Exception {
+    Order order = new Order();
+    order.setId("ord-1");
+    when(mongo.save(order)).thenReturn(order);
+
+    assertSame(order, orderRepository.update(order));
+
+    Thread.sleep(50);
+    verify(kafka, org.mockito.Mockito.never()).send(anyString(), anyString());
+  }
+
+  @Test
+  void findById_delegatesToMongo() {
+    Order order = new Order();
+    order.setId("ord-1");
+    when(mongo.findById("ord-1")).thenReturn(java.util.Optional.of(order));
+
+    assertEquals("ord-1", orderRepository.findById("ord-1").orElseThrow().getId());
+  }
+
+  @Test
+  void findByRequestedByUserId_delegatesToMongo() {
+    Order order = new Order();
+    when(mongo.findByRequestedByUserId("usr-1")).thenReturn(List.of(order));
+
+    assertEquals(1, orderRepository.findByRequestedByUserId("usr-1").size());
+  }
+
+  @Test
+  void save_withAddress_serialisesAddressIntoDispatchMessage() throws Exception {
+    Address address = new Address();
+    address.setStreet("Calle 1");
+    address.setDepartment("B");
+    address.setFloor("3");
+    address.setPostalCode("1000");
+    Order order = new Order();
+    order.setId("ord-1");
+    order.setItems(List.of(new OrderItem("prod-1", "SKU-001", 2)));
+    order.setAddress(address);
+    when(mongo.save(order)).thenReturn(order);
+
+    orderRepository.save(order);
+
+    Thread.sleep(100);
+    org.mockito.ArgumentCaptor<String> payload = org.mockito.ArgumentCaptor.forClass(String.class);
+    verify(kafka).send(eq("order.dispatch"), payload.capture());
+    assertTrue(payload.getValue().contains("Calle 1"));
+    assertTrue(payload.getValue().contains("1000"));
+  }
+
+  @Test
+  void save_withNullItems_publishesEmptyItemList() throws Exception {
+    Order order = new Order();
+    order.setId("ord-1");
+    when(mongo.save(order)).thenReturn(order);
+
+    orderRepository.save(order);
+
+    Thread.sleep(100);
+    org.mockito.ArgumentCaptor<String> payload = org.mockito.ArgumentCaptor.forClass(String.class);
+    verify(kafka).send(eq("order.dispatch"), payload.capture());
+    assertTrue(payload.getValue().contains("\"items\":[]"));
+  }
+
+  @Test
+  void save_kafkaFailure_isLoggedAndDoesNotPropagate() throws Exception {
+    CompletableFuture<SendResult<String, String>> failed = new CompletableFuture<>();
+    failed.completeExceptionally(new IllegalStateException("broker down"));
+    when(kafka.send(anyString(), anyString())).thenReturn(failed);
+
+    Order order = new Order();
+    order.setId("ord-1");
+    order.setItems(List.of());
+    when(mongo.save(order)).thenReturn(order);
+
+    orderRepository.save(order);
+
+    Thread.sleep(100);
+    verify(kafka).send(eq("order.dispatch"), anyString());
+  }
+
+  @Test
+  void save_unserialisablePayload_throwsRuntimeException() {
+    ObjectMapper failing = org.mockito.Mockito.mock(ObjectMapper.class);
+    when(failing.writeValueAsString(any()))
+        .thenThrow(
+            new tools.jackson.databind.exc.InvalidDefinitionException(
+                (tools.jackson.core.JsonGenerator) null, "boom", null) {});
+    OrderRepository repo = new OrderRepository(mongo, kafka, mongoTemplate, failing);
+    Order order = new Order();
+    order.setId("ord-1");
+    order.setItems(List.of());
+    when(mongo.save(order)).thenReturn(order);
+
+    assertThrows(RuntimeException.class, () -> repo.save(order));
   }
 }

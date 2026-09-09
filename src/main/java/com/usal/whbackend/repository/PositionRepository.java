@@ -1,11 +1,15 @@
 package com.usal.whbackend.repository;
 
 import com.usal.whbackend.domain.Position;
+import com.usal.whbackend.domain.StockSize;
 import java.util.List;
 import org.springframework.data.mongodb.repository.MongoRepository;
 
 public interface PositionRepository extends MongoRepository<Position, String> {
   List<Position> findByIdLine(String idLine);
+
+  /** Candidates for `GET /warehouse/positions/available` — sized for the given delivery unit. */
+  List<Position> findByIsActiveTrueAndSizeStockToSave(StockSize sizeStockToSave);
 
   List<Position> findByProductIdAndCurrentStockGreaterThanOrderByCreatedAtAsc(
       String productId, int minStock);
@@ -13,6 +17,15 @@ public interface PositionRepository extends MongoRepository<Position, String> {
   /** FIFO drain — only drain active positions. */
   List<Position> findByProductIdAndIsActiveTrueAndCurrentStockGreaterThanOrderByCreatedAtAsc(
       String productId, int minStock);
+
+  /**
+   * Flat dashboard listing — occupied positions only: an assigned product with stock on hand, in a
+   * position that is still active. Inactive positions are excluded for the same reason the stock
+   * queries above exclude them: {@code deletePosition} soft-deletes by flipping {@code isActive}
+   * without clearing {@code productId}/{@code currentStock}, so a deleted position still looks
+   * occupied on the document.
+   */
+  List<Position> findByIsActiveTrueAndProductIdNotNullAndCurrentStockGreaterThan(int minStock);
 
   List<Position> findByProductIdIn(List<String> productIds);
 

@@ -62,6 +62,15 @@ public class ProductController {
             "pagination", Pagination.from(result)));
   }
 
+  @Operation(
+      summary = "List product categories",
+      description = "Returns the catalogue categories accepted by the API (RFC sec 3.3)")
+  @ApiResponse(responseCode = "200", description = "Category list")
+  @GetMapping("/categories")
+  public ResponseEntity<Map<String, Object>> getCategories() {
+    return ResponseEntity.ok(Map.of("categories", productService.getCategories()));
+  }
+
   @Operation(summary = "Get product by ID")
   @ApiResponse(responseCode = "200", description = "Product found")
   @ApiResponse(responseCode = "404", description = "PRODUCT_NOT_FOUND")
@@ -118,11 +127,14 @@ public class ProductController {
 
   @Operation(
       summary = "Get product locations",
-      description = "Returns positions where this product is stored")
+      description = "Returns total stock and the positions where this product is stored")
   @ApiResponse(responseCode = "200", description = "Product locations found")
   @ApiResponse(responseCode = "404", description = "PRODUCT_NOT_FOUND")
   @GetMapping("/{id}/location")
   public ResponseEntity<Map<String, Object>> getProductLocation(@PathVariable String id) {
-    return ResponseEntity.ok(Map.of("locations", productService.getProductLocation(id)));
+    var locations = productService.getProductLocation(id);
+    int totalStock =
+        locations.stream().mapToInt(ProductService.ProductLocationEntry::currentStock).sum();
+    return ResponseEntity.ok(Map.of("total_stock", totalStock, "locations", locations));
   }
 }

@@ -22,8 +22,7 @@ import org.springframework.web.multipart.MultipartFile;
 public class MinioStorageService implements StorageService {
 
   private static final Logger log = LoggerFactory.getLogger(MinioStorageService.class);
-  private static final Set<String> ALLOWED_TYPES = Set.of(
-      "image/jpeg", "image/png", "image/webp");
+  private static final Set<String> ALLOWED_TYPES = Set.of("image/jpeg", "image/png", "image/webp");
   private static final long MAX_FILE_SIZE = 5 * 1024 * 1024;
   private static final int MAGIC_BYTES_LENGTH = 12;
   private static final Pattern SAFE_SEGMENT = Pattern.compile("[a-zA-Z0-9._-]+");
@@ -32,7 +31,8 @@ public class MinioStorageService implements StorageService {
   private final String bucket;
   private final String requestBase;
 
-  public MinioStorageService(MinioClient minioClient,
+  public MinioStorageService(
+      MinioClient minioClient,
       @Value("${minio.bucket}") String bucket,
       @Value("${minio.request-base:/api/v1/files/}") String requestBase) {
     this.minioClient = minioClient;
@@ -66,20 +66,18 @@ public class MinioStorageService implements StorageService {
     }
     validateMagicBytes(header, bytesRead, contentType);
 
-    String extension = switch (contentType) {
-      case "image/jpeg" -> ".jpg";
-      case "image/png" -> ".png";
-      case "image/webp" -> ".webp";
-      default -> throw new IllegalArgumentException("Formato no soportado");
-    };
+    String extension =
+        switch (contentType) {
+          case "image/jpeg" -> ".jpg";
+          case "image/png" -> ".png";
+          case "image/webp" -> ".webp";
+          default -> throw new IllegalArgumentException("Formato no soportado");
+        };
     String key = path + "/" + UUID.randomUUID() + extension;
 
     try (InputStream inputStream = file.getInputStream()) {
       minioClient.putObject(
-          PutObjectArgs.builder()
-              .bucket(bucket)
-              .object(key)
-              .stream(inputStream, file.getSize(), -1)
+          PutObjectArgs.builder().bucket(bucket).object(key).stream(inputStream, file.getSize(), -1)
               .contentType(contentType)
               .build());
       log.info("Uploaded file: {} ({} bytes, {})", key, file.getSize(), contentType);
@@ -93,11 +91,7 @@ public class MinioStorageService implements StorageService {
   @Override
   public void delete(String key) {
     try {
-      minioClient.removeObject(
-          RemoveObjectArgs.builder()
-              .bucket(bucket)
-              .object(key)
-              .build());
+      minioClient.removeObject(RemoveObjectArgs.builder().bucket(bucket).object(key).build());
       log.info("Deleted file: {}", key);
     } catch (ErrorResponseException e) {
       if ("NoSuchKey".equals(e.errorResponse().code())) {
@@ -112,18 +106,16 @@ public class MinioStorageService implements StorageService {
   @Override
   public StoredObject getObject(String key) {
     try {
-      GetObjectResponse response = minioClient.getObject(
-          GetObjectArgs.builder()
-              .bucket(bucket)
-              .object(key)
-              .build());
+      GetObjectResponse response =
+          minioClient.getObject(GetObjectArgs.builder().bucket(bucket).object(key).build());
       var hdrs = response.headers();
-      String contentType = hdrs != null
-          ? hdrs.get("Content-Type")
-          : inferContentType(key);
+      String contentType = hdrs != null ? hdrs.get("Content-Type") : inferContentType(key);
       long contentLength = 0L;
       if (hdrs != null && hdrs.get("Content-Length") != null) {
-        try { contentLength = Long.parseLong(hdrs.get("Content-Length")); } catch (NumberFormatException ignored) {}
+        try {
+          contentLength = Long.parseLong(hdrs.get("Content-Length"));
+        } catch (NumberFormatException ignored) {
+        }
       }
       if (contentType == null) contentType = inferContentType(key);
       return new StoredObject(response, contentType, contentLength);
@@ -169,25 +161,35 @@ public class MinioStorageService implements StorageService {
   }
 
   private static void validateMagicBytes(byte[] data, int length, String contentType) {
-    boolean valid = switch (contentType) {
-      case "image/jpeg" -> length >= 3
-          && (data[0] & 0xFF) == 0xFF
-          && (data[1] & 0xFF) == 0xD8
-          && (data[2] & 0xFF) == 0xFF;
-      case "image/png" -> length >= 8
-          && (data[0] & 0xFF) == 0x89
-          && data[1] == 'P'
-          && data[2] == 'N'
-          && data[3] == 'G'
-          && (data[4] & 0xFF) == 0x0D
-          && (data[5] & 0xFF) == 0x0A
-          && (data[6] & 0xFF) == 0x1A
-          && (data[7] & 0xFF) == 0x0A;
-      case "image/webp" -> length >= 12
-          && data[0] == 'R' && data[1] == 'I' && data[2] == 'F' && data[3] == 'F'
-          && data[8] == 'W' && data[9] == 'E' && data[10] == 'B' && data[11] == 'P';
-      default -> false;
-    };
+    boolean valid =
+        switch (contentType) {
+          case "image/jpeg" ->
+              length >= 3
+                  && (data[0] & 0xFF) == 0xFF
+                  && (data[1] & 0xFF) == 0xD8
+                  && (data[2] & 0xFF) == 0xFF;
+          case "image/png" ->
+              length >= 8
+                  && (data[0] & 0xFF) == 0x89
+                  && data[1] == 'P'
+                  && data[2] == 'N'
+                  && data[3] == 'G'
+                  && (data[4] & 0xFF) == 0x0D
+                  && (data[5] & 0xFF) == 0x0A
+                  && (data[6] & 0xFF) == 0x1A
+                  && (data[7] & 0xFF) == 0x0A;
+          case "image/webp" ->
+              length >= 12
+                  && data[0] == 'R'
+                  && data[1] == 'I'
+                  && data[2] == 'F'
+                  && data[3] == 'F'
+                  && data[8] == 'W'
+                  && data[9] == 'E'
+                  && data[10] == 'B'
+                  && data[11] == 'P';
+          default -> false;
+        };
     if (!valid) {
       throw new IllegalArgumentException(
           "El contenido del archivo no coincide con el formato declarado: " + contentType);

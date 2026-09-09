@@ -84,4 +84,17 @@ class JwtHandshakeInterceptorTest {
     Map<String, Object> attrs = new HashMap<>();
     assertTrue(interceptor.beforeHandshake(request, response, handler, attrs));
   }
+
+  @Test
+  void beforeHandshake_queryWithoutTokenParam_returnsFalse() {
+    when(request.getURI()).thenReturn(URI.create("/ws/v1/vehicles?foo=bar"));
+
+    assertFalse(interceptor.beforeHandshake(request, response, handler, new HashMap<>()));
+    verify(response).setStatusCode(HttpStatus.FORBIDDEN);
+  }
+
+  @Test
+  void afterHandshake_isANoOp() {
+    assertDoesNotThrow(() -> interceptor.afterHandshake(request, response, handler, null));
+  }
 }

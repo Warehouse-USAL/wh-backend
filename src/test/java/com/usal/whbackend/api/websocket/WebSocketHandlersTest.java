@@ -1,6 +1,7 @@
 package com.usal.whbackend.api.websocket;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -185,5 +186,194 @@ class WebSocketHandlersTest {
     Order o = new Order();
     o.setStatus(status);
     return o;
+  }
+
+  // ── transport errors / message handling ────────────────────────────────────
+
+  @Test
+  void orderHandler_sessionRemovedOnTransportError() throws IOException {
+    OrderWebSocketHandler handler = new OrderWebSocketHandler();
+
+    WebSocketSession session = openSession("s1");
+    handler.afterConnectionEstablished(session);
+    handler.handleTransportError(session, new IllegalStateException("boom"));
+
+    handler.broadcastOrderUpdate(orderWithStatus(OrderStatus.PENDING));
+
+    verify(session, never()).sendMessage(any(TextMessage.class));
+  }
+
+  @Test
+  void orderHandler_sendFailureIsSwallowed() throws IOException {
+    OrderWebSocketHandler handler = new OrderWebSocketHandler();
+
+    WebSocketSession failing = openSession("s1");
+    doThrow(new IOException("closed")).when(failing).sendMessage(any(TextMessage.class));
+    handler.afterConnectionEstablished(failing);
+
+    handler.broadcastOrderUpdate(orderWithStatus(OrderStatus.PENDING));
+
+    verify(failing).sendMessage(any(TextMessage.class));
+  }
+
+  @Test
+  void orderHandler_incomingTextMessagesAreIgnored() {
+    OrderWebSocketHandler handler = new TestableOrderHandler();
+    ((TestableOrderHandler) handler).receive(openSession("s1"), new TextMessage("ping"));
+  }
+
+  private static class TestableOrderHandler extends OrderWebSocketHandler {
+    void receive(WebSocketSession session, TextMessage message) {
+      handleTextMessage(session, message);
+    }
+  }
+
+  @Test
+  void userOrderHandler_sessionRemovedOnCloseAndTransportError() throws IOException {
+    UserOrderWebSocketHandler handler = new UserOrderWebSocketHandler();
+
+    WebSocketSession a = sessionWithUri("usr-1", "/ws/v1/orders/usr-1");
+    WebSocketSession b = sessionWithUri("usr-2", "/ws/v1/orders/usr-2");
+    handler.afterConnectionEstablished(a);
+    handler.afterConnectionEstablished(b);
+    handler.afterConnectionClosed(a, CloseStatus.NORMAL);
+    handler.handleTransportError(b, new IllegalStateException("boom"));
+
+    Order order = orderWithStatus(OrderStatus.PENDING);
+    order.setRequestedByUserId("usr-1");
+    handler.broadcastOrderUpdate(order);
+
+    verify(a, never()).sendMessage(any(TextMessage.class));
+    verify(b, never()).sendMessage(any(TextMessage.class));
+  }
+
+  @Test
+  void userOrderHandler_sendFailureIsSwallowed() throws IOException {
+    UserOrderWebSocketHandler handler = new UserOrderWebSocketHandler();
+
+    WebSocketSession owner = sessionWithUri("usr-1", "/ws/v1/orders/usr-1");
+    doThrow(new IOException("closed")).when(owner).sendMessage(any(TextMessage.class));
+    handler.afterConnectionEstablished(owner);
+
+    Order order = orderWithStatus(OrderStatus.PENDING);
+    order.setRequestedByUserId("usr-1");
+    handler.broadcastOrderUpdate(order);
+
+    verify(owner).sendMessage(any(TextMessage.class));
+  }
+
+  @Test
+  void userOrderHandler_closedSessionIsSkipped() throws IOException {
+    UserOrderWebSocketHandler handler = new UserOrderWebSocketHandler();
+
+    WebSocketSession owner = sessionWithUri("usr-1", "/ws/v1/orders/usr-1");
+    handler.afterConnectionEstablished(owner);
+    when(owner.isOpen()).thenReturn(false);
+
+    Order order = orderWithStatus(OrderStatus.PENDING);
+    order.setRequestedByUserId("usr-1");
+    handler.broadcastOrderUpdate(order);
+
+    verify(owner, never()).sendMessage(any(TextMessage.class));
+  }
+
+  @Test
+  void userOrderHandler_sessionWithoutUriIsRejected() throws IOException {
+    UserOrderWebSocketHandler handler = new UserOrderWebSocketHandler();
+
+    WebSocketSession session = mock(WebSocketSession.class);
+    when(session.getAttributes()).thenReturn(Map.of("userId", "usr-1"));
+    when(session.getUri()).thenReturn(null);
+
+    handler.afterConnectionEstablished(session);
+
+    verify(session).close(any(CloseStatus.class));
+  }
+
+  @Test
+  void userOrderHandler_closeFailureOnRejectionIsSwallowed() throws IOException {
+    UserOrderWebSocketHandler handler = new UserOrderWebSocketHandler();
+
+    WebSocketSession session = sessionWithUri("usr-99", "/ws/v1/orders/usr-1");
+    doThrow(new IOException("already gone")).when(session).close(any(CloseStatus.class));
+
+    handler.afterConnectionEstablished(session);
+
+    verify(session).close(any(CloseStatus.class));
+  }
+
+  @Test
+  void vehicleHandler_sessionRemovedOnCloseAndTransportError() throws IOException {
+    VehicleWebSocketHandler handler = new VehicleWebSocketHandler();
+
+    WebSocketSession a = openSession("s1");
+    WebSocketSession b = openSession("s2");
+    handler.afterConnectionEstablished(a);
+    handler.afterConnectionEstablished(b);
+    handler.afterConnectionClosed(a, CloseStatus.NORMAL);
+    handler.handleTransportError(b, new IllegalStateException("boom"));
+
+    handler.broadcastVehicleError("v-1", "X", "y", "2026-05-01T10:00:00Z");
+
+    verify(a, never()).sendMessage(any(TextMessage.class));
+    verify(b, never()).sendMessage(any(TextMessage.class));
+  }
+
+  @Test
+  void vehicleHandler_sendFailureIsSwallowedAndClosedSessionSkipped() throws IOException {
+    VehicleWebSocketHandler handler = new VehicleWebSocketHandler();
+
+    WebSocketSession failing = openSession("s1");
+    doThrow(new IOException("closed")).when(failing).sendMessage(any(TextMessage.class));
+    WebSocketSession closed = closedSession("s2");
+    handler.afterConnectionEstablished(failing);
+    handler.afterConnectionEstablished(closed);
+
+    handler.broadcastVehicleError("v-1", "X", "y", "2026-05-01T10:00:00Z");
+
+    verify(failing).sendMessage(any(TextMessage.class));
+    verify(closed, never()).sendMessage(any(TextMessage.class));
+  }
+
+  @Test
+  void stockHandler_sessionRemovedOnCloseAndTransportError() throws IOException {
+    StockAlertWebSocketHandler handler = new StockAlertWebSocketHandler();
+
+    WebSocketSession a = openSession("s1");
+    WebSocketSession b = openSession("s2");
+    handler.afterConnectionEstablished(a);
+    handler.afterConnectionEstablished(b);
+    handler.afterConnectionClosed(a, CloseStatus.NORMAL);
+    handler.handleTransportError(b, new IllegalStateException("boom"));
+
+    handler.broadcastStockAlert(product(), 1);
+
+    verify(a, never()).sendMessage(any(TextMessage.class));
+    verify(b, never()).sendMessage(any(TextMessage.class));
+  }
+
+  @Test
+  void stockHandler_sendFailureIsSwallowedAndClosedSessionSkipped() throws IOException {
+    StockAlertWebSocketHandler handler = new StockAlertWebSocketHandler();
+
+    WebSocketSession failing = openSession("s1");
+    doThrow(new IOException("closed")).when(failing).sendMessage(any(TextMessage.class));
+    WebSocketSession closed = closedSession("s2");
+    handler.afterConnectionEstablished(failing);
+    handler.afterConnectionEstablished(closed);
+
+    handler.broadcastStockAlert(product(), 1);
+
+    verify(failing).sendMessage(any(TextMessage.class));
+    verify(closed, never()).sendMessage(any(TextMessage.class));
+  }
+
+  private com.usal.whbackend.domain.Product product() {
+    com.usal.whbackend.domain.Product p = new com.usal.whbackend.domain.Product();
+    p.setId("p-1");
+    p.setSku("SKU-001");
+    p.setName("Test Product");
+    p.setMinimumStock(10);
+    return p;
   }
 }

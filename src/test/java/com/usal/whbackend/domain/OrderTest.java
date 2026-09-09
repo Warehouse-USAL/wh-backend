@@ -15,6 +15,7 @@ class OrderTest {
 
     order.setId("id-1");
     order.setStatus(OrderStatus.PENDING);
+    order.setPriority(OrderPriority.HIGH);
     order.setRequestedByUserId("user-1");
     order.setItems(List.of(new OrderItem("p1", "SKU-1", 2)));
     order.setDestinationArea("zone-A");
@@ -26,6 +27,7 @@ class OrderTest {
 
     assertEquals("id-1", order.getId());
     assertEquals(OrderStatus.PENDING, order.getStatus());
+    assertEquals(OrderPriority.HIGH, order.getPriority());
     assertEquals("user-1", order.getRequestedByUserId());
     assertEquals(1, order.getItems().size());
     assertEquals("zone-A", order.getDestinationArea());

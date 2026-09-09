@@ -20,7 +20,6 @@ public class User {
   private Instant createdAt;
   private Address address;
 
-
   public User() {}
 
   public String getId() {

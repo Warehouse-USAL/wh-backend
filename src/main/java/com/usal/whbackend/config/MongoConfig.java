@@ -21,11 +21,10 @@ public class MongoConfig {
   }
 
   /**
-   * Tolerates legacy {@link StockSize} strings persisted by older versions (e.g.
-   * {@code MEDIANO}, {@code GRANDE}) when reading documents, mapping them onto the
-   * current enum instead of failing with "No enum constant ... StockSize.MEDIANO".
-   * Writes keep Spring Data's default enum-name behaviour, so values are migrated
-   * to the canonical name the next time a document is saved.
+   * Tolerates legacy {@link StockSize} strings persisted by older versions (e.g. {@code MEDIANO},
+   * {@code GRANDE}) when reading documents, mapping them onto the current enum instead of failing
+   * with "No enum constant ... StockSize.MEDIANO". Writes keep Spring Data's default enum-name
+   * behaviour, so values are migrated to the canonical name the next time a document is saved.
    */
   @Bean
   MongoCustomConversions mongoCustomConversions() {

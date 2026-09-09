@@ -1,5 +1,7 @@
 package com.usal.whbackend.api.error;
 
+import com.fasterxml.jackson.databind.exc.InvalidFormatException;
+import com.usal.whbackend.domain.StockSize;
 import com.usal.whbackend.service.exception.AccountDisabledException;
 import com.usal.whbackend.service.exception.EmailAlreadyExistsException;
 import com.usal.whbackend.service.exception.InvalidCredentialsException;
@@ -7,6 +9,8 @@ import com.usal.whbackend.service.exception.LineNotFoundException;
 import com.usal.whbackend.service.exception.LineNumberAlreadyExistsException;
 import com.usal.whbackend.service.exception.PositionAlreadyOccupiedException;
 import com.usal.whbackend.service.exception.PositionNotFoundException;
+import com.usal.whbackend.service.exception.ReceptionNotFoundException;
+import com.usal.whbackend.service.exception.RestockOrderNotFoundException;
 import com.usal.whbackend.service.exception.StockExceedsCapacityException;
 import com.usal.whbackend.service.exception.UserNotFoundException;
 import com.usal.whbackend.service.exception.ZoneCodeAlreadyExistsException;
@@ -23,6 +27,7 @@ import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -65,11 +70,64 @@ public class GlobalExceptionHandler {
               "El campo código postal (postal_code) es obligatorio."),
           Map.entry("INVALID_CATEGORY", "La categoría indicada no existe."),
           Map.entry("VEHICLE_NOT_FOUND", "El vehículo solicitado no existe."),
+          Map.entry("ORDER_NOT_ASSIGNABLE", "La orden no puede ser asignada en su estado actual."),
           Map.entry(
-              "ORDER_NOT_ASSIGNABLE", "La orden no puede ser asignada en su estado actual."),
+              "VEHICLE_ALREADY_BUSY", "El vehículo ya está asignado a otra orden en progreso."),
           Map.entry(
-              "VEHICLE_ALREADY_BUSY",
-              "El vehículo ya está asignado a otra orden en progreso."));
+              "UNKNOWN_METRIC", "La métrica solicitada no existe. Consultar GET /metrics/catalog."),
+          Map.entry(
+              "UNKNOWN_DIMENSION",
+              "La dimensión indicada no está declarada para esta métrica."
+                  + " Consultar GET /metrics/catalog."),
+          Map.entry(
+              "UNSUPPORTED_AGGREGATION",
+              "La agregación indicada no está permitida para esta métrica."),
+          Map.entry(
+              "QUERY_TOO_BROAD",
+              "La consulta es demasiado amplia. Reducir el rango o aumentar el step."),
+          Map.entry(
+              "METRICS_UNAVAILABLE", "El almacén de métricas no está disponible en este momento."),
+          Map.entry(
+              "UNKNOWN_ENTITY", "La entidad solicitada no existe. Consultar GET /query/catalog."),
+          Map.entry(
+              "UNKNOWN_FIELD",
+              "El campo indicado no existe o no es consultable. Consultar GET /query/catalog."),
+          Map.entry(
+              "UNSUPPORTED_OPERATOR", "El operador indicado no está permitido para este campo."),
+          Map.entry("TOO_MANY_FILTERS", "La consulta declara demasiados filtros."),
+          Map.entry("INVALID_FILTER_VALUE", "El valor de uno de los filtros no es válido."),
+          Map.entry(
+              "NO_AGGREGATES",
+              "Una consulta agrupada debe declarar al menos un agregado en 'aggregates'."),
+          Map.entry(
+              "UNWIND_REQUIRED",
+              "Los campos dentro de un arreglo requieren declarar 'unwind' con ese arreglo."),
+          Map.entry(
+              "UNSUPPORTED_BUCKET",
+              "El bucket indicado no es válido. Valores aceptados: hour, day, month,"
+                  + " y sólo sobre campos de fecha."),
+          Map.entry("UNKNOWN_TIMEZONE", "La zona horaria indicada no existe."),
+          Map.entry(
+              "INVALID_ALIAS",
+              "Un nombre de columna es inválido o está repetido. Usar minúsculas, dígitos y"
+                  + " guión bajo."),
+          Map.entry(
+              "UNBOUNDED_RANGE",
+              "Una consulta agrupada debe acotarse con un filtro de fecha (ej: created_at >=)."),
+          Map.entry("RESTOCK_ORDER_NOT_FOUND", "La orden de restock solicitada no existe."),
+          Map.entry("RECEPTION_NOT_FOUND", "El remito solicitado no existe."),
+          Map.entry(
+              "ASSIGNMENT_QUANTITY_MISMATCH",
+              "La suma de las cantidades asignadas a posiciones no coincide con la cantidad"
+                  + " recibida."),
+          Map.entry(
+              "RESTOCK_ORDER_PRODUCT_MISMATCH",
+              "La orden de restock referenciada corresponde a otro producto."),
+          Map.entry(
+              "POSITION_INACTIVE", "La posición no está activa y no puede recibir mercadería."),
+          Map.entry(
+              "INVALID_DELIVERY_UNIT",
+              "Unidad de entrega inválida. Valores aceptados: CAJA, MEDIO_PALLET, PALLET."));
 
   @ExceptionHandler(AccessDeniedException.class)
   public ResponseEntity<ErrorResponse> handleAccessDenied(AccessDeniedException ex) {
@@ -129,9 +187,28 @@ public class GlobalExceptionHandler {
   @ExceptionHandler(HttpMessageNotReadableException.class)
   public ResponseEntity<ErrorResponse> handleMalformedRequest(HttpMessageNotReadableException ex) {
     log.warn("Malformed request body: {}", ex.getMessage());
+    for (Throwable cause = ex.getCause(); cause != null; cause = cause.getCause()) {
+      if (cause instanceof InvalidFormatException ife && ife.getTargetType() == StockSize.class) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+            .body(ErrorResponse.of("INVALID_DELIVERY_UNIT", MESSAGES.get("INVALID_DELIVERY_UNIT")));
+      }
+    }
     return ResponseEntity.status(HttpStatus.BAD_REQUEST)
         .body(
             ErrorResponse.of("MALFORMED_REQUEST", "El cuerpo de la solicitud no es JSON válido."));
+  }
+
+  @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+  public ResponseEntity<ErrorResponse> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
+    if (ex.getRequiredType() == StockSize.class) {
+      return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+          .body(ErrorResponse.of("INVALID_DELIVERY_UNIT", MESSAGES.get("INVALID_DELIVERY_UNIT")));
+    }
+    return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+        .body(
+            ErrorResponse.of(
+                "INVALID_QUERY_PARAMETER",
+                "El parámetro '" + ex.getName() + "' tiene un formato inválido."));
   }
 
   @ExceptionHandler(ZoneNotFoundException.class)
@@ -175,6 +252,19 @@ public class GlobalExceptionHandler {
       StockExceedsCapacityException ex) {
     return ResponseEntity.status(HttpStatus.BAD_REQUEST)
         .body(ErrorResponse.of("STOCK_EXCEEDS_CAPACITY", ex.getMessage()));
+  }
+
+  @ExceptionHandler(RestockOrderNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleRestockOrderNotFound(
+      RestockOrderNotFoundException ex) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(ErrorResponse.of("RESTOCK_ORDER_NOT_FOUND", ex.getMessage()));
+  }
+
+  @ExceptionHandler(ReceptionNotFoundException.class)
+  public ResponseEntity<ErrorResponse> handleReceptionNotFound(ReceptionNotFoundException ex) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .body(ErrorResponse.of("RECEPTION_NOT_FOUND", ex.getMessage()));
   }
 
   @ExceptionHandler(FileNotFoundException.class)
