@@ -23,6 +23,11 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.springframework.data.mongodb.core.FindAndModifyOptions;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Criteria;
+import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -34,16 +39,24 @@ public class PositionService {
   private final LineRepository lineRepository;
   private final ZoneRepository zoneRepository;
   private final ProductRepository productRepository;
+  private final MongoTemplate mongoTemplate;
 
   public PositionService(
       PositionRepository positionRepository,
       LineRepository lineRepository,
       ZoneRepository zoneRepository,
-      ProductRepository productRepository) {
+      ProductRepository productRepository,
+      MongoTemplate mongoTemplate) {
     this.positionRepository = positionRepository;
     this.lineRepository = lineRepository;
     this.zoneRepository = zoneRepository;
     this.productRepository = productRepository;
+    this.mongoTemplate = mongoTemplate;
+  }
+
+  /** Maximum whole units of {@code productVolume} that fit within {@code containerVolumeCm3}. */
+  public static int maxUnitsByVolume(double productVolume, double containerVolumeCm3) {
+    return productVolume > 0 ? (int) (containerVolumeCm3 / productVolume) : 0;
   }
 
   public List<Position> getPositionsByLine(String lineId) {
@@ -162,9 +175,8 @@ public class PositionService {
                     () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "PRODUCT_NOT_FOUND"));
         double totalVolume = product.getVolume() * newStock;
         if (totalVolume > finalSize.getVolumeCm3()) {
-          int maxAllowed =
-              product.getVolume() > 0 ? (int) (finalSize.getVolumeCm3() / product.getVolume()) : 0;
-          throw new StockExceedsCapacityException(newStock, maxAllowed);
+          throw new StockExceedsCapacityException(
+              newStock, maxUnitsByVolume(product.getVolume(), finalSize.getVolumeCm3()));
         }
       }
 
@@ -195,40 +207,49 @@ public class PositionService {
    * already applied (bounded by the caller's transaction, same as {@code StockDrainService.drain}).
    */
   public Position increaseStock(String positionId, String productId, int quantity) {
-    Position position =
+    Position current =
         positionRepository
             .findById(positionId)
             .orElseThrow(() -> new PositionNotFoundException(positionId));
-    if (!position.isActive()) {
+    if (!current.isActive()) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "POSITION_INACTIVE");
     }
-    if (position.getProductId() != null && !position.getProductId().equals(productId)) {
+    if (current.getProductId() != null && !current.getProductId().equals(productId)) {
       throw new PositionAlreadyOccupiedException(positionId);
     }
 
-    int newStock = position.getCurrentStock() + quantity;
-    if (newStock > position.getMaximumCapacity()) {
-      throw new StockExceedsCapacityException(newStock, position.getMaximumCapacity());
-    }
-
-    StockSize size = position.getSizeStockToSave();
+    int effectiveCap = current.getMaximumCapacity();
+    StockSize size = current.getSizeStockToSave();
     if (size != null) {
       Product product =
           productRepository
               .findById(productId)
               .orElseThrow(
                   () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "PRODUCT_NOT_FOUND"));
-      double totalVolume = product.getVolume() * newStock;
-      if (totalVolume > size.getVolumeCm3()) {
-        int maxAllowed =
-            product.getVolume() > 0 ? (int) (size.getVolumeCm3() / product.getVolume()) : 0;
-        throw new StockExceedsCapacityException(newStock, maxAllowed);
+      if (product.getVolume() > 0) {
+        effectiveCap =
+            Math.min(effectiveCap, maxUnitsByVolume(product.getVolume(), size.getVolumeCm3()));
       }
     }
 
-    position.setProductId(productId);
-    position.setCurrentStock(newStock);
-    return positionRepository.save(position);
+    // Atomic conditional increment: the capacity check is re-evaluated as part of the same
+    // findAndModify that applies it, so a concurrent increaseStock on the same position can never
+    // both pass the check and push stock past effectiveCap (unlike a read-check-then-save).
+    Query query =
+        Query.query(
+            Criteria.where("_id").is(positionId).and("currentStock").lte(effectiveCap - quantity));
+    Update update = new Update().inc("currentStock", quantity).set("productId", productId);
+    Position updated =
+        mongoTemplate.findAndModify(
+            query, update, FindAndModifyOptions.options().returnNew(true), Position.class);
+    if (updated == null) {
+      Position latest =
+          positionRepository
+              .findById(positionId)
+              .orElseThrow(() -> new PositionNotFoundException(positionId));
+      throw new StockExceedsCapacityException(latest.getCurrentStock() + quantity, effectiveCap);
+    }
+    return updated;
   }
 
   /**
@@ -261,7 +282,8 @@ public class PositionService {
     int byCount = p.getMaximumCapacity() - p.getCurrentStock();
     int byVolume =
         product.getVolume() > 0
-            ? (int) (deliveryUnit.getVolumeCm3() / product.getVolume()) - p.getCurrentStock()
+            ? maxUnitsByVolume(product.getVolume(), deliveryUnit.getVolumeCm3())
+                - p.getCurrentStock()
             : byCount;
     int available = Math.max(0, Math.min(byCount, byVolume));
     return new AvailablePosition(p.getId(), p.getPositionName(), available);

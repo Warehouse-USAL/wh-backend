@@ -36,13 +36,14 @@ public class VehicleErrorConsumer {
   public void consume(String payload) {
     try {
       VehicleErrorMessage msg = objectMapper.readValue(payload, VehicleErrorMessage.class);
+      Instant timestamp = parseTimestamp(msg.timestamp());
       vehicleUpdateExecutor
           .apply(
               msg.vehicleId(),
               previous ->
                   new Update()
                       .set("status", VehicleStatus.OFFLINE)
-                      .set("lastSeenAt", Instant.parse(msg.timestamp()))
+                      .set("lastSeenAt", timestamp)
                       // Ends whatever operation window was open, same reasoning as
                       // VehicleTelemetryConsumer: an offline (or errored) vehicle has no ongoing
                       // uptime to report.
@@ -68,6 +69,20 @@ public class VehicleErrorConsumer {
               });
     } catch (Exception e) {
       log.warn("Failed to process vehicle.error message: {}", e.getMessage());
+    }
+  }
+
+  /**
+   * A malformed timestamp must not sink the whole event: the fault itself is real and actionable
+   * (mark the vehicle OFFLINE, broadcast the error, record fault telemetry) even if the producer
+   * sent a bad {@code timestamp} field.
+   */
+  private Instant parseTimestamp(String raw) {
+    try {
+      return Instant.parse(raw);
+    } catch (Exception e) {
+      log.warn("Malformed vehicle.error timestamp '{}' — using current time", raw);
+      return Instant.now();
     }
   }
 }

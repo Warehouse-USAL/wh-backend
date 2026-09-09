@@ -163,7 +163,7 @@ class MetricsQueryTranslatorTest {
   void rejectsControlCharactersInFilterValues() {
     assertThatThrownBy(
             () -> translate(request("5m", Map.of("vehicle_id", "V\nup"), List.of(), "avg")))
-        .satisfies(t -> assertThat(codeOf(t)).isEqualTo("UNKNOWN_DIMENSION"));
+        .satisfies(t -> assertThat(codeOf(t)).isEqualTo("INVALID_FILTER_VALUE"));
   }
 
   @Test

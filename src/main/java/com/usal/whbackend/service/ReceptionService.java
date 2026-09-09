@@ -12,7 +12,9 @@ import java.time.Instant;
 import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
@@ -58,10 +60,7 @@ public class ReceptionService {
             .orElseThrow(
                 () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "PRODUCT_NOT_FOUND"));
 
-    int assignedTotal =
-        request.assignments().stream()
-            .mapToInt(CreateReceptionRequest.AssignmentRequest::quantity)
-            .sum();
+    long assignedTotal = request.assignments().stream().mapToLong(a -> (long) a.quantity()).sum();
     if (assignedTotal != request.quantityReceived()) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "ASSIGNMENT_QUANTITY_MISMATCH");
     }
@@ -117,7 +116,14 @@ public class ReceptionService {
       query.addCriteria(createdAt);
     }
     long total = mongoTemplate.count(query, Reception.class);
-    List<Reception> items = mongoTemplate.find(query.with(pageable), Reception.class);
+    Pageable sorted =
+        pageable.getSort().isSorted()
+            ? pageable
+            : PageRequest.of(
+                pageable.getPageNumber(),
+                pageable.getPageSize(),
+                Sort.by(Sort.Direction.DESC, "createdAt"));
+    List<Reception> items = mongoTemplate.find(query.with(sorted), Reception.class);
     return new PageImpl<>(items, pageable, total);
   }
 
