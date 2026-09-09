@@ -46,7 +46,7 @@ public final class DemoDataset {
   public static final String SHARED_PASSWORD = "Demo1234!";
 
   private static final String EMAIL_DOMAIN = "@smartwarehouse.local";
-  private static final String CURRENCY = "UYU";
+  private static final String CURRENCY = "ARS";
 
   /** Units left available (above reservations) for each product after completed orders drain. */
   private static final int HEALTHY_BUFFER = 30;
