@@ -8,11 +8,17 @@ import com.usal.whbackend.domain.OrderStatus;
 import com.usal.whbackend.domain.Position;
 import com.usal.whbackend.domain.Product;
 import com.usal.whbackend.domain.ProductCategory;
+import com.usal.whbackend.domain.RestockOrder;
 import com.usal.whbackend.domain.User;
 import com.usal.whbackend.domain.UserRole;
 import com.usal.whbackend.domain.Vehicle;
 import com.usal.whbackend.domain.VehicleStatus;
+import com.usal.whbackend.service.metrics.restock.RestockFormula;
+import com.usal.whbackend.service.metrics.restock.RestockInputs;
+import com.usal.whbackend.service.metrics.restock.RestockParams;
+import com.usal.whbackend.service.metrics.restock.RestockResult;
 import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -302,8 +308,104 @@ class DemoDatasetTest {
 
   @Test
   void buildsAYearOfRestockOrdersAndReceptions() {
-    assertThat(data.getRestockOrders()).hasSize(73);
-    assertThat(data.getReceptions()).hasSize(73);
+    // 73 historical receptions (one every 5 days) + 1 partial delivery of an order in transit.
+    assertThat(data.getReceptions()).hasSize(74);
+    // 59 historical orders (unlinked receptions have none) + 8 in transit today.
+    assertThat(data.getRestockOrders()).hasSize(67);
+  }
+
+  @Test
+  void noRestockOrderIsLeftDanglingInThePast() {
+    // An order that never received anything and is not recent would count as "on order" forever.
+    Map<String, Integer> received = receivedByRestockOrder();
+    Instant recent = Instant.now().minus(7, ChronoUnit.DAYS);
+    for (RestockOrder ro : data.getRestockOrders()) {
+      boolean fullyReceived = received.getOrDefault(ro.getId(), 0) >= ro.getQuantityRequested();
+      assertThat(fullyReceived || ro.getCreatedAt().isAfter(recent))
+          .as("restock order %s is fully received or still in transit", ro.getId())
+          .isTrue();
+    }
+  }
+
+  @Test
+  void oneInTransitOrderIsPartiallyReceived() {
+    Map<String, Integer> received = receivedByRestockOrder();
+    assertThat(data.getRestockOrders())
+        .anyMatch(
+            ro -> {
+              int got = received.getOrDefault(ro.getId(), 0);
+              return got > 0 && got < ro.getQuantityRequested();
+            });
+  }
+
+  // ── Restock suggestions (RFC_Metricas_Calculadas.md §7) ─────────────────────
+
+  @Test
+  void restockSuggestionsShowEveryCaseWithTheDocumentParams() {
+    Map<String, RestockResult> results = restockResults();
+
+    assertThat(results.values())
+        .as("some products need restocking")
+        .anyMatch(RestockResult::shouldRestock);
+    assertThat(results.values())
+        .as("some would need it, but stock already on its way covers them")
+        .anyMatch(
+            r ->
+                !r.shouldRestock()
+                    && r.onOrderStock() > 0
+                    && r.availableStock() <= r.reorderPoint());
+    assertThat(results.values())
+        .as("some are healthy on their own")
+        .anyMatch(r -> r.blendedDemand() > 0 && r.onOrderStock() == 0 && !r.shouldRestock());
+  }
+
+  @Test
+  void everyOrderedProductHasRecentAndLongTermDemand() {
+    Map<String, RestockInputs.Demand> demand =
+        RestockInputs.demandByProduct(
+            data.getOrders(),
+            Instant.now(),
+            DemoDataset.DEMO_RESTOCK_PARAMS.recentDays(),
+            DemoDataset.DEMO_RESTOCK_PARAMS.longDays());
+    // Product 0 is the never-ordered low-stock item; every other one has a demand history.
+    for (Product p : data.getProducts().subList(1, data.getProducts().size())) {
+      assertThat(demand.get(p.getId())).as("demand for %s", p.getSku()).isNotNull();
+      assertThat(demand.get(p.getId()).longTerm()).isPositive();
+    }
+  }
+
+  private Map<String, RestockResult> restockResults() {
+    Map<String, Integer> available = availableByProduct();
+    Map<String, Integer> reserved = reservedByProduct();
+    Map<String, Integer> onOrder =
+        RestockInputs.onOrderByProduct(data.getRestockOrders(), data.getReceptions());
+    RestockParams params = DemoDataset.DEMO_RESTOCK_PARAMS;
+    Map<String, RestockInputs.Demand> demand =
+        RestockInputs.demandByProduct(
+            data.getOrders(), Instant.now(), params.recentDays(), params.longDays());
+    return data.getProducts().stream()
+        .collect(
+            Collectors.toMap(
+                Product::getId,
+                p -> {
+                  RestockInputs.Demand d =
+                      demand.getOrDefault(p.getId(), new RestockInputs.Demand(0, 0));
+                  return RestockFormula.compute(
+                      params,
+                      d.longTerm(),
+                      d.recent(),
+                      available.getOrDefault(p.getId(), 0) - reserved.getOrDefault(p.getId(), 0),
+                      onOrder.getOrDefault(p.getId(), 0));
+                }));
+  }
+
+  private Map<String, Integer> receivedByRestockOrder() {
+    return data.getReceptions().stream()
+        .filter(r -> r.getRestockOrderId() != null)
+        .collect(
+            Collectors.groupingBy(
+                com.usal.whbackend.domain.Reception::getRestockOrderId,
+                Collectors.summingInt(com.usal.whbackend.domain.Reception::getQuantityReceived)));
   }
 
   @Test

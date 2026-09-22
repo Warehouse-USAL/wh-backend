@@ -116,8 +116,8 @@ class DemoDataSeederTest {
     // 25 near-term (unchanged) + 352 historical days * 2/day = 729: a year of history, not just
     // the ~3-week near-term window.
     verify(orderMongoRepository).saveAll(argThat((Iterable<Order> it) -> count(it) == 729));
-    verify(restockOrderRepository).saveAll(argThat((Iterable<RestockOrder> it) -> count(it) == 73));
-    verify(receptionRepository).saveAll(argThat((Iterable<Reception> it) -> count(it) == 73));
+    verify(restockOrderRepository).saveAll(argThat((Iterable<RestockOrder> it) -> count(it) == 67));
+    verify(receptionRepository).saveAll(argThat((Iterable<Reception> it) -> count(it) == 74));
     // Seeded inside the same fresh-database guard: the metrics store has no backfill, so the
     // rover charts would otherwise be blank next to a year of orders.
     verify(demoTelemetrySeeder).seed(argThat((java.util.List<Vehicle> it) -> it.size() == 6));

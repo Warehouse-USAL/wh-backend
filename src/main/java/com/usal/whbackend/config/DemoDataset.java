@@ -17,11 +17,16 @@ import com.usal.whbackend.domain.UserRole;
 import com.usal.whbackend.domain.Vehicle;
 import com.usal.whbackend.domain.VehicleStatus;
 import com.usal.whbackend.domain.Zone;
+import com.usal.whbackend.service.metrics.restock.RestockFormula;
+import com.usal.whbackend.service.metrics.restock.RestockInputs;
+import com.usal.whbackend.service.metrics.restock.RestockParams;
+import com.usal.whbackend.service.metrics.restock.RestockResult;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -48,8 +53,18 @@ public final class DemoDataset {
   private static final String EMAIL_DOMAIN = "@smartwarehouse.local";
   private static final String CURRENCY = "UYU";
 
-  /** Units left available (above reservations) for each product after completed orders drain. */
+  /**
+   * Units left available (above reservations) after completed orders drain, for products that are
+   * seeded healthy — and the floor for their stock, however low their demand.
+   */
   private static final int HEALTHY_BUFFER = 30;
+
+  /**
+   * The business document's example params (RFC_Metricas_Calculadas.md §4.4). The seed shapes each
+   * product's stock against them, so a dashboard calling {@code POST /metrics/restock-suggestions}
+   * with these values sees every case: restock now, covered by stock in transit, and healthy.
+   */
+  static final RestockParams DEMO_RESTOCK_PARAMS = new RestockParams(0.3, 7, 60, 2, 5, 7);
 
   private static final int PRODUCT_POSITIONS = 32;
   private static final int POSITIONS_PER_LINE = 5;
@@ -104,10 +119,12 @@ public final class DemoDataset {
     List<Vehicle> vehicles = buildVehicles();
     List<Order> orders = buildOrders(users, products, vehicles);
     orders.addAll(buildHistoricalOrders(users, products, vehicles, orders.size()));
-    simulateStock(products, positions, orders);
+    Map<String, StockPlan> stockPlans = planStock(products, orders);
+    simulateStock(products, positions, orders, stockPlans);
     List<RestockOrder> restockOrders = new ArrayList<>();
     List<Reception> receptions = new ArrayList<>();
     buildReceptionHistory(products, positions, restockOrders, receptions);
+    buildInTransitRestock(products, positions, stockPlans, restockOrders, receptions);
     return new DemoData(
         users, products, zones, lines, positions, vehicles, orders, restockOrders, receptions);
   }
@@ -520,20 +537,25 @@ public final class DemoDataset {
       Instant receivedAt = now.minus(daysAgo, ChronoUnit.DAYS);
       String supplier = SUPPLIERS[n % SUPPLIERS.length];
 
-      RestockOrder restockOrder = new RestockOrder();
-      restockOrder.setId(String.format("ro-%04d", n));
-      restockOrder.setProductId(product.getId());
-      restockOrder.setQuantityRequested(quantity);
-      restockOrder.setSupplier(supplier);
-      restockOrder.setRequestedByUserId("u-warehouse");
-      restockOrder.setCreatedAt(requestedAt);
-      restockOrders.add(restockOrder);
-
+      // A reception with no order behind it is exactly that: no order is seeded for it. Seeding
+      // one anyway would leave it forever unreceived, i.e. "on order" for the restock metric.
       boolean linked = n % 5 != 0;
+      String restockOrderId = null;
+      if (linked) {
+        RestockOrder restockOrder = new RestockOrder();
+        restockOrder.setId(String.format("ro-%04d", n));
+        restockOrder.setProductId(product.getId());
+        restockOrder.setQuantityRequested(quantity);
+        restockOrder.setSupplier(supplier);
+        restockOrder.setRequestedByUserId("u-warehouse");
+        restockOrder.setCreatedAt(requestedAt);
+        restockOrders.add(restockOrder);
+        restockOrderId = restockOrder.getId();
+      }
 
       Reception reception = new Reception();
       reception.setId(String.format("rec-%04d", n));
-      reception.setRestockOrderId(linked ? restockOrder.getId() : null);
+      reception.setRestockOrderId(restockOrderId);
       reception.setProductId(product.getId());
       reception.setQuantityReceived(quantity);
       reception.setDeliveryUnit(StockSize.values()[n % StockSize.values().length]);
@@ -542,6 +564,102 @@ public final class DemoDataset {
       reception.setReceivedByUserId("u-warehouse");
       reception.setCreatedAt(receivedAt);
       receptions.add(reception);
+    }
+  }
+
+  // ── Stock shaped for restock suggestions (RFC_Metricas_Calculadas.md §7) ─────────
+
+  /**
+   * How much stock a product is seeded with, and what is still on its way.
+   *
+   * @param buffer units available above reservations, including any partially received units
+   * @param inTransit units of a recent restock order that has not fully arrived
+   * @param received units of that order already received (and counted in {@code buffer})
+   */
+  private record StockPlan(int buffer, int inTransit, int received) {}
+
+  /**
+   * Splits ordered products round-robin into three groups against {@link #DEMO_RESTOCK_PARAMS}: (a)
+   * stock at half the reorder point — restock now; (b) the same low stock, but an order for the
+   * suggested quantity is already in transit, so no second one is suggested; (c) healthy. The first
+   * product of group (b) has its order half received, to show on-order counting only the rest.
+   * Products with no demand (product 0) keep the healthy buffer.
+   */
+  private Map<String, StockPlan> planStock(List<Product> products, List<Order> orders) {
+    Map<String, RestockInputs.Demand> demand =
+        RestockInputs.demandByProduct(
+            orders, now, DEMO_RESTOCK_PARAMS.recentDays(), DEMO_RESTOCK_PARAMS.longDays());
+    Map<String, StockPlan> plans = new HashMap<>();
+    int ordered = 0;
+    boolean partialSeeded = false;
+    for (Product p : products) {
+      RestockInputs.Demand d = demand.get(p.getId());
+      if (d == null) {
+        plans.put(p.getId(), new StockPlan(HEALTHY_BUFFER, 0, 0));
+        continue;
+      }
+      RestockResult r = RestockFormula.compute(DEMO_RESTOCK_PARAMS, d.longTerm(), d.recent(), 0, 0);
+      int low = (int) Math.floor(r.reorderPoint() / 2);
+      int target = (int) Math.ceil(r.targetStock());
+      StockPlan plan =
+          switch (ordered++ % 3) {
+            case 0 -> new StockPlan(low, 0, 0);
+            case 1 -> {
+              int inTransit = target - low;
+              int received = !partialSeeded && inTransit >= 2 ? inTransit / 2 : 0;
+              partialSeeded |= received > 0;
+              yield new StockPlan(low + received, inTransit, received);
+            }
+            default -> new StockPlan(Math.max(HEALTHY_BUFFER, target), 0, 0);
+          };
+      plans.put(p.getId(), plan);
+    }
+    return plans;
+  }
+
+  /** The restock orders of group (b) in {@link #planStock}, placed in the last few days. */
+  private void buildInTransitRestock(
+      List<Product> products,
+      List<Position> positions,
+      Map<String, StockPlan> plans,
+      List<RestockOrder> restockOrders,
+      List<Reception> receptions) {
+    int n = 0;
+    for (Product p : products) {
+      StockPlan plan = plans.get(p.getId());
+      if (plan == null || plan.inTransit() == 0) {
+        continue;
+      }
+      n++;
+      String supplier = SUPPLIERS[n % SUPPLIERS.length];
+      RestockOrder order = new RestockOrder();
+      order.setId(String.format("ro-transit-%02d", n));
+      order.setProductId(p.getId());
+      order.setQuantityRequested(plan.inTransit());
+      order.setSupplier(supplier);
+      order.setRequestedByUserId("u-warehouse");
+      order.setCreatedAt(now.minus(1 + n % 3, ChronoUnit.DAYS));
+      restockOrders.add(order);
+
+      if (plan.received() == 0) {
+        continue;
+      }
+      Position host =
+          positions.stream()
+              .filter(pos -> p.getId().equals(pos.getProductId()))
+              .findFirst()
+              .orElseThrow();
+      Reception partial = new Reception();
+      partial.setId(String.format("rec-transit-%02d", n));
+      partial.setRestockOrderId(order.getId());
+      partial.setProductId(p.getId());
+      partial.setQuantityReceived(plan.received());
+      partial.setDeliveryUnit(host.getSizeStockToSave());
+      partial.setSupplier(supplier);
+      partial.setAssignments(List.of(new Reception.Assignment(host.getId(), plan.received())));
+      partial.setReceivedByUserId("u-warehouse");
+      partial.setCreatedAt(now.minus(12, ChronoUnit.HOURS));
+      receptions.add(partial);
     }
   }
 
@@ -559,7 +677,11 @@ public final class DemoDataset {
 
   // ── Causal stock simulation ─────────────────────────────────────────────────────
 
-  private void simulateStock(List<Product> products, List<Position> positions, List<Order> orders) {
+  private void simulateStock(
+      List<Product> products,
+      List<Position> positions,
+      List<Order> orders,
+      Map<String, StockPlan> plans) {
     Map<String, List<Position>> byProduct =
         positions.stream()
             .filter(p -> p.getProductId() != null)
@@ -571,7 +693,7 @@ public final class DemoDataset {
         sumQuantities(orders, EnumSet.of(OrderStatus.PENDING, OrderStatus.IN_PROGRESS));
 
     // Place initial inbound stock so each product can cover its completed + reserved demand +
-    // buffer.
+    // its planned buffer.
     for (Product p : products) {
       List<Position> hosts = byProduct.get(p.getId());
       if (hosts == null) {
@@ -580,7 +702,7 @@ public final class DemoDataset {
       int total =
           completed.getOrDefault(p.getId(), 0)
               + reserved.getOrDefault(p.getId(), 0)
-              + HEALTHY_BUFFER;
+              + plans.get(p.getId()).buffer();
       distributeStock(total, hosts);
     }
 
