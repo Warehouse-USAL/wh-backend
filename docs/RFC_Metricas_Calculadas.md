@@ -59,6 +59,8 @@ Decisión: si Posición de inventario ≤ Punto de reposición → sugerir repos
           si no → Cantidad sugerida = 0
 ```
 
+Si la cantidad sugerida da 0, no se sugiere reposición aunque `Posición ≤ Punto de reposición`. Pasa, por ejemplo, con un producto sin demanda ni stock: punto de reposición 0, posición 0, y no hay nada que pedir.
+
 La ventana larga **excluye** la ventana reciente, así ningún día cuenta dos veces. Por eso el divisor es `período largo − período reciente`: con 60 y 7 son 53 días. Las ventanas se cuentan hacia atrás desde el momento del request (rolling), no por días calendario.
 
 ### 4.2. Definiciones exactas (qué dato del backend es cada término)
