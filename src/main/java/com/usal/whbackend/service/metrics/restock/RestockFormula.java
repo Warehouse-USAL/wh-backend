@@ -12,8 +12,8 @@ public final class RestockFormula {
   private RestockFormula() {}
 
   /**
-   * @param available stock free to cover new orders — already net of reservations, which is why
-   *     the inventory position does not subtract reserved stock again
+   * @param available stock free to cover new orders — already net of reservations, which is why the
+   *     inventory position does not subtract reserved stock again
    * @param onOrder units requested from suppliers that have not arrived yet
    */
   public static RestockResult compute(

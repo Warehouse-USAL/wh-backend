@@ -6,8 +6,8 @@ package com.usal.whbackend.service.metrics.restock;
  *
  * @param alpha weight of recent demand against long-term demand, 0–1
  * @param recentDays length of the recent window
- * @param longDays length of the long window; it contains the recent one, which is excluded from
- *     the long-term average so no day counts twice
+ * @param longDays length of the long window; it contains the recent one, which is excluded from the
+ *     long-term average so no day counts twice
  * @param safetyDays size of the safety cushion, in days of long-term demand
  * @param leadTimeDays days a restock takes to arrive
  * @param coverageDays days of stock to hold after restocking
