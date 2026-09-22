@@ -2,13 +2,16 @@ package com.usal.whbackend.repository.kafka;
 
 import com.usal.whbackend.domain.Order;
 import com.usal.whbackend.domain.OrderStatus;
+import com.usal.whbackend.domain.VehicleStatus;
 import com.usal.whbackend.repository.OrderMongoRepository;
 import com.usal.whbackend.service.OrderEventPublisher;
 import com.usal.whbackend.service.StockDrainPort;
+import com.usal.whbackend.service.VehicleEventPublisher;
 import java.time.Instant;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Component;
 import tools.jackson.databind.ObjectMapper;
@@ -20,16 +23,22 @@ public class OrderStatusConsumer {
   private final OrderMongoRepository orderMongoRepository;
   private final List<OrderEventPublisher> orderEventPublishers;
   private final StockDrainPort stockDrainPort;
+  private final VehicleUpdateExecutor vehicleUpdateExecutor;
+  private final VehicleEventPublisher vehicleEventPublisher;
   private final ObjectMapper objectMapper;
 
   public OrderStatusConsumer(
       OrderMongoRepository orderMongoRepository,
       List<OrderEventPublisher> orderEventPublishers,
       StockDrainPort stockDrainPort,
+      VehicleUpdateExecutor vehicleUpdateExecutor,
+      VehicleEventPublisher vehicleEventPublisher,
       ObjectMapper objectMapper) {
     this.orderMongoRepository = orderMongoRepository;
     this.orderEventPublishers = List.copyOf(orderEventPublishers);
     this.stockDrainPort = stockDrainPort;
+    this.vehicleUpdateExecutor = vehicleUpdateExecutor;
+    this.vehicleEventPublisher = vehicleEventPublisher;
     this.objectMapper = objectMapper;
   }
 
@@ -66,10 +75,30 @@ public class OrderStatusConsumer {
         order.setStatus(OrderStatus.COMPLETED);
         order.setCompletedAt(parseTimestamp(msg.timestamp()));
         stockDrainPort.drain(order.getItems());
+        releaseVehicle(order.getAssignedVehicleId());
       }
-      case "cancelled" -> order.setStatus(OrderStatus.CANCELLED);
+      case "cancelled" -> {
+        order.setStatus(OrderStatus.CANCELLED);
+        releaseVehicle(order.getAssignedVehicleId());
+      }
       default -> {}
     }
+  }
+
+  /**
+   * Frees the vehicle assigned to a finished order — otherwise it is left BUSY forever, since
+   * {@link com.usal.whbackend.service.OrderService#assignVehicle} is the only other place that ever
+   * moves a vehicle out of BUSY, and it only runs on the *next* assignment.
+   */
+  private void releaseVehicle(String vehicleId) {
+    if (vehicleId == null) {
+      return;
+    }
+    vehicleUpdateExecutor
+        .apply(
+            vehicleId,
+            previous -> new Update().set("status", VehicleStatus.IDLE).set("currentOrderId", null))
+        .ifPresent(result -> vehicleEventPublisher.broadcastVehicleUpdate(result.updated()));
   }
 
   /** Parses an ISO-8601 timestamp, falling back to {@link Instant#now()} when null. */
