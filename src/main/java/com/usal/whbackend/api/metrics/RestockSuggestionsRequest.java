@@ -2,8 +2,6 @@ package com.usal.whbackend.api.metrics;
 
 import com.usal.whbackend.service.exception.InvalidMetricParamsException;
 import com.usal.whbackend.service.metrics.restock.RestockParams;
-import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 
@@ -29,11 +27,11 @@ public record RestockSuggestionsRequest(Params params, Filters filters) {
   public record Filters(List<String> productIds, String category) {
 
     public Filters {
+      // A null id could match no product anyway, so it is dropped rather than rejected.
       productIds =
           productIds == null
               ? List.of()
-              : Collections.unmodifiableList(
-                  new ArrayList<>(productIds.stream().filter(Objects::nonNull).toList()));
+              : List.copyOf(productIds.stream().filter(Objects::nonNull).toList());
     }
   }
 
