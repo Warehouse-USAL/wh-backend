@@ -3,6 +3,7 @@ package com.usal.whbackend.api.error;
 import com.usal.whbackend.service.exception.AccountDisabledException;
 import com.usal.whbackend.service.exception.EmailAlreadyExistsException;
 import com.usal.whbackend.service.exception.InvalidCredentialsException;
+import com.usal.whbackend.service.exception.InvalidMetricParamsException;
 import com.usal.whbackend.service.exception.LineNotFoundException;
 import com.usal.whbackend.service.exception.LineNumberAlreadyExistsException;
 import com.usal.whbackend.service.exception.PositionAlreadyOccupiedException;
@@ -138,6 +139,12 @@ public class GlobalExceptionHandler {
     String message = MESSAGES.getOrDefault(code, code);
     return ResponseEntity.status(ex.getStatusCode())
         .body(Map.of("error", Map.of("code", code, "message", message)));
+  }
+
+  @ExceptionHandler(InvalidMetricParamsException.class)
+  public ResponseEntity<ErrorResponse> handleInvalidMetricParams(InvalidMetricParamsException ex) {
+    return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+        .body(ErrorResponse.of("INVALID_METRIC_PARAMS", ex.getMessage()));
   }
 
   @ExceptionHandler(InvalidCredentialsException.class)
