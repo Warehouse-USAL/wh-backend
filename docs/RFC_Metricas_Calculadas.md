@@ -134,7 +134,7 @@ Mismo formato que el resto de la API: `{"error": {"code", "message"}}`.
 | Código | HTTP | Cuándo |
 |---|---|---|
 | `INVALID_METRIC_PARAMS` | 400 | Falta un parámetro, está fuera de rango o hay una combinación inválida (por ejemplo, período largo ≤ período reciente). |
-| `VALIDATION_ERROR` / `BAD_REQUEST` | 400 | Body malformado. Lo manejan los handlers existentes. |
+| `MALFORMED_REQUEST` | 400 | Body que no es JSON válido o con un tipo incorrecto (por ejemplo `"alpha": "x"`). Lo maneja el handler existente. |
 | `ACCESS_DENIED` | 403 | Rol sin acceso. |
 
 ### 5.4. Catálogo
@@ -226,7 +226,7 @@ Cambios:
 
 | # | Cambio |
 |---|---|
-| 7.1 | Las recepciones no vinculadas **no generan** `RestockOrder`: una recepción sin pedido es justamente eso. El conteo de restock orders del histórico baja (≈73 → ≈58). Se actualiza `DASHBOARD_INTEGRATION.md`. |
+| 7.1 | Las recepciones no vinculadas **no generan** `RestockOrder`: una recepción sin pedido es justamente eso. El histórico baja de 73 a 59 restock orders. Con los 8 en tránsito de 7.3 quedan 67 pedidos y 74 recepciones (73 + 1 parcial). Se actualiza `DASHBOARD_INTEGRATION.md`. |
 | 7.2 | El colchón de stock pasa a depender del producto, repartido en tres grupos deterministas, para que con los parámetros del ejemplo (§4.4) aparezcan los tres casos: **(a) dispara** (colchón por debajo del punto de reposición), **(b) salvado por lo que viene en camino** (mismo colchón bajo + una `RestockOrder` reciente sin recepción que lleva la posición por encima del punto de reposición) y **(c) sano** (colchón holgado, como hoy). |
 | 7.3 | Se agregan `RestockOrder` recientes (últimos días, sin recepción) para los productos del grupo (b), y una parcialmente recibida para mostrar que se descuenta lo ya recibido. |
 
@@ -236,14 +236,15 @@ Se mantiene todo lo demás: el volumen de órdenes y su distribución en el año
 
 | Pieza | Ubicación | Qué hace |
 |---|---|---|
-| `RestockFormula` | `service/metrics/` | Función pura: recibe params + insumos (demandas, disponible, en pedido) y devuelve la fila calculada. Sin I/O. |
-| `RestockSuggestionService` | `service/metrics/` | Junta los insumos por producto con agregaciones bulk sobre Mongo (demanda en las dos ventanas, disponible neto, en pedido) y aplica `RestockFormula`. |
-| `ComputedMetricDescriptor` + registro | `service/metrics/MetricRegistry` | Segunda lista del mismo registro (`computed()`), que alimenta `computed_metrics` en el catálogo. |
-| `RestockSuggestionsRequest` / `ComputedMetricResponse<T>` | `api/metrics/` | Records del request (con Bean Validation) y del sobre común. |
+| `RestockFormula`, `RestockParams`, `RestockResult` | `service/metrics/restock/` | Función pura: recibe params + insumos (demandas, disponible, en pedido) y devuelve la fila calculada. `RestockParams.validated` valida los params. Sin I/O. |
+| `RestockInputs` | `service/metrics/restock/` | Funciones puras que arman los insumos desde los documentos (demanda por ventana, en pedido). Las comparten el servicio y el seeder de demo. |
+| `RestockSuggestionService` | `service/metrics/restock/` | Lee productos, órdenes de la ventana larga, restock orders y recepciones, más el disponible neto de `ProductService`, y aplica la fórmula. |
+| `ComputedMetricDescriptor` + registro | `service/metrics/` | Segunda lista del mismo `MetricRegistry` (`computed()`), que alimenta `computed_metrics` en el catálogo. |
+| `RestockSuggestionsRequest` / `RestockSuggestionRow` / `ComputedMetricResponse<T>` | `api/metrics/` | Records del request, de la fila (redondeo a 2 decimales) y del sobre común. |
 | Endpoint | `MetricsController` | `@PostMapping("/restock-suggestions")`, mismos roles que el controller. |
-| `INVALID_METRIC_PARAMS` | `GlobalExceptionHandler.MESSAGES` | Mensaje en español. |
+| `INVALID_METRIC_PARAMS` | `InvalidMetricParamsException` + `GlobalExceptionHandler` | El mensaje, en español, nombra el param. |
 
-`ProductService` expone sus agregaciones bulk de stock disponible/reservado para no duplicarlas.
+`ProductService.netAvailableStock` expone el disponible neto (físico − reservado) reutilizando sus agregaciones bulk.
 
 **Tests:**
 - `RestockFormulaTest`: el ejemplo de §4.4 (escenarios 1 y 2), `alpha` en 0 y en 1, demanda 0.
