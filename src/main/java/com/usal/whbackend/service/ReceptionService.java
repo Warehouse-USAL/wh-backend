@@ -3,12 +3,14 @@ package com.usal.whbackend.service;
 import com.usal.whbackend.api.restock.reception.CreateReceptionRequest;
 import com.usal.whbackend.domain.Product;
 import com.usal.whbackend.domain.Reception;
+import com.usal.whbackend.domain.ReceptionStatus;
 import com.usal.whbackend.domain.RestockOrder;
 import com.usal.whbackend.repository.ProductRepository;
 import com.usal.whbackend.repository.ReceptionRepository;
 import com.usal.whbackend.repository.RestockOrderRepository;
 import com.usal.whbackend.service.exception.ReceptionNotFoundException;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -58,11 +60,11 @@ public class ReceptionService {
             .orElseThrow(
                 () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "PRODUCT_NOT_FOUND"));
 
-    int assignedTotal =
-        request.assignments().stream()
-            .mapToInt(CreateReceptionRequest.AssignmentRequest::quantity)
-            .sum();
-    if (assignedTotal != request.quantityReceived()) {
+    long assignedTotal =
+        request.assignments() == null
+            ? 0
+            : request.assignments().stream().mapToLong(a -> (long) a.quantity()).sum();
+    if (assignedTotal > request.quantityReceived()) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "ASSIGNMENT_QUANTITY_MISMATCH");
     }
 
@@ -78,9 +80,11 @@ public class ReceptionService {
       }
     }
 
-    for (CreateReceptionRequest.AssignmentRequest assignment : request.assignments()) {
-      positionService.increaseStock(
-          assignment.positionId(), product.getId(), assignment.quantity());
+    if (request.assignments() != null) {
+      for (CreateReceptionRequest.AssignmentRequest assignment : request.assignments()) {
+        positionService.increaseStock(
+            assignment.positionId(), product.getId(), assignment.quantity());
+      }
     }
 
     Reception reception = new Reception();
@@ -90,16 +94,80 @@ public class ReceptionService {
     reception.setDeliveryUnit(request.deliveryUnit());
     reception.setSupplier(request.supplier());
     reception.setAssignments(
-        request.assignments().stream()
-            .map(a -> new Reception.Assignment(a.positionId(), a.quantity()))
-            .toList());
+        request.assignments() == null
+            ? List.of()
+            : request.assignments().stream()
+                .map(a -> new Reception.Assignment(a.positionId(), a.quantity()))
+                .toList());
+    reception.setStatus(
+        assignedTotal == request.quantityReceived()
+            ? ReceptionStatus.COMPLETED
+            : ReceptionStatus.PENDING_LOCATION);
     reception.setReceivedByUserId(userId);
     reception.setCreatedAt(Instant.now());
     return receptionRepository.save(reception);
   }
 
+  @Transactional
+  public Reception assignPositions(
+      String receptionId, List<CreateReceptionRequest.AssignmentRequest> newAssignments) {
+    Reception reception =
+        receptionRepository
+            .findById(receptionId)
+            .orElseThrow(() -> new ReceptionNotFoundException(receptionId));
+
+    if (reception.getStatus() == ReceptionStatus.COMPLETED) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "RECEPTION_ALREADY_COMPLETED");
+    }
+
+    long currentAssigned =
+        reception.getAssignments() == null
+            ? 0
+            : reception.getAssignments().stream().mapToLong(a -> (long) a.getQuantity()).sum();
+    long newAssigned =
+        newAssignments == null
+            ? 0
+            : newAssignments.stream().mapToLong(a -> (long) a.quantity()).sum();
+
+    if (currentAssigned + newAssigned > reception.getQuantityReceived()) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "ASSIGNMENT_QUANTITY_MISMATCH");
+    }
+
+    if (newAssignments != null) {
+      for (CreateReceptionRequest.AssignmentRequest assignment : newAssignments) {
+        positionService.increaseStock(
+            assignment.positionId(), reception.getProductId(), assignment.quantity());
+      }
+    }
+
+    List<Reception.Assignment> currentList =
+        reception.getAssignments() == null
+            ? new ArrayList<>()
+            : new ArrayList<>(reception.getAssignments());
+
+    if (newAssignments != null) {
+      for (CreateReceptionRequest.AssignmentRequest assignment : newAssignments) {
+        currentList.add(new Reception.Assignment(assignment.positionId(), assignment.quantity()));
+      }
+    }
+    reception.setAssignments(currentList);
+
+    if (currentAssigned + newAssigned == reception.getQuantityReceived()) {
+      reception.setStatus(ReceptionStatus.COMPLETED);
+    } else {
+      reception.setStatus(ReceptionStatus.PENDING_LOCATION);
+    }
+
+    return receptionRepository.save(reception);
+  }
+
   public Page<Reception> getReceptions(
-      String productId, String restockOrderId, String from, String to, Pageable pageable) {
+      String productId,
+      String restockOrderId,
+      ReceptionStatus status,
+      String from,
+      String to,
+      Pageable pageable) {
     Instant fromInstant = parseInstant(from);
     Instant toInstant = parseInstant(to);
 
@@ -109,6 +177,9 @@ public class ReceptionService {
     }
     if (restockOrderId != null) {
       query.addCriteria(Criteria.where("restockOrderId").is(restockOrderId));
+    }
+    if (status != null) {
+      query.addCriteria(Criteria.where("status").is(status));
     }
     if (fromInstant != null || toInstant != null) {
       Criteria createdAt = Criteria.where("createdAt");

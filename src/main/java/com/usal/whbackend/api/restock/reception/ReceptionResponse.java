@@ -1,6 +1,7 @@
 package com.usal.whbackend.api.restock.reception;
 
 import com.usal.whbackend.domain.Reception;
+import com.usal.whbackend.domain.ReceptionStatus;
 import com.usal.whbackend.domain.StockSize;
 import java.time.Instant;
 import java.util.List;
@@ -12,6 +13,7 @@ public record ReceptionResponse(
     int quantityReceived,
     StockSize deliveryUnit,
     String supplier,
+    ReceptionStatus status,
     List<AssignmentResponse> assignments,
     String receivedByUserId,
     Instant createdAt) {
@@ -37,6 +39,7 @@ public record ReceptionResponse(
         reception.getQuantityReceived(),
         reception.getDeliveryUnit(),
         reception.getSupplier(),
+        reception.getStatus(),
         assignments,
         reception.getReceivedByUserId(),
         reception.getCreatedAt());
