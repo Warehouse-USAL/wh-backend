@@ -10,6 +10,7 @@ import com.usal.whbackend.domain.Position;
 import com.usal.whbackend.domain.Product;
 import com.usal.whbackend.domain.ProductCategory;
 import com.usal.whbackend.domain.Reception;
+import com.usal.whbackend.domain.ReceptionStatus;
 import com.usal.whbackend.domain.RestockOrder;
 import com.usal.whbackend.domain.StockSize;
 import com.usal.whbackend.domain.User;
@@ -538,6 +539,7 @@ public final class DemoDataset {
       reception.setQuantityReceived(quantity);
       reception.setDeliveryUnit(StockSize.values()[n % StockSize.values().length]);
       reception.setSupplier(supplier);
+      reception.setStatus(ReceptionStatus.COMPLETED);
       reception.setAssignments(List.of(new Reception.Assignment(position.getId(), quantity)));
       reception.setReceivedByUserId("u-warehouse");
       reception.setCreatedAt(receivedAt);
