@@ -2,6 +2,7 @@ package com.usal.whbackend.api.restock.reception;
 
 import com.usal.whbackend.api.Pagination;
 import com.usal.whbackend.domain.Reception;
+import com.usal.whbackend.domain.ReceptionStatus;
 import com.usal.whbackend.service.ReceptionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -19,6 +20,7 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.annotation.CurrentSecurityContext;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -68,6 +70,7 @@ public class ReceptionController {
   public ResponseEntity<Map<String, Object>> getReceptions(
       @RequestParam(required = false) String productId,
       @RequestParam(required = false) String restockOrderId,
+      @RequestParam(required = false) ReceptionStatus status,
       @Parameter(description = "ISO-8601 start date (inclusive)") @RequestParam(required = false)
           String from,
       @Parameter(description = "ISO-8601 end date (inclusive)") @RequestParam(required = false)
@@ -76,7 +79,7 @@ public class ReceptionController {
       @RequestParam(defaultValue = "10") int size) {
     Pageable pageable = PageRequest.of(Math.max(page, 0), Math.max(Math.min(size, 50), 1));
     Page<Reception> result =
-        receptionService.getReceptions(productId, restockOrderId, from, to, pageable);
+        receptionService.getReceptions(productId, restockOrderId, status, from, to, pageable);
     return ResponseEntity.ok(
         Map.of(
             "receptions", result.getContent().stream().map(ReceptionResponse::from).toList(),
@@ -90,5 +93,24 @@ public class ReceptionController {
   public ResponseEntity<Map<String, ReceptionResponse>> getReception(@PathVariable String id) {
     return ResponseEntity.ok(
         Map.of("reception", ReceptionResponse.from(receptionService.getReception(id))));
+  }
+
+  @Operation(
+      summary = "Assign positions to reception",
+      description =
+          "Assigns warehouse positions to a reception that is in PENDING_LOCATION status.")
+  @ApiResponse(responseCode = "200", description = "Positions assigned")
+  @ApiResponse(
+      responseCode = "400",
+      description = "ASSIGNMENT_QUANTITY_MISMATCH, RECEPTION_ALREADY_COMPLETED")
+  @ApiResponse(responseCode = "404", description = "RECEPTION_NOT_FOUND, POSITION_NOT_FOUND")
+  @ApiResponse(
+      responseCode = "409",
+      description = "POSITION_ALREADY_OCCUPIED, STOCK_EXCEEDS_CAPACITY")
+  @PatchMapping("/{id}")
+  public ResponseEntity<Map<String, ReceptionResponse>> assignPositions(
+      @PathVariable String id, @Valid @RequestBody AssignReceptionPositionsRequest request) {
+    Reception reception = receptionService.assignPositions(id, request.assignments());
+    return ResponseEntity.ok(Map.of("reception", ReceptionResponse.from(reception)));
   }
 }
