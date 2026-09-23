@@ -2,11 +2,14 @@ package com.usal.whbackend.api.metrics;
 
 import com.usal.whbackend.api.Roles;
 import com.usal.whbackend.service.metrics.MetricsQueryService;
+import com.usal.whbackend.service.metrics.restock.RestockParams;
+import com.usal.whbackend.service.metrics.restock.RestockSuggestionService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import java.time.Instant;
 import java.util.Map;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -24,17 +27,24 @@ import org.springframework.web.bind.annotation.RestController;
 @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_SYSTEM', 'ADMIN_WAREHOUSE', 'DASHBOARD')")
 public class MetricsController {
 
-  private final MetricsQueryService metricsQueryService;
+  static final String RESTOCK_SUGGESTIONS = "restock_suggestions";
 
-  public MetricsController(MetricsQueryService metricsQueryService) {
+  private final MetricsQueryService metricsQueryService;
+  private final RestockSuggestionService restockSuggestionService;
+
+  public MetricsController(
+      MetricsQueryService metricsQueryService, RestockSuggestionService restockSuggestionService) {
     this.metricsQueryService = metricsQueryService;
+    this.restockSuggestionService = restockSuggestionService;
   }
 
   @Operation(
       summary = "List queryable metrics",
       description =
           "Self-describing catalogue: each entry carries the dimensions and aggregations a valid"
-              + " query may use, so a client can build a metric picker without further docs.")
+              + " query may use, so a client can build a metric picker without further docs."
+              + " computed_metrics lists the metrics the backend calculates, each with its"
+              + " endpoint and the params it requires.")
   @ApiResponse(responseCode = "200", description = "Metrics visible to the caller")
   @GetMapping("/catalog")
   public ResponseEntity<Map<String, Object>> catalog(Authentication authentication) {
@@ -42,7 +52,11 @@ public class MetricsController {
         metricsQueryService.catalog(Roles.of(authentication)).stream()
             .map(MetricDescriptorResponse::from)
             .toList();
-    return ResponseEntity.ok(Map.of("metrics", metrics));
+    var computed =
+        metricsQueryService.computedCatalog(Roles.of(authentication)).stream()
+            .map(ComputedMetricDescriptorResponse::from)
+            .toList();
+    return ResponseEntity.ok(Map.of("metrics", metrics, "computed_metrics", computed));
   }
 
   @Operation(
@@ -57,5 +71,27 @@ public class MetricsController {
   public ResponseEntity<MetricsQueryResponse> query(
       @Valid @RequestBody MetricsQueryRequest request, Authentication authentication) {
     return ResponseEntity.ok(metricsQueryService.query(request, Roles.of(authentication)));
+  }
+
+  @Operation(
+      summary = "Restock suggestions",
+      description =
+          "Weighted daily demand and, per active product, whether to restock and how much."
+              + " Every param is required: each team sends its own business decisions."
+              + " Inventory position = available (already net of reservations) + on order.")
+  @ApiResponse(responseCode = "200", description = "One row per product, most urgent first")
+  @ApiResponse(responseCode = "400", description = "INVALID_METRIC_PARAMS")
+  @PostMapping("/restock-suggestions")
+  public ResponseEntity<ComputedMetricResponse<RestockSuggestionRow>> restockSuggestions(
+      @RequestBody RestockSuggestionsRequest request) {
+    RestockParams params = request.toParams();
+    var rows =
+        restockSuggestionService
+            .suggest(params, request.filters().productIds(), request.filters().category())
+            .stream()
+            .map(RestockSuggestionRow::from)
+            .toList();
+    return ResponseEntity.ok(
+        new ComputedMetricResponse<>(RESTOCK_SUGGESTIONS, params, Instant.now(), rows));
   }
 }

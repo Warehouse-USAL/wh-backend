@@ -78,6 +78,21 @@ public class ProductService {
     return sum != null ? sum.total() : 0;
   }
 
+  /**
+   * Stock free to cover new orders, per product: on hand in active positions minus what pending and
+   * in-progress orders have reserved. The same figure as {@code stock.available} on the product
+   * API. Every requested id is present; a product with no stock maps to 0.
+   */
+  public Map<String, Integer> netAvailableStock(List<String> productIds) {
+    Map<String, Integer> onHand = bulkAvailableStock(productIds);
+    Map<String, Integer> reserved = bulkReservedStock(productIds);
+    return productIds.stream()
+        .distinct()
+        .collect(
+            Collectors.toMap(
+                id -> id, id -> onHand.getOrDefault(id, 0) - reserved.getOrDefault(id, 0)));
+  }
+
   private Map<String, Integer> bulkAvailableStock(List<String> productIds) {
     return positionRepository.findByProductIdInAndIsActiveTrue(productIds).stream()
         .collect(

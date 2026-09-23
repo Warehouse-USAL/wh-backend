@@ -76,6 +76,26 @@ class ProductServiceTest {
         .thenReturn((AggregationResults) emptyResults);
   }
 
+  // ── netAvailableStock ──────────────────────────────────────────────────────
+
+  @Test
+  void netAvailableStock_sumsActivePositionsPerProductAndReportsUnstockedAsZero() {
+    Position a = new Position();
+    a.setProductId("p1");
+    a.setCurrentStock(30);
+    Position b = new Position();
+    b.setProductId("p1");
+    b.setCurrentStock(12);
+    when(positionRepository.findByProductIdInAndIsActiveTrue(List.of("p1", "p2")))
+        .thenReturn(List.of(a, b));
+    mockZeroBulkReservedStock();
+
+    var net = productService.netAvailableStock(List.of("p1", "p2"));
+
+    assertEquals(42, net.get("p1"));
+    assertEquals(0, net.get("p2"));
+  }
+
   // ── getProducts ────────────────────────────────────────────────────────────
 
   @Test
