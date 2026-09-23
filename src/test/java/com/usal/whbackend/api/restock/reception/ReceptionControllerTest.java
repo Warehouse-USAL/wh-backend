@@ -10,6 +10,7 @@ import com.usal.whbackend.api.error.GlobalExceptionHandler;
 import com.usal.whbackend.config.JwtService;
 import com.usal.whbackend.config.SecurityConfig;
 import com.usal.whbackend.domain.Reception;
+import com.usal.whbackend.domain.ReceptionStatus;
 import com.usal.whbackend.domain.StockSize;
 import com.usal.whbackend.service.ReceptionService;
 import com.usal.whbackend.service.exception.ReceptionNotFoundException;
@@ -52,6 +53,7 @@ class ReceptionControllerTest {
     r.setQuantityReceived(48);
     r.setDeliveryUnit(StockSize.PALLET);
     r.setSupplier("Distribuidora XYZ");
+    r.setStatus(ReceptionStatus.COMPLETED);
     r.setAssignments(
         List.of(new Reception.Assignment("pos-1", 30), new Reception.Assignment("pos-2", 18)));
     r.setReceivedByUserId("user-1");
@@ -76,6 +78,7 @@ class ReceptionControllerTest {
         .andExpect(status().isCreated())
         .andExpect(jsonPath("$.reception.id").value("rcp-1"))
         .andExpect(jsonPath("$.reception.quantity_received").value(48))
+        .andExpect(jsonPath("$.reception.status").value("COMPLETED"))
         .andExpect(jsonPath("$.reception.assignments[0].position_id").value("pos-1"))
         .andExpect(jsonPath("$.reception.assignments[1].quantity").value(18));
   }
@@ -90,8 +93,13 @@ class ReceptionControllerTest {
   }
 
   @Test
-  @WithMockUser(roles = "ADMIN_WAREHOUSE")
-  void createReception_emptyAssignments_returns400() throws Exception {
+  @WithMockUser(username = "user-1", roles = "ADMIN_WAREHOUSE")
+  void createReception_emptyAssignments_returns201() throws Exception {
+    Reception pending = reception("rcp-1");
+    pending.setAssignments(List.of());
+    pending.setStatus(ReceptionStatus.PENDING_LOCATION);
+    when(receptionService.createReception(any(), eq("user-1"))).thenReturn(pending);
+
     mockMvc
         .perform(
             post("/restock/receptions")
@@ -99,7 +107,9 @@ class ReceptionControllerTest {
                 .content(
                     "{\"product_id\":\"product-1\",\"quantity_received\":48,\"delivery_unit\":\"PALLET\","
                         + "\"supplier\":\"XYZ\",\"assignments\":[]}"))
-        .andExpect(status().isBadRequest());
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.reception.status").value("PENDING_LOCATION"))
+        .andExpect(jsonPath("$.reception.assignments").isEmpty());
   }
 
   @Test
@@ -120,7 +130,7 @@ class ReceptionControllerTest {
   @Test
   @WithMockUser(roles = "ADMIN_WAREHOUSE")
   void getReceptions_returns200WithPagination() throws Exception {
-    when(receptionService.getReceptions(any(), any(), any(), any(), any()))
+    when(receptionService.getReceptions(any(), any(), any(), any(), any(), any()))
         .thenReturn(new PageImpl<>(List.of(reception("rcp-1")), PageRequest.of(0, 10), 1));
 
     mockMvc
@@ -128,6 +138,46 @@ class ReceptionControllerTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.receptions[0].id").value("rcp-1"))
         .andExpect(jsonPath("$.pagination.total_elements").value(1));
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void getReceptions_withStatusFilter_returns200() throws Exception {
+    when(receptionService.getReceptions(any(), any(), eq(ReceptionStatus.PENDING_LOCATION), any(), any(), any()))
+        .thenReturn(new PageImpl<>(List.of(reception("rcp-1")), PageRequest.of(0, 10), 1));
+
+    mockMvc
+        .perform(get("/restock/receptions?status=PENDING_LOCATION"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.receptions[0].id").value("rcp-1"));
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void assignPositions_valid_returns200() throws Exception {
+    Reception r = reception("rcp-1");
+    r.setStatus(ReceptionStatus.COMPLETED);
+    when(receptionService.assignPositions(eq("rcp-1"), any())).thenReturn(r);
+
+    mockMvc
+        .perform(
+            patch("/restock/receptions/rcp-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"assignments\":[{\"position_id\":\"pos-1\",\"quantity\":30}]}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.reception.id").value("rcp-1"))
+        .andExpect(jsonPath("$.reception.status").value("COMPLETED"));
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void assignPositions_emptyAssignments_returns400() throws Exception {
+    mockMvc
+        .perform(
+            patch("/restock/receptions/rcp-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"assignments\":[]}"))
+        .andExpect(status().isBadRequest());
   }
 
   @Test
