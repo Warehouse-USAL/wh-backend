@@ -5,8 +5,10 @@ import com.usal.whbackend.api.vehicle.RegisterVehicleRequest;
 import com.usal.whbackend.domain.Vehicle;
 import com.usal.whbackend.domain.VehicleStatus;
 import com.usal.whbackend.repository.VehicleRepository;
+import com.usal.whbackend.repository.kafka.VehicleUpdateExecutor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -16,11 +18,15 @@ public class VehicleService {
 
   private final VehicleRepository vehicleRepository;
   private final VehicleEventPublisher vehicleEventPublisher;
+  private final VehicleUpdateExecutor vehicleUpdateExecutor;
 
   public VehicleService(
-      VehicleRepository vehicleRepository, VehicleEventPublisher vehicleEventPublisher) {
+      VehicleRepository vehicleRepository,
+      VehicleEventPublisher vehicleEventPublisher,
+      VehicleUpdateExecutor vehicleUpdateExecutor) {
     this.vehicleRepository = vehicleRepository;
     this.vehicleEventPublisher = vehicleEventPublisher;
+    this.vehicleUpdateExecutor = vehicleUpdateExecutor;
   }
 
   public Page<Vehicle> getVehicles(Pageable pageable) {
@@ -41,26 +47,34 @@ public class VehicleService {
   }
 
   public Vehicle updateVehicle(String id, PatchVehicleRequest request) {
-    Vehicle vehicle = getVehicle(id);
+    Update update = new Update();
     if (request.status() != null) {
-      vehicle.setStatus(VehicleStatus.valueOf(request.status().toUpperCase()));
+      update.set("status", VehicleStatus.valueOf(request.status().toUpperCase()));
     }
     if (request.positionX() != null) {
-      vehicle.setPositionX(request.positionX());
+      update.set("positionX", request.positionX());
     }
     if (request.positionY() != null) {
-      vehicle.setPositionY(request.positionY());
+      update.set("positionY", request.positionY());
     }
     if (request.battery() != null) {
-      vehicle.setBattery(request.battery());
+      update.set("battery", request.battery());
     }
     if (request.currentOrderId() != null) {
-      vehicle.setCurrentOrderId(request.currentOrderId());
+      update.set("currentOrderId", request.currentOrderId());
     }
     if (request.lastSeenAt() != null) {
-      vehicle.setLastSeenAt(request.lastSeenAt());
+      update.set("lastSeenAt", request.lastSeenAt());
     }
-    Vehicle saved = vehicleRepository.save(vehicle);
+
+    Vehicle saved =
+        update.getUpdateObject().isEmpty()
+            ? getVehicle(id)
+            : vehicleUpdateExecutor
+                .apply(id, previous -> update)
+                .map(VehicleUpdateExecutor.Result::updated)
+                .orElseThrow(
+                    () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "VEHICLE_NOT_FOUND"));
     vehicleEventPublisher.broadcastVehicleUpdate(saved);
     return saved;
   }

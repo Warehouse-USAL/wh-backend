@@ -14,7 +14,9 @@ import java.util.ArrayList;
 import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
@@ -188,7 +190,14 @@ public class ReceptionService {
       query.addCriteria(createdAt);
     }
     long total = mongoTemplate.count(query, Reception.class);
-    List<Reception> items = mongoTemplate.find(query.with(pageable), Reception.class);
+    Pageable sorted =
+        pageable.getSort().isSorted()
+            ? pageable
+            : PageRequest.of(
+                pageable.getPageNumber(),
+                pageable.getPageSize(),
+                Sort.by(Sort.Direction.DESC, "createdAt"));
+    List<Reception> items = mongoTemplate.find(query.with(sorted), Reception.class);
     return new PageImpl<>(items, pageable, total);
   }
 
