@@ -50,6 +50,7 @@ class ProductControllerSecurityTest {
         null,
         null,
         null,
+        null,
         null);
   }
 

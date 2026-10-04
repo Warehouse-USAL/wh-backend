@@ -253,4 +253,46 @@ class MetricsControllerTest {
         .andExpect(jsonPath("$.error.code").value("INVALID_METRIC_PARAMS"))
         .andExpect(jsonPath("$.error.message").value("alpha debe estar entre 0 y 1"));
   }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void applyRestockSuggestions_writesAndReturnsTheRowsWritten() throws Exception {
+    when(restockSuggestionService.apply(any()))
+        .thenReturn(
+            List.of(
+                new RestockSuggestion(
+                    "p1",
+                    "SKU-1",
+                    "Producto 1",
+                    new RestockResult(22, 25, 22.9, 44, 158.5, 318.8, 140, 0, 140, true, 179))));
+
+    mockMvc
+        .perform(
+            post("/metrics/restock-suggestions/apply")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
+                    {"params":{"alpha":0.3,"recent_days":7,"long_days":60,"safety_days":2,
+                               "lead_time_days":5,"coverage_days":7}}
+                    """))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.metric").value("restock_suggestions"))
+        .andExpect(jsonPath("$.params_used.long_days").value(60))
+        .andExpect(jsonPath("$.data[0].suggested_quantity").value(179));
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void applyRestockSuggestions_rejectsFiltersBecauseItAlwaysCoversEveryProduct() throws Exception {
+    mockMvc
+        .perform(
+            post("/metrics/restock-suggestions/apply")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(RESTOCK_BODY))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.error.code").value("INVALID_METRIC_PARAMS"))
+        .andExpect(
+            jsonPath("$.error.message").value(org.hamcrest.Matchers.containsString("filters")));
+    verifyNoInteractions(restockSuggestionService);
+  }
 }

@@ -2,9 +2,13 @@ package com.usal.whbackend.service.metrics.restock;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.within;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -12,6 +16,7 @@ import com.usal.whbackend.domain.Order;
 import com.usal.whbackend.domain.OrderItem;
 import com.usal.whbackend.domain.OrderStatus;
 import com.usal.whbackend.domain.Product;
+import com.usal.whbackend.domain.ProductRestock;
 import com.usal.whbackend.domain.Reception;
 import com.usal.whbackend.domain.RestockOrder;
 import com.usal.whbackend.service.ProductService;
@@ -22,14 +27,17 @@ import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
+import org.bson.Document;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.mongodb.core.BulkOperations;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
 
 @ExtendWith(MockitoExtension.class)
 class RestockSuggestionServiceTest {
@@ -141,6 +149,52 @@ class RestockSuggestionServiceTest {
     assertThatThrownBy(() -> service.suggest(EXAMPLE, List.of(), "juguetes"))
         .isInstanceOf(InvalidMetricParamsException.class)
         .hasMessageContaining("category");
+  }
+
+  @Test
+  void apply_writesTheRecommendationOnEveryActiveProductStampedWithTheRunTime() {
+    when(mongoTemplate.find(any(Query.class), eq(Product.class)))
+        .thenReturn(List.of(product("p1", "SKU-1"), product("p2", "SKU-2")));
+    when(mongoTemplate.find(any(Query.class), eq(Order.class)))
+        .thenReturn(
+            List.of(
+                order(OrderStatus.COMPLETED, 30, "p1", 22 * 53),
+                order(OrderStatus.PENDING, 2, "p1", 25 * 7)));
+    when(mongoTemplate.find(any(Query.class), eq(RestockOrder.class))).thenReturn(List.of());
+    when(productService.netAvailableStock(anyList())).thenReturn(Map.of("p1", 140, "p2", 30));
+    BulkOperations bulk = mock(BulkOperations.class);
+    when(mongoTemplate.bulkOps(BulkOperations.BulkMode.UNORDERED, Product.class)).thenReturn(bulk);
+
+    List<RestockSuggestion> written = service.apply(EXAMPLE);
+
+    assertThat(written).hasSize(2);
+    ArgumentCaptor<Query> ids = ArgumentCaptor.forClass(Query.class);
+    ArgumentCaptor<Update> updates = ArgumentCaptor.forClass(Update.class);
+    verify(bulk, times(2)).updateOne(ids.capture(), updates.capture());
+    verify(bulk).execute();
+
+    int p1 = ids.getAllValues().get(0).getQueryObject().get("_id").equals("p1") ? 0 : 1;
+    ProductRestock restock =
+        (ProductRestock)
+            updates
+                .getAllValues()
+                .get(p1)
+                .getUpdateObject()
+                .get("$set", Document.class)
+                .get("restock");
+    assertThat(restock.shouldRestock()).isTrue();
+    assertThat(restock.suggestedQuantity()).isEqualTo(179);
+    assertThat(restock.reorderPoint()).isCloseTo(158.5, within(1e-9));
+    assertThat(restock.inventoryPosition()).isEqualTo(140);
+    assertThat(restock.calculatedAt()).isEqualTo(NOW);
+  }
+
+  @Test
+  void apply_withNoActiveProductsWritesNothing() {
+    when(mongoTemplate.find(any(Query.class), eq(Product.class))).thenReturn(List.of());
+
+    assertThat(service.apply(EXAMPLE)).isEmpty();
+    verify(mongoTemplate, never()).bulkOps(any(BulkOperations.BulkMode.class), eq(Product.class));
   }
 
   private static Product product(String id, String sku) {

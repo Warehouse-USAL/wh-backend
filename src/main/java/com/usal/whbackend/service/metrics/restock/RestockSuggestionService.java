@@ -4,6 +4,7 @@ import com.usal.whbackend.domain.Order;
 import com.usal.whbackend.domain.OrderStatus;
 import com.usal.whbackend.domain.Product;
 import com.usal.whbackend.domain.ProductCategory;
+import com.usal.whbackend.domain.ProductRestock;
 import com.usal.whbackend.domain.Reception;
 import com.usal.whbackend.domain.RestockOrder;
 import com.usal.whbackend.service.ProductService;
@@ -17,9 +18,11 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.mongodb.core.BulkOperations;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.stereotype.Service;
 
 /**
@@ -93,6 +96,37 @@ public class RestockSuggestionService {
             })
         .sorted(MOST_URGENT_FIRST)
         .toList();
+  }
+
+  /**
+   * The daily run: computes every active product's recommendation and stores it on the product
+   * ({@link Product#getRestock()}), stamped with the run time. Each product is a targeted {@code
+   * $set} of that one field, so a concurrent edit to any other product field is never overwritten.
+   */
+  public List<RestockSuggestion> apply(RestockParams params) {
+    List<RestockSuggestion> suggestions = suggest(params, List.of(), null);
+    if (suggestions.isEmpty()) {
+      return suggestions;
+    }
+    Instant calculatedAt = clock.instant();
+    BulkOperations bulk = mongoTemplate.bulkOps(BulkOperations.BulkMode.UNORDERED, Product.class);
+    for (RestockSuggestion s : suggestions) {
+      RestockResult r = s.result();
+      bulk.updateOne(
+          new Query(Criteria.where("_id").is(s.productId())),
+          new Update()
+              .set(
+                  "restock",
+                  new ProductRestock(
+                      r.shouldRestock(),
+                      r.suggestedQuantity(),
+                      r.reorderPoint(),
+                      r.targetStock(),
+                      r.inventoryPosition(),
+                      calculatedAt)));
+    }
+    bulk.execute();
+    return suggestions;
   }
 
   private List<Product> findProducts(List<String> productIds, String category) {

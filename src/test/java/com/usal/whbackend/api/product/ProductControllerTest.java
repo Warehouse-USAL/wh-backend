@@ -57,7 +57,8 @@ class ProductControllerTest {
             10.0,
             10.0,
             1.0,
-            1000.0);
+            1000.0,
+            null);
   }
 
   @Test
@@ -145,7 +146,8 @@ class ProductControllerTest {
             10.0,
             10.0,
             1.0,
-            1000.0);
+            1000.0,
+            null);
 
     when(productService.getProduct(anyString(), any())).thenReturn(product);
 
@@ -192,7 +194,8 @@ class ProductControllerTest {
             10.0,
             10.0,
             1.0,
-            1000.0);
+            1000.0,
+            null);
 
     ArgumentCaptor<CreateProductRequest> captor =
         ArgumentCaptor.forClass(CreateProductRequest.class);

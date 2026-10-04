@@ -39,6 +39,12 @@ public record RestockSuggestionsRequest(Params params, Filters filters) {
     filters = filters == null ? new Filters(null, null) : filters;
   }
 
+  /** Whether the caller restricted the products at all. */
+  public boolean hasFilters() {
+    return !filters.productIds().isEmpty()
+        || (filters.category() != null && !filters.category().isBlank());
+  }
+
   public RestockParams toParams() {
     if (params == null) {
       throw new InvalidMetricParamsException("params es obligatorio");

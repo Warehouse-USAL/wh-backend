@@ -1,6 +1,7 @@
 package com.usal.whbackend.api.metrics;
 
 import com.usal.whbackend.api.Roles;
+import com.usal.whbackend.service.exception.InvalidMetricParamsException;
 import com.usal.whbackend.service.metrics.MetricsQueryService;
 import com.usal.whbackend.service.metrics.restock.RestockParams;
 import com.usal.whbackend.service.metrics.restock.RestockSuggestionService;
@@ -91,6 +92,31 @@ public class MetricsController {
             .stream()
             .map(RestockSuggestionRow::from)
             .toList();
+    return ResponseEntity.ok(
+        new ComputedMetricResponse<>(RESTOCK_SUGGESTIONS, params, Instant.now(), rows));
+  }
+
+  @Operation(
+      summary = "Apply restock suggestions (daily run)",
+      description =
+          "Computes every active product's restock recommendation with the given params and stores"
+              + " it on the product (product.restock), stamped with calculated_at. Called once a"
+              + " day by the restock-cron service. Filters are not accepted: a run always covers"
+              + " every product, so all recommendations share one calculation time.")
+  @ApiResponse(responseCode = "200", description = "The rows written, most urgent first")
+  @ApiResponse(responseCode = "400", description = "INVALID_METRIC_PARAMS")
+  @PostMapping("/restock-suggestions/apply")
+  // Narrower than the class: this one writes, so read-only roles (DASHBOARD) may only simulate.
+  @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_WAREHOUSE')")
+  public ResponseEntity<ComputedMetricResponse<RestockSuggestionRow>> applyRestockSuggestions(
+      @RequestBody RestockSuggestionsRequest request) {
+    RestockParams params = request.toParams();
+    if (request.hasFilters()) {
+      throw new InvalidMetricParamsException(
+          "filters no se aceptan en apply: la corrida cubre todos los productos activos");
+    }
+    var rows =
+        restockSuggestionService.apply(params).stream().map(RestockSuggestionRow::from).toList();
     return ResponseEntity.ok(
         new ComputedMetricResponse<>(RESTOCK_SUGGESTIONS, params, Instant.now(), rows));
   }

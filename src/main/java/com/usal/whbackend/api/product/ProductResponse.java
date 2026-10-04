@@ -1,6 +1,7 @@
 package com.usal.whbackend.api.product;
 
 import com.usal.whbackend.domain.Product;
+import com.usal.whbackend.domain.ProductRestock;
 import java.time.Instant;
 import java.util.List;
 
@@ -21,7 +22,8 @@ public record ProductResponse(
     Double width,
     Double length,
     Double weight,
-    Double volume) {
+    Double volume,
+    Restock restock) {
 
   public ProductResponse {
     images = images == null ? null : List.copyOf(images);
@@ -42,6 +44,18 @@ public record ProductResponse(
   public record Stock(int available, int reserved, int physical, int min) {}
 
   public record OrderConstraints(int maxQuantityPerOrder) {}
+
+  /**
+   * The last daily restock recommendation, or null before the first run. A snapshot as of {@code
+   * calculatedAt}: stock moves during the day are reflected at the next run.
+   */
+  public record Restock(
+      boolean shouldRestock,
+      int suggestedQuantity,
+      double reorderPoint,
+      double targetStock,
+      int inventoryPosition,
+      Instant calculatedAt) {}
 
   public static ProductResponse from(Product product, int availableStock, int reservedStock) {
     List<Image> images =
@@ -89,6 +103,19 @@ public record ProductResponse(
         product.getWidth(),
         product.getLength(),
         product.getWeight(),
-        product.getVolume());
+        product.getVolume(),
+        restock(product.getRestock()));
+  }
+
+  private static Restock restock(ProductRestock r) {
+    return r == null
+        ? null
+        : new Restock(
+            r.shouldRestock(),
+            r.suggestedQuantity(),
+            r.reorderPoint(),
+            r.targetStock(),
+            r.inventoryPosition(),
+            r.calculatedAt());
   }
 }

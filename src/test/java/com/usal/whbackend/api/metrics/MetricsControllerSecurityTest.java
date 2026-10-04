@@ -86,4 +86,49 @@ class MetricsControllerSecurityTest {
                 .content(RESTOCK_BODY))
         .andExpect(status().isForbidden());
   }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void adminWarehouseCanApplyRestockSuggestions() throws Exception {
+    mockMvc
+        .perform(
+            post("/metrics/restock-suggestions/apply")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(RESTOCK_BODY))
+        .andExpect(status().isOk());
+  }
+
+  @Test
+  @WithMockUser(roles = "SUPERADMIN")
+  void superadminCanApplyRestockSuggestions() throws Exception {
+    mockMvc
+        .perform(
+            post("/metrics/restock-suggestions/apply")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(RESTOCK_BODY))
+        .andExpect(status().isOk());
+  }
+
+  @Test
+  @WithMockUser(roles = "DASHBOARD")
+  void dashboardCannotApplyRestockSuggestions() throws Exception {
+    // Read-only by construction: the dashboard may simulate, never overwrite the stored state.
+    mockMvc
+        .perform(
+            post("/metrics/restock-suggestions/apply")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(RESTOCK_BODY))
+        .andExpect(status().isForbidden());
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_SYSTEM")
+  void adminSystemCannotApplyRestockSuggestions() throws Exception {
+    mockMvc
+        .perform(
+            post("/metrics/restock-suggestions/apply")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(RESTOCK_BODY))
+        .andExpect(status().isForbidden());
+  }
 }
