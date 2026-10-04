@@ -177,6 +177,14 @@ class DemoTelemetryDatasetTest {
   }
 
   @Test
+  void historyReachesTwoYearsBack() {
+    // Dashboards chart year-over-year; every app reading the backend needs both years present.
+    List<Long> stamps = named(build(), "wh_vehicle_battery").get(0).timestampsMs();
+    assertThat(NOW.toEpochMilli() - stamps.get(0))
+        .isGreaterThanOrEqualTo(Duration.ofDays(729).toMillis());
+  }
+
+  @Test
   void everySeriesCarriesTheJobLabelTheCollectorAdds() {
     // Seeded points must land on the SAME series the live pipeline writes to. A missing or
     // different job label would silently create a parallel set that no query joins back up.

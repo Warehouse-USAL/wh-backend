@@ -33,10 +33,10 @@ public class DemoTelemetrySeeder {
 
   /**
    * Series per request. Keeps any single import body to a few hundred kilobytes — the original
-   * value of 8 was sized for a week at 5-minute resolution (2,016 points/series). Series are now a
-   * year at 30-minute resolution ({@link DemoTelemetryDataset#DAYS} / {@link
-   * DemoTelemetryDataset#RESOLUTION}, 17,520 points/series, ~8.7x longer), so this is scaled down
-   * by the same factor to keep the per-request payload in the same ballpark.
+   * value of 8 was sized for a week at 5-minute resolution (2,016 points/series). Series are now
+   * two years at 30-minute resolution ({@link DemoTelemetryDataset#DAYS} / {@link
+   * DemoTelemetryDataset#RESOLUTION}, 35,040 points/series), so one series per request — well
+   * under a megabyte, far below VictoriaMetrics' request size limit.
    */
   private static final int BATCH_SIZE = 1;
 
