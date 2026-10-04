@@ -101,6 +101,20 @@ class DemoDataSeederTest {
   }
 
   @Test
+  void run_whenOrdersRemainButProductsWereDeleted_skipsInsteadOfCrashing() {
+    // Bulk inserts would hit duplicate ids and fail the boot; a partly emptied DB is not fresh.
+    when(productRepository.count()).thenReturn(0L);
+    when(orderMongoRepository.count()).thenReturn(12L);
+
+    seeder(true).run(null);
+
+    verify(orderMongoRepository, never())
+        .insert(org.mockito.ArgumentMatchers.<Iterable<Order>>any());
+    verifyNoInteractions(
+        userRepository, restockOrderRepository, receptionRepository, passwordEncoder);
+  }
+
+  @Test
   void run_whenEnabledAndEmpty_seedsEveryCollection() {
     when(productRepository.count()).thenReturn(0L);
     when(passwordEncoder.encode(anyString())).thenReturn("$2a$hashed");

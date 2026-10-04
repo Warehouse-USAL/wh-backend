@@ -86,6 +86,12 @@ public class DemoDataSeeder implements ApplicationRunner {
       log.info("Demo data already present (products exist) — skipping demo seed.");
       return;
     }
+    // Inserts below fail on any id already present, and a failing runner fails the boot. A DB
+    // with orders left behind is not fresh: skip rather than crash-loop the backend.
+    if (orderMongoRepository.count() > 0) {
+      log.warn("Demo seed skipped: no products but orders exist. Drop the database to re-seed.");
+      return;
+    }
 
     DemoData data = new DemoDataset(passwordEncoder::encode).build();
 
