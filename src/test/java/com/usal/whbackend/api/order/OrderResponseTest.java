@@ -7,6 +7,7 @@ import com.usal.whbackend.domain.Order;
 import com.usal.whbackend.domain.OrderItem;
 import com.usal.whbackend.domain.OrderPriority;
 import com.usal.whbackend.domain.OrderStatus;
+import com.usal.whbackend.domain.Product;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -65,12 +66,22 @@ class OrderResponseTest {
     address.setFloor("4");
     address.setPostalCode("C1043");
 
+    Product.Price itemPrice = new Product.Price();
+    itemPrice.setAmountCents(1500);
+    itemPrice.setCurrency("ARS");
+    itemPrice.setTaxIncluded(true);
+
+    Product.Price orderTotal = new Product.Price();
+    orderTotal.setAmountCents(4500);
+    orderTotal.setCurrency("ARS");
+    orderTotal.setTaxIncluded(true);
+
     Order order = new Order();
     order.setId("ord-1");
     order.setStatus(OrderStatus.IN_PROGRESS);
     order.setPriority(OrderPriority.URGENT);
     order.setRequestedByUserId("usr-1");
-    order.setItems(List.of(new OrderItem("prod-1", "SKU-1", 3)));
+    order.setItems(List.of(new OrderItem("prod-1", "SKU-1", 3, itemPrice)));
     order.setDestinationArea("AREA-A");
     order.setAssignedVehicleId("veh-1");
     order.setAddress(address);
@@ -78,6 +89,7 @@ class OrderResponseTest {
     order.setStartedAt(started);
     order.setCompletedAt(completed);
     order.setCancelReason("none");
+    order.setTotal(orderTotal);
 
     OrderResponse r = OrderResponse.from(order);
 
@@ -88,6 +100,10 @@ class OrderResponseTest {
     assertEquals("prod-1", r.items().get(0).productId());
     assertEquals("SKU-1", r.items().get(0).sku());
     assertEquals(3, r.items().get(0).quantity());
+    assertNotNull(r.items().get(0).unitPrice());
+    assertEquals(1500, r.items().get(0).unitPrice().amountCents());
+    assertEquals("ARS", r.items().get(0).unitPrice().currency());
+    assertTrue(r.items().get(0).unitPrice().taxIncluded());
     assertEquals("AREA-A", r.destinationArea());
     assertEquals("veh-1", r.assignedVehicleId());
     assertEquals("Av. Corrientes 1234", r.address().street());
@@ -99,6 +115,18 @@ class OrderResponseTest {
     assertEquals(completed, r.timestamps().completedAt());
     assertEquals("none", r.cancelReason());
     assertEquals(OrderPriority.URGENT, r.priority());
+    assertNotNull(r.total());
+    assertEquals(4500, r.total().amountCents());
+    assertEquals("ARS", r.total().currency());
+    assertTrue(r.total().taxIncluded());
+  }
+
+  @Test
+  void priceRecord_accessors() {
+    OrderResponse.Price price = new OrderResponse.Price(2500, "USD", false);
+    assertEquals(2500, price.amountCents());
+    assertEquals("USD", price.currency());
+    assertFalse(price.taxIncluded());
   }
 
   @Test

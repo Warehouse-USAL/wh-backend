@@ -17,13 +17,45 @@ public record OrderResponse(
     AddressResponse address,
     Timestamps timestamps,
     String cancelReason,
-    OrderPriority priority) {
+    OrderPriority priority,
+    Price total) {
 
   public OrderResponse {
     items = items == null ? null : List.copyOf(items);
   }
 
-  public record OrderItemResponse(String productId, String sku, int quantity) {}
+  public OrderResponse(
+      String id,
+      OrderStatus status,
+      String requestedByUserId,
+      List<OrderItemResponse> items,
+      String destinationArea,
+      String assignedVehicleId,
+      AddressResponse address,
+      Timestamps timestamps,
+      String cancelReason,
+      OrderPriority priority) {
+    this(
+        id,
+        status,
+        requestedByUserId,
+        items,
+        destinationArea,
+        assignedVehicleId,
+        address,
+        timestamps,
+        cancelReason,
+        priority,
+        null);
+  }
+
+  public record Price(long amountCents, String currency, boolean taxIncluded) {}
+
+  public record OrderItemResponse(String productId, String sku, int quantity, Price unitPrice) {
+    public OrderItemResponse(String productId, String sku, int quantity) {
+      this(productId, sku, quantity, null);
+    }
+  }
 
   public record AddressResponse(
       String street, String department, String floor, String postalCode) {}
@@ -36,7 +68,18 @@ public record OrderResponse(
         rawItems == null
             ? List.of()
             : rawItems.stream()
-                .map(i -> new OrderItemResponse(i.getProductId(), i.getSku(), i.getQuantity()))
+                .map(
+                    i ->
+                        new OrderItemResponse(
+                            i.getProductId(),
+                            i.getSku(),
+                            i.getQuantity(),
+                            i.getUnitPrice() == null
+                                ? null
+                                : new Price(
+                                    i.getUnitPrice().getAmountCents(),
+                                    i.getUnitPrice().getCurrency(),
+                                    i.getUnitPrice().isTaxIncluded())))
                 .toList();
 
     AddressResponse address = null;
@@ -49,6 +92,14 @@ public record OrderResponse(
               order.getAddress().getPostalCode());
     }
 
+    Price total =
+        order.getTotal() == null
+            ? null
+            : new Price(
+                order.getTotal().getAmountCents(),
+                order.getTotal().getCurrency(),
+                order.getTotal().isTaxIncluded());
+
     return new OrderResponse(
         order.getId(),
         order.getStatus(),
@@ -59,6 +110,7 @@ public record OrderResponse(
         address,
         new Timestamps(order.getCreatedAt(), order.getStartedAt(), order.getCompletedAt()),
         order.getCancelReason(),
-        order.getPriority());
+        order.getPriority(),
+        total);
   }
 }

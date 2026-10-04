@@ -34,6 +34,7 @@ public class Order {
   private Instant completedAt;
   private String cancelReason;
   private Address address;
+  private Product.Price total;
 
   public Order() {}
 
@@ -131,5 +132,13 @@ public class Order {
 
   public void setAddress(Address address) {
     this.address = address == null ? null : new Address(address);
+  }
+
+  public Product.Price getTotal() {
+    return total;
+  }
+
+  public void setTotal(Product.Price total) {
+    this.total = total;
   }
 }

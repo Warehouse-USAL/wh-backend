@@ -24,6 +24,11 @@ class OrderTest {
     order.setStartedAt(now);
     order.setCompletedAt(now);
     order.setCancelReason("out of stock");
+    Product.Price total = new Product.Price();
+    total.setAmountCents(5000);
+    total.setCurrency("ARS");
+    total.setTaxIncluded(true);
+    order.setTotal(total);
 
     assertEquals("id-1", order.getId());
     assertEquals(OrderStatus.PENDING, order.getStatus());
@@ -36,5 +41,6 @@ class OrderTest {
     assertEquals(now, order.getStartedAt());
     assertEquals(now, order.getCompletedAt());
     assertEquals("out of stock", order.getCancelReason());
+    assertEquals(total, order.getTotal());
   }
 }

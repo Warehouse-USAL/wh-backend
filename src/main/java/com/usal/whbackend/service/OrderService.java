@@ -155,7 +155,15 @@ public class OrderService {
           && itemRequest.quantity() > product.getMaxQuantityPerOrder()) {
         throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "QUANTITY_EXCEEDS_LIMIT");
       }
-      items.add(new OrderItem(product.getId(), product.getSku(), itemRequest.quantity()));
+      Product.Price unitPrice = null;
+      if (product.getPrice() != null) {
+        unitPrice = new Product.Price();
+        unitPrice.setAmountCents(product.getPrice().getAmountCents());
+        unitPrice.setCurrency(product.getPrice().getCurrency());
+        unitPrice.setTaxIncluded(product.getPrice().isTaxIncluded());
+      }
+      items.add(
+          new OrderItem(product.getId(), product.getSku(), itemRequest.quantity(), unitPrice));
     }
 
     // Pass 2: stock check + save under per-product locks. Locks are acquired in sorted product-ID
@@ -178,6 +186,22 @@ public class OrderService {
       address.setFloor(request.address().floor());
       address.setPostalCode(request.address().postalCode());
 
+      long totalAmountCents = 0L;
+      String currency = "ARS";
+      boolean taxIncluded = true;
+      boolean hasAnyPrice = false;
+
+      for (OrderItem item : items) {
+        if (item.getUnitPrice() != null) {
+          hasAnyPrice = true;
+          totalAmountCents += item.getUnitPrice().getAmountCents() * item.getQuantity();
+          if (item.getUnitPrice().getCurrency() != null) {
+            currency = item.getUnitPrice().getCurrency();
+          }
+          taxIncluded = item.getUnitPrice().isTaxIncluded();
+        }
+      }
+
       Order order = new Order();
       order.setStatus(OrderStatus.PENDING);
       order.setPriority(request.priority() != null ? request.priority() : OrderPriority.MEDIUM);
@@ -186,6 +210,14 @@ public class OrderService {
       order.setDestinationArea(request.destinationArea());
       order.setAddress(address);
       order.setCreatedAt(Instant.now());
+
+      if (hasAnyPrice) {
+        Product.Price total = new Product.Price();
+        total.setAmountCents(totalAmountCents);
+        total.setCurrency(currency);
+        total.setTaxIncluded(taxIncluded);
+        order.setTotal(total);
+      }
 
       Order saved = orderRepository.save(order);
       orderEventPublishers.forEach(p -> p.broadcastOrderUpdate(saved));

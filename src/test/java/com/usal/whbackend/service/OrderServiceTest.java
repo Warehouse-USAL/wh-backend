@@ -303,6 +303,77 @@ class OrderServiceTest {
     assertEquals(com.usal.whbackend.domain.OrderPriority.URGENT, result.getPriority());
   }
 
+  @Test
+  void createOrder_freezesUnitPricesAndCalculatesTotal() {
+    Product p1 = new Product();
+    p1.setId("prod-1");
+    p1.setSku("SKU-001");
+    p1.setActive(true);
+    p1.setMaxQuantityPerOrder(10);
+    p1.setMinimumStock(2);
+    Product.Price price1 = new Product.Price();
+    price1.setAmountCents(2500);
+    price1.setCurrency("ARS");
+    price1.setTaxIncluded(true);
+    p1.setPrice(price1);
+
+    Product p2 = new Product();
+    p2.setId("prod-2");
+    p2.setSku("SKU-002");
+    p2.setActive(true);
+    p2.setMaxQuantityPerOrder(10);
+    p2.setMinimumStock(2);
+    Product.Price price2 = new Product.Price();
+    price2.setAmountCents(4000);
+    price2.setCurrency("ARS");
+    price2.setTaxIncluded(true);
+    p2.setPrice(price2);
+
+    when(productRepository.findById("prod-1")).thenReturn(Optional.of(p1));
+    when(productRepository.findById("prod-2")).thenReturn(Optional.of(p2));
+    when(productService.computeAvailableStock("prod-1")).thenReturn(10);
+    when(productService.computeReservedStock("prod-1")).thenReturn(0);
+    when(productService.computeAvailableStock("prod-2")).thenReturn(10);
+    when(productService.computeReservedStock("prod-2")).thenReturn(0);
+
+    ArgumentCaptor<Order> orderCaptor = ArgumentCaptor.forClass(Order.class);
+    when(orderRepository.save(orderCaptor.capture())).thenAnswer(inv -> inv.getArgument(0));
+
+    CreateOrderRequest req =
+        new CreateOrderRequest(
+            List.of(new OrderItemRequest("prod-1", 2), new OrderItemRequest("prod-2", 3)),
+            "AREA-A",
+            validAddress());
+
+    Order result = orderService.createOrder(req, "user-1");
+
+    assertNotNull(result.getTotal());
+    assertEquals(17000, result.getTotal().getAmountCents());
+    assertEquals("ARS", result.getTotal().getCurrency());
+    assertTrue(result.getTotal().isTaxIncluded());
+
+    assertEquals(2, result.getItems().size());
+    OrderItem item1 =
+        result.getItems().stream()
+            .filter(i -> i.getProductId().equals("prod-1"))
+            .findFirst()
+            .orElseThrow();
+    assertNotNull(item1.getUnitPrice());
+    assertEquals(2500, item1.getUnitPrice().getAmountCents());
+    assertEquals("ARS", item1.getUnitPrice().getCurrency());
+    assertTrue(item1.getUnitPrice().isTaxIncluded());
+
+    OrderItem item2 =
+        result.getItems().stream()
+            .filter(i -> i.getProductId().equals("prod-2"))
+            .findFirst()
+            .orElseThrow();
+    assertNotNull(item2.getUnitPrice());
+    assertEquals(4000, item2.getUnitPrice().getAmountCents());
+    assertEquals("ARS", item2.getUnitPrice().getCurrency());
+    assertTrue(item2.getUnitPrice().isTaxIncluded());
+  }
+
   // ── cancelOrder ────────────────────────────────────────────────────────────
 
   @Test
