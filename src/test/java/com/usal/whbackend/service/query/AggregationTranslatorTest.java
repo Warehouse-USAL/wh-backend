@@ -227,7 +227,7 @@ class AggregationTranslatorTest {
   void aRangeWiderThanTheCapIsRefused() {
     List<Filter> tooWide =
         List.of(
-            new Filter("created_at", "gte", "2024-01-01T00:00:00Z"),
+            new Filter("created_at", "gte", "2023-12-30T00:00:00Z"),
             new Filter("created_at", "lt", "2026-01-01T00:00:00Z"));
 
     assertThatThrownBy(
@@ -240,6 +240,26 @@ class AggregationTranslatorTest {
                         List.of(new AggregateSpec("count", null, "orders"))),
                     orders))
         .satisfies(t -> assertThat(codeOf(t)).isEqualTo("QUERY_TOO_BROAD"));
+  }
+
+  @Test
+  void twoYearsOfOrdersFitInOneAggregation() {
+    // The demo seed carries two years of orders; a year-over-year chart must not need chunking.
+    List<Filter> twoYears =
+        List.of(
+            new Filter("created_at", "gte", "2024-10-01T00:00:00Z"),
+            new Filter("created_at", "lt", "2026-10-01T00:00:00Z"));
+
+    assertThatCode(
+            () ->
+                translator.translate(
+                    request(
+                        twoYears,
+                        null,
+                        List.of(new GroupSpec("status", null, "status")),
+                        List.of(new AggregateSpec("count", null, "orders"))),
+                    orders))
+        .doesNotThrowAnyException();
   }
 
   @Test

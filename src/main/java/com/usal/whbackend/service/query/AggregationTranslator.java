@@ -51,8 +51,12 @@ public class AggregationTranslator {
   static final int MAX_GROUPED_ROWS = 1000;
   static final int DEFAULT_GROUPED_ROWS = 100;
 
-  /** A quarter. Long enough for a semester's demand analysis, short enough to stay bounded. */
-  static final Duration MAX_RANGE = Duration.ofDays(92);
+  /**
+   * Two years (731 days, so a leap year still fits). The demo history reaches that far back and
+   * year-over-year charts must not need chunking; daily buckets over it stay under {@link
+   * #MAX_GROUPED_ROWS}, and {@link #MAX_EXECUTION_TIME} still caps a query that turns out costly.
+   */
+  static final Duration MAX_RANGE = Duration.ofDays(731);
 
   /**
    * The only limit MongoDB enforces for us. Every other rail here rejects a query before it runs;

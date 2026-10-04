@@ -34,5 +34,5 @@ docs {
   Rejections: UNKNOWN_METRIC, UNKNOWN_DIMENSION, UNSUPPORTED_AGGREGATION, QUERY_TOO_BROAD (400),
   METRICS_UNAVAILABLE (503) when the metrics store is unreachable.
 
-  Guard rails: range <= 31d, step >= 10s, <= 11000 points per series, <= 100 series.
+  Guard rails: range <= 731d (two years), step >= 10s, <= 11000 points per series, <= 100 series.
 }

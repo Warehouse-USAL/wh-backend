@@ -180,10 +180,11 @@ estuvo ocupado la mitad del bloque aporta 0.5.
 Si quieren un número entero tipo "ahora mismo", usen un `step` chico (`1m`, `5m`). Si quieren
 "actividad de la flota en 24h", un `step` grande es exactamente lo que buscan.
 
-**2. Retención: ~400 días.** VictoriaMetrics ahora guarda poco más de un año (subimos la
-retención — antes eran 30 días). Lo que **no** cambió es el límite por consulta: `from`/`to` de
-una misma llamada siguen sin poder abarcar más de 31 días. Para graficar el año completo, encadenen
-llamadas de a 31 días — el histórico está ahí, sólo no entra en una consulta sola.
+**2. Retención y rango: 2 años.** VictoriaMetrics guarda unos 800 días y la semilla carga 2 años
+de historial de flota. Una sola llamada puede abarcar hasta **731 días** de `from`/`to`. Lo que
+la mantiene barata es el tope de **11.000 puntos por serie**: para 2 años, usen un `step` de `2h`
+o más (`6h` o `1d` son buenos valores para un gráfico anual). Un `step` más fino sobre un rango
+tan largo responde `QUERY_TOO_BROAD`.
 
 ---
 
@@ -311,7 +312,7 @@ backend sepa cuál es. Son `null` en órdenes que no llegaron a esa etapa, y `av
 | Claves de `group_by` | 3 |
 | Filas — modo agregado | 100 por defecto, 1000 máx |
 | Filas — modo documento | 25 por defecto, 100 máx |
-| Ventana obligatoria en `orders` | sí, máximo 92 días |
+| Ventana obligatoria en `orders` | sí, máximo 731 días (2 años) |
 | Tiempo de ejecución | 10 s |
 
 > **`orders` exige una ventana de fechas; `positions`, `products` y `vehicles` no.**
