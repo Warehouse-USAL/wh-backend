@@ -34,7 +34,8 @@ public record ProductResponse(
 
   public record Spec(String label, String value) {}
 
-  public record Stock(int available, int reserved, int min) {}
+  /** available = free (physical - reserved); total = available + reserved = physical on hand. */
+  public record Stock(int available, int reserved, int total, int min) {}
 
   public record OrderConstraints(int maxQuantityPerOrder) {}
 
@@ -72,7 +73,11 @@ public record ProductResponse(
         images,
         price,
         specs,
-        new Stock(availableStock - reservedStock, reservedStock, product.getMinimumStock()),
+        new Stock(
+            availableStock - reservedStock,
+            reservedStock,
+            availableStock,
+            product.getMinimumStock()),
         new OrderConstraints(product.getMaxQuantityPerOrder()),
         product.isActive(),
         product.getCreatedAt(),

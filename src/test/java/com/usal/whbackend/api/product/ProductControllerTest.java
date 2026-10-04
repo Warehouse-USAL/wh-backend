@@ -49,7 +49,7 @@ class ProductControllerTest {
             List.of(),
             null,
             List.of(),
-            new ProductResponse.Stock(10, 0, 0),
+            new ProductResponse.Stock(10, 0, 10, 0),
             new ProductResponse.OrderConstraints(0),
             true,
             null,
@@ -137,7 +137,7 @@ class ProductControllerTest {
             List.of(new ProductResponse.Image("https://example.com/img.png", "Front", true)),
             new ProductResponse.Price(4999900L, "ARS", false),
             List.of(new ProductResponse.Spec("Peso", "250 g")),
-            new ProductResponse.Stock(50, 0, 10),
+            new ProductResponse.Stock(50, 5, 55, 10),
             new ProductResponse.OrderConstraints(5),
             true,
             Instant.parse("2026-01-01T00:00:00Z"),
@@ -165,7 +165,9 @@ class ProductControllerTest {
         .andExpect(jsonPath("$.product.created_at").exists())
         .andExpect(jsonPath("$.product.stock.min").value(10))
         .andExpect(jsonPath("$.product.order_constraints.max_quantity_per_order").value(5))
-        .andExpect(jsonPath("$.product.stock.available").value(50));
+        .andExpect(jsonPath("$.product.stock.available").value(50))
+        .andExpect(jsonPath("$.product.stock.reserved").value(5))
+        .andExpect(jsonPath("$.product.stock.total").value(55));
   }
 
   @Test
@@ -182,7 +184,7 @@ class ProductControllerTest {
             List.of(new ProductResponse.Image("https://example.com/tool.png", null, true)),
             new ProductResponse.Price(1500000L, "ARS", false),
             List.of(new ProductResponse.Spec("Marca", "Acme")),
-            new ProductResponse.Stock(100, 0, 20),
+            new ProductResponse.Stock(100, 0, 100, 20),
             new ProductResponse.OrderConstraints(10),
             true,
             Instant.parse("2026-01-01T00:00:00Z"),

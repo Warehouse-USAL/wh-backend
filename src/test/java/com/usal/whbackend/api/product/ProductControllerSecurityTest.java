@@ -42,7 +42,7 @@ class ProductControllerSecurityTest {
         null,
         null,
         null,
-        new ProductResponse.Stock(0, 0, 0),
+        new ProductResponse.Stock(0, 0, 0, 0),
         new ProductResponse.OrderConstraints(0),
         true,
         null,
