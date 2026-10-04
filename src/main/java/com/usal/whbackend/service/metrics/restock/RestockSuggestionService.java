@@ -104,6 +104,11 @@ public class RestockSuggestionService {
    * $set} of that one field, so a concurrent edit to any other product field is never overwritten.
    */
   public List<RestockSuggestion> apply(RestockParams params) {
+    // A deactivated product is no longer restocked, however it got deactivated.
+    mongoTemplate.updateMulti(
+        new Query(Criteria.where("active").is(false).and("restock").exists(true)),
+        new Update().unset("restock"),
+        Product.class);
     List<RestockSuggestion> suggestions = suggest(params, List.of(), null);
     if (suggestions.isEmpty()) {
       return suggestions;

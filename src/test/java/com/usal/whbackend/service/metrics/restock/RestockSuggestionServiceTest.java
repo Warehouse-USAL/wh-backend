@@ -197,6 +197,21 @@ class RestockSuggestionServiceTest {
     verify(mongoTemplate, never()).bulkOps(any(BulkOperations.BulkMode.class), eq(Product.class));
   }
 
+  @Test
+  void apply_clearsLeftoverRecommendationsOnInactiveProducts() {
+    // However a product got deactivated, it must not keep advertising a restock.
+    when(mongoTemplate.find(any(Query.class), eq(Product.class))).thenReturn(List.of());
+
+    service.apply(EXAMPLE);
+
+    ArgumentCaptor<Query> query = ArgumentCaptor.forClass(Query.class);
+    ArgumentCaptor<Update> update = ArgumentCaptor.forClass(Update.class);
+    verify(mongoTemplate).updateMulti(query.capture(), update.capture(), eq(Product.class));
+    assertThat(query.getValue().getQueryObject().get("active")).isEqualTo(false);
+    assertThat(update.getValue().getUpdateObject().get("$unset", Document.class))
+        .containsKey("restock");
+  }
+
   private static Product product(String id, String sku) {
     Product p = new Product();
     p.setId(id);
