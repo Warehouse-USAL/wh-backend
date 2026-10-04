@@ -214,6 +214,9 @@ services:
       # Runs once at start (retrying while the backend boots) so product.restock is never
       # empty after a deploy or a fresh seed.
       RESTOCK_RUN_ON_START: ${RESTOCK_RUN_ON_START:-true}
+      # Seconds to wait for backend readiness per run, and first-run attempts on transient errors.
+      RESTOCK_READY_TIMEOUT: ${RESTOCK_READY_TIMEOUT:-900}
+      RESTOCK_STARTUP_RETRIES: ${RESTOCK_STARTUP_RETRIES:-60}
     volumes:
       - ./config/restock-cron/restock-cron.sh:/opt/restock-cron/restock-cron.sh:ro
     depends_on:

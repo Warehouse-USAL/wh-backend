@@ -19,7 +19,7 @@
 #   RESTOCK_ALPHA RESTOCK_RECENT_DAYS RESTOCK_LONG_DAYS RESTOCK_SAFETY_DAYS
 #   RESTOCK_LEAD_TIME_DAYS RESTOCK_COVERAGE_DAYS
 #   RESTOCK_RUN_ON_START     run once at container start (default true)
-#   RESTOCK_STARTUP_RETRIES  attempts for that first run while the backend boots (default 30)
+#   RESTOCK_STARTUP_RETRIES  attempts (10s apart) for the first run on transient errors (default 60)
 #   RESTOCK_READY_TIMEOUT    seconds to wait for backend readiness before applying (default 900)
 # ---------------------------------------------------------------------------
 set -eu
@@ -31,26 +31,15 @@ log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) restock-cron: $*"; }
 # Escapes a value for embedding inside a JSON string.
 json_escape() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
 
-run_once() {
-  [ -f "$ENV_FILE" ] && . "$ENV_FILE"
-
-  login_body=$(printf '{"email":"%s","password":"%s"}' \
-    "$(json_escape "$RESTOCK_USER")" "$(json_escape "$RESTOCK_PASSWORD")")
-  login=$(curl -sS -m 30 -X POST "$RESTOCK_BACKEND_URL/auth/login" \
-    -H 'Content-Type: application/json' -d "$login_body") || { log "login request failed"; return 1; }
-  token=$(printf '%s' "$login" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
-  if [ -z "$token" ]; then
-    log "login rejected: $login"
-    return 2
-  fi
-
-  # The HTTP port opens before startup runners finish — including the demo seed. Applying then
-  # would compute on half-inserted data, so wait until the backend reports itself ready.
+# Waits until the backend reports itself ready. Its HTTP port opens before startup runners
+# finish — the admin bootstrap and the demo seed — so logging in or applying earlier could be
+# refused, or compute on half-inserted data. Returns 1 (transient) on timeout.
+wait_ready() {
   waited=0
   while :; do
-    ready=$(curl -sS -m 10 -o /dev/null -w '%{http_code}' \
-      -H "Authorization: Bearer $token" "$RESTOCK_BACKEND_URL/actuator/health/readiness") || ready=000
-    [ "$ready" = "503" ] || [ "$ready" = "000" ] || break
+    ready=$(curl -s -m 10 -o /dev/null -w '%{http_code}' \
+      "$RESTOCK_BACKEND_URL/actuator/health/readiness") || ready=000
+    [ "$ready" = "200" ] && break
     if [ "$waited" -ge "${RESTOCK_READY_TIMEOUT:-900}" ]; then
       log "backend not ready after ${waited}s (readiness HTTP $ready)"
       return 1
@@ -58,7 +47,27 @@ run_once() {
     sleep 5
     waited=$((waited + 5))
   done
-  [ "$waited" -gt 0 ] && log "backend ready after ${waited}s"
+  if [ "$waited" -gt 0 ]; then
+    log "backend ready after ${waited}s"
+  fi
+}
+
+run_once() {
+  [ -f "$ENV_FILE" ] && . "$ENV_FILE"
+
+  wait_ready || return 1
+
+  login_body=$(printf '{"email":"%s","password":"%s"}' \
+    "$(json_escape "$RESTOCK_USER")" "$(json_escape "$RESTOCK_PASSWORD")")
+  login=$(curl -sS -m 30 -w '\n%{http_code}' -X POST "$RESTOCK_BACKEND_URL/auth/login" \
+    -H 'Content-Type: application/json' -d "$login_body") || { log "login request failed"; return 1; }
+  login_status=$(printf '%s' "$login" | tail -n 1)
+  token=$(printf '%s' "$login" | sed '$d' | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
+  if [ -z "$token" ]; then
+    log "login failed with HTTP $login_status: $(printf '%s' "$login" | sed '$d')"
+    # The backend is ready, so a 4xx is a real rejection (wrong credentials); anything else is not.
+    case "$login_status" in 4*) return 2 ;; *) return 1 ;; esac
+  fi
 
   body=$(printf '{"params":{"alpha":%s,"recent_days":%s,"long_days":%s,"safety_days":%s,"lead_time_days":%s,"coverage_days":%s}}' \
     "$RESTOCK_ALPHA" "$RESTOCK_RECENT_DAYS" "$RESTOCK_LONG_DAYS" \
@@ -87,7 +96,7 @@ case "${1:-run}" in
 
     if [ "${RESTOCK_RUN_ON_START:-true}" = "true" ]; then
       attempt=1
-      retries=${RESTOCK_STARTUP_RETRIES:-30}
+      retries=${RESTOCK_STARTUP_RETRIES:-60}
       while :; do
         rc=0
         run_once || rc=$?

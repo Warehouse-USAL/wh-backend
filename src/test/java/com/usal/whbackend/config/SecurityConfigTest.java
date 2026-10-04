@@ -25,6 +25,16 @@ class ActuatorStubController {
     return "{\"status\":\"UP\"}";
   }
 
+  @GetMapping("/actuator/health/readiness")
+  String readiness() {
+    return "{\"status\":\"UP\"}";
+  }
+
+  @GetMapping("/actuator/health/liveness")
+  String liveness() {
+    return "{\"status\":\"UP\"}";
+  }
+
   @GetMapping("/actuator/info")
   String info() {
     return "{}";
@@ -47,6 +57,13 @@ class SecurityConfigTest {
   @Test
   void actuatorHealth_noToken_returns200() throws Exception {
     mockMvc.perform(get("/actuator/health")).andExpect(status().isOk());
+  }
+
+  @Test
+  void readinessAndLivenessProbes_noToken_return200() throws Exception {
+    // Probes carry only UP/DOWN; restock-cron must reach readiness before it can log in.
+    mockMvc.perform(get("/actuator/health/readiness")).andExpect(status().isOk());
+    mockMvc.perform(get("/actuator/health/liveness")).andExpect(status().isOk());
   }
 
   @Test
