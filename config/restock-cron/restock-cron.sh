@@ -10,6 +10,9 @@
 #   restock-cron.sh entrypoint   container entrypoint: optional first run, then crond
 #   restock-cron.sh run          one run (what crond executes)
 #
+# Exit status of a run: 0 ok, 1 transient (backend unreachable / not ready — retried at start),
+# 2 rejected request (bad params or credentials — retrying cannot help).
+#
 # Env (defaults in docker-compose.yml):
 #   RESTOCK_BACKEND_URL  RESTOCK_USER  RESTOCK_PASSWORD
 #   RESTOCK_SCHEDULE     cron expression, evaluated in UTC (the image has no tzdata)
@@ -17,6 +20,7 @@
 #   RESTOCK_LEAD_TIME_DAYS RESTOCK_COVERAGE_DAYS
 #   RESTOCK_RUN_ON_START     run once at container start (default true)
 #   RESTOCK_STARTUP_RETRIES  attempts for that first run while the backend boots (default 30)
+#   RESTOCK_READY_TIMEOUT    seconds to wait for backend readiness before applying (default 900)
 # ---------------------------------------------------------------------------
 set -eu
 
@@ -37,8 +41,24 @@ run_once() {
   token=$(printf '%s' "$login" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')
   if [ -z "$token" ]; then
     log "login rejected: $login"
-    return 1
+    return 2
   fi
+
+  # The HTTP port opens before startup runners finish — including the demo seed. Applying then
+  # would compute on half-inserted data, so wait until the backend reports itself ready.
+  waited=0
+  while :; do
+    ready=$(curl -sS -m 10 -o /dev/null -w '%{http_code}' \
+      -H "Authorization: Bearer $token" "$RESTOCK_BACKEND_URL/actuator/health/readiness") || ready=000
+    [ "$ready" = "503" ] || [ "$ready" = "000" ] || break
+    if [ "$waited" -ge "${RESTOCK_READY_TIMEOUT:-900}" ]; then
+      log "backend not ready after ${waited}s (readiness HTTP $ready)"
+      return 1
+    fi
+    sleep 5
+    waited=$((waited + 5))
+  done
+  [ "$waited" -gt 0 ] && log "backend ready after ${waited}s"
 
   body=$(printf '{"params":{"alpha":%s,"recent_days":%s,"long_days":%s,"safety_days":%s,"lead_time_days":%s,"coverage_days":%s}}' \
     "$RESTOCK_ALPHA" "$RESTOCK_RECENT_DAYS" "$RESTOCK_LONG_DAYS" \
@@ -51,7 +71,7 @@ run_once() {
   payload=$(printf '%s' "$response" | sed '$d')
   if [ "$status" != "200" ]; then
     log "apply failed with HTTP $status: $payload"
-    return 1
+    case "$status" in 4*) return 2 ;; *) return 1 ;; esac
   fi
 
   products=$(printf '%s' "$payload" | grep -o '"product_id"' | wc -l | tr -d ' ')
@@ -68,7 +88,14 @@ case "${1:-run}" in
     if [ "${RESTOCK_RUN_ON_START:-true}" = "true" ]; then
       attempt=1
       retries=${RESTOCK_STARTUP_RETRIES:-30}
-      until run_once; do
+      while :; do
+        rc=0
+        run_once || rc=$?
+        [ "$rc" -eq 0 ] && break
+        if [ "$rc" -eq 2 ]; then
+          log "request rejected; fix the configuration — not retrying until the next scheduled run"
+          break
+        fi
         if [ "$attempt" -ge "$retries" ]; then
           log "first run failed $attempt times; continuing with the schedule"
           break

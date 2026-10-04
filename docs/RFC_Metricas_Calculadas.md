@@ -256,6 +256,8 @@ El endpoint calcula igual que la simulación y **guarda la recomendación en cad
 | `RESTOCK_BACKEND_URL` | `http://backend:8080` | |
 | `RESTOCK_RUN_ON_START` | `true` | Corrida inicial, con reintentos mientras el backend arranca. |
 
+Antes de aplicar, el cron espera a que el backend esté **listo** (`/actuator/health/readiness`), no solo escuchando. El puerto HTTP abre antes de que terminen las tareas de arranque (incluido el seed de demo), y aplicar en ese momento calcularía con datos a medias. Un request rechazado (parámetros inválidos o credenciales incorrectas, HTTP 4xx) no se reintenta: se loguea el motivo y se espera a la próxima corrida programada. Todo queda en `docker compose logs restock-cron`.
+
 `make deploy` levanta `backend` y `restock-cron` (este último no tiene estado).
 
 ## 7. Seeding: 2 años de historia realista
