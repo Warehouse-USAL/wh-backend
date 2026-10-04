@@ -8,7 +8,7 @@ import org.junit.jupiter.api.Test;
 class ProductResponseTest {
 
   @Test
-  void from_stockSplitsPhysicalIntoFreeAndReserved_andTotalIsTheirSum() {
+  void from_stockSplitsPhysicalIntoFreeAndReserved_andPhysicalIsTheirSum() {
     Product p = new Product();
     p.setMinimumStock(3);
 
@@ -17,7 +17,7 @@ class ProductResponseTest {
 
     assertEquals(7, stock.available());
     assertEquals(5, stock.reserved());
-    assertEquals(12, stock.total());
+    assertEquals(12, stock.physical());
     assertEquals(3, stock.min());
   }
 }

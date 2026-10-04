@@ -34,8 +34,12 @@ public record ProductResponse(
 
   public record Spec(String label, String value) {}
 
-  /** available = free (physical - reserved); total = available + reserved = physical on hand. */
-  public record Stock(int available, int reserved, int total, int min) {}
+  /**
+   * physical = units on hand in active positions, the reference figure for a product's state; it
+   * only drops when an order completes and its units actually leave. reserved = units held by
+   * pending or in-progress orders. available = physical - reserved, free for new orders.
+   */
+  public record Stock(int available, int reserved, int physical, int min) {}
 
   public record OrderConstraints(int maxQuantityPerOrder) {}
 

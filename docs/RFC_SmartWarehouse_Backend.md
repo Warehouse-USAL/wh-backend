@@ -98,7 +98,7 @@ El Backend actúa como gateway entre los consumidores y el ecosistema de vehícu
 | image_url | string (URL) | URL pública de la imagen del producto |
 | stock.available | integer | Unidades disponibles para nuevas órdenes |
 | stock.reserved | integer | Unidades reservadas por órdenes en curso |
-| stock.total | integer | Unidades físicas en depósito (`available + reserved`) |
+| stock.physical | integer | Stock físico en depósito (`available + reserved`). Es la referencia del estado del producto: baja recién cuando una orden se completa y la mercadería sale. |
 | order_constraints.max_quantity_per_order | integer | Máximo de unidades por orden |
 | location.zone | string | Zona del warehouse donde está almacenado |
 | location.line | string | Línea (pasillo) dentro de la zona |

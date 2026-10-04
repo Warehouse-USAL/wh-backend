@@ -167,7 +167,7 @@ class ProductControllerTest {
         .andExpect(jsonPath("$.product.order_constraints.max_quantity_per_order").value(5))
         .andExpect(jsonPath("$.product.stock.available").value(50))
         .andExpect(jsonPath("$.product.stock.reserved").value(5))
-        .andExpect(jsonPath("$.product.stock.total").value(55));
+        .andExpect(jsonPath("$.product.stock.physical").value(55));
   }
 
   @Test
