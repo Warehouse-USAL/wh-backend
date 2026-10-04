@@ -61,8 +61,13 @@ public final class RestockInputs {
   }
 
   /**
-   * Units requested from suppliers that have not arrived yet. Each order is clamped at zero on its
-   * own, so an over-delivered order does not cancel out another one still in transit.
+   * Units requested from suppliers that are not on a shelf yet. Each order is clamped at zero on
+   * its own, so an over-delivered order does not cancel out another one still in transit.
+   *
+   * <p>An order is reduced by what has been put away into positions, not by what was received: a
+   * reception still {@code PENDING_LOCATION} holds units that are in no position — so not in
+   * available stock — and counting them as received would make them vanish from the inventory
+   * position until someone assigns them.
    */
   public static Map<String, Integer> onOrderByProduct(
       List<RestockOrder> restockOrders, List<Reception> receptions) {
@@ -72,7 +77,7 @@ public final class RestockInputs {
             .collect(
                 Collectors.groupingBy(
                     Reception::getRestockOrderId,
-                    Collectors.summingInt(Reception::getQuantityReceived)));
+                    Collectors.summingInt(RestockInputs::locatedQuantity)));
 
     return restockOrders.stream()
         .filter(ro -> Objects.nonNull(ro.getProductId()))
@@ -85,5 +90,11 @@ public final class RestockInputs {
                             0,
                             ro.getQuantityRequested()
                                 - receivedByOrder.getOrDefault(ro.getId(), 0)))));
+  }
+
+  private static int locatedQuantity(Reception reception) {
+    return reception.getAssignments() == null
+        ? 0
+        : reception.getAssignments().stream().mapToInt(Reception.Assignment::getQuantity).sum();
   }
 }

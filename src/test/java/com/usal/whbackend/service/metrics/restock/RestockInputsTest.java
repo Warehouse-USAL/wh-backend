@@ -85,6 +85,17 @@ class RestockInputsTest {
     assertThat(RestockInputs.onOrderByProduct(restock, receptions)).containsEntry("p1", 50);
   }
 
+  @Test
+  void onOrder_unitsReceivedButNotYetLocatedStillCountAsOnOrder() {
+    // 60 arrived on the dock but only 20 were put away: the 40 waiting for a position are in no
+    // position (so not in available stock) and must not vanish from the inventory position.
+    List<RestockOrder> restock = List.of(restock("ro-1", "p1", 100));
+    Reception pending = reception("ro-1", "p1", 60);
+    pending.setAssignments(List.of(new Reception.Assignment("pos-1", 20)));
+
+    assertThat(RestockInputs.onOrderByProduct(restock, List.of(pending))).containsEntry("p1", 80);
+  }
+
   private static Order order(OrderStatus status, int daysAgo, String productId, int quantity) {
     Order o = new Order();
     o.setStatus(status);
@@ -106,6 +117,7 @@ class RestockInputsTest {
     r.setRestockOrderId(restockOrderId);
     r.setProductId(productId);
     r.setQuantityReceived(received);
+    r.setAssignments(List.of(new Reception.Assignment("pos-1", received)));
     return r;
   }
 }

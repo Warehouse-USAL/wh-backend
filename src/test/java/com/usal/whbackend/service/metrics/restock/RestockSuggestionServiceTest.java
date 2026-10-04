@@ -86,6 +86,7 @@ class RestockSuggestionServiceTest {
     rec.setRestockOrderId("ro-1");
     rec.setProductId("p1");
     rec.setQuantityReceived(30);
+    rec.setAssignments(List.of(new Reception.Assignment("pos-1", 30)));
     when(mongoTemplate.find(any(Query.class), eq(Reception.class))).thenReturn(List.of(rec));
     when(productService.netAvailableStock(anyList())).thenReturn(Map.of("p1", 10));
 
