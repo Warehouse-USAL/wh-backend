@@ -20,14 +20,16 @@ Cada vez más equipos consumen métricas. Hoy cada uno cruza datos por su cuenta
 
 1. Define un **contrato REST común** para métricas calculadas: el equipo manda los parámetros y el backend guarda la lógica y hace el cálculo.
 2. Implementa la primera métrica con ese contrato: `POST /metrics/restock-suggestions`.
-3. Ajusta el seeding para que la métrica tenga un año de historia y resultados variados el día de la demo.
+3. Corre ese análisis **una vez por día** (servicio `restock-cron`) y deja la recomendación guardada en cada producto (`product.restock`).
+4. Expone el stock físico del producto (`stock.physical`) como referencia de su estado.
+5. Carga **2 años** de historia con estacionalidad y picos, para que todos los consumidores tengan datos realistas que graficar.
 
 ## 2. Alcance
 
 **Incluido:** contrato común (request, respuesta, errores, catálogo), la métrica de sugerencia de reposición con las fórmulas de la sección 4, y los cambios de seeding de la sección 7.
 
 **Fuera de alcance:**
-- Guardar parámetros en el backend (defaults, overrides por producto). Hoy **los manda cada equipo en cada request**.
+- Guardar parámetros en el backend (defaults, overrides por producto). Los manda cada equipo en cada request, y la corrida diaria los toma de las env vars del servicio `restock-cron` (§6.3).
 - Crear la `RestockOrder` automáticamente a partir de la sugerencia. La métrica solo sugiere.
 - Ciclo de estados de `RestockOrder` (cancelar un pedido que nunca va a llegar). Ver 4.3.
 - Series de tiempo de demanda. Para graficar demanda diaria ya existe `POST /query/orders` con `unwind: items` (ver `DASHBOARD_INTEGRATION.md`).
@@ -68,8 +70,9 @@ La ventana larga **excluye** la ventana reciente, así ningún día cuenta dos v
 | Término | Fuente |
 |---|---|
 | **Unidades pedidas** | Suma de `items[].quantity` del producto en órdenes con `status ≠ CANCELLED`, contadas por `createdAt`. Medimos la demanda cuando se pide, no cuando se despacha: así las órdenes PENDING de los últimos días ya cuentan como demanda reciente. |
-| **Stock disponible** | `Σ Position.currentStock` (posiciones activas) **−** `Σ items[].quantity` de órdenes `PENDING`/`IN_PROGRESS`. Es el mismo `stock.available` que devuelve `GET /products`. |
-| **Stock en pedido** | Suma, sobre las `RestockOrder` del producto, de `máx(0, quantity_requested − Σ Reception.quantity_received vinculadas)`. Es lo pedido al proveedor que todavía no llegó. |
+| **Stock físico** | `Σ Position.currentStock` (posiciones activas). Es `stock.physical` en `GET /products` y la referencia del estado del producto. Baja recién cuando una orden se **completa** (la mercadería sale efectivamente); tomar una orden no lo toca. |
+| **Stock disponible** | Físico **−** `Σ items[].quantity` de órdenes `PENDING`/`IN_PROGRESS` (lo reservado). Es el mismo `stock.available` que devuelve `GET /products`. Al completarse una orden, su reserva desaparece y su cantidad sale del físico. |
+| **Stock en pedido** | Suma, sobre las `RestockOrder` del producto, de `máx(0, quantity_requested − Σ unidades ya ubicadas en posiciones por sus recepciones)`. Es lo pedido al proveedor que todavía no está en una estantería. Se descuenta lo **ubicado**, no lo recibido: una recepción `PENDING_LOCATION` tiene unidades que no están en ninguna posición (así que no están en el disponible), y si se descontaran como recibidas desaparecerían de la posición de inventario hasta que alguien las ubique. |
 
 > **Por qué la Posición de inventario no resta el stock reservado.** El Stock disponible ya lo descuenta. Si además se restara el reservado, las unidades comprometidas se descontarían dos veces. Esta es la corrección al documento original, que usaba `Disponible + En pedido − Reservado`.
 
@@ -214,23 +217,78 @@ Filtros opcionales: sin filtros, se calcula para **todos los productos activos**
 - `suggested_quantity` es entera y se redondea **hacia arriba**, porque no se piden fracciones y redondear hacia abajo dejaría el stock por debajo del objetivo.
 - Orden: primero `should_restock = true`, y dentro de cada grupo por `suggested_quantity` descendente, para que lo más urgente aparezca arriba.
 
-## 7. Seeding: un año de datos que muestre la métrica
+### 6.3. Corrida diaria: `POST /metrics/restock-suggestions/apply` + `restock-cron`
 
-El dataset de demo (`DemoDataset`) ya carga un año de órdenes (2 por día, COMPLETED/CANCELLED) y de restock+recepciones (cada 5 días). Hay tres problemas:
+El análisis corre **una vez por día**. Un servicio de docker compose, `restock-cron` (imagen `curlimages/curl` con `crond`), hace login con una cuenta de servicio y llama a:
 
-1. **Todos los productos quedan igual.** `simulateStock` deja a cada producto con el mismo colchón fijo (`HEALTHY_BUFFER = 30`), y con la demanda seedeada (~0,6 u/día por producto) ninguno dispara reposición. La demo saldría vacía.
-2. **Nunca hay stock en pedido.** Cada `RestockOrder` seedeada tiene su recepción completa, así que no se puede ver el Escenario 2.
-3. **Pedidos fantasma.** 1 de cada 5 recepciones no se vincula a su `RestockOrder` (a propósito, para mostrar recepciones sin pedido), pero el pedido se crea igual. Con §4.2 esos pedidos contarían como *en pedido* para siempre.
+`POST /metrics/restock-suggestions/apply` con el mismo body de §6.1, **sin `filters`** (si vienen, devuelve `400 INVALID_METRIC_PARAMS`): la corrida cubre todos los productos activos, así que todas las recomendaciones comparten el mismo momento de cálculo.
 
-Cambios:
+El endpoint calcula igual que la simulación y **guarda la recomendación en cada producto**, con un `$set` puntual de ese único campo. Así nunca pisa una edición concurrente de otro campo del producto:
 
-| # | Cambio |
+```json
+"restock": {
+  "should_restock": true,
+  "suggested_quantity": 179,
+  "reorder_point": 158.5,
+  "target_stock": 318.8,
+  "inventory_position": 140,
+  "calculated_at": "2026-10-05T06:00:00Z"
+}
+```
+
+- Los consumidores lo leen en `GET /products` y `GET /products/{id}`. Vale `null` hasta la primera corrida, y el cron corre una vez al arrancar para que eso no pase después de un deploy o un seed.
+- Es una **foto** al momento de `calculated_at`: los movimientos del día se reflejan en la corrida siguiente.
+- Solo `SUPERADMIN` y `ADMIN_WAREHOUSE` pueden llamar al `apply`. La simulación (`POST /metrics/restock-suggestions`) sigue siendo de solo lectura, así que nadie que pruebe parámetros pisa la recomendación guardada.
+- Las ventanas son móviles respecto del momento de la corrida (§4.1). No hay `from`/`to`.
+
+**Parámetros: env vars de `restock-cron`, con defaults.** Para cambiar uno se edita el `.env` y se corre `docker compose up -d restock-cron`, que recrea **solo** ese contenedor, sin tocar el backend.
+
+| Variable | Default | |
+|---|---|---|
+| `RESTOCK_SCHEDULE` | `0 6 * * *` | Cron en **UTC** (06:00 UTC = 03:00 en Buenos Aires/Montevideo) |
+| `RESTOCK_ALPHA` | `0.3` | |
+| `RESTOCK_RECENT_DAYS` | `7` | |
+| `RESTOCK_LONG_DAYS` | `60` | |
+| `RESTOCK_SAFETY_DAYS` | `2` | |
+| `RESTOCK_LEAD_TIME_DAYS` | `5` | |
+| `RESTOCK_COVERAGE_DAYS` | `7` | |
+| `RESTOCK_USER` / `RESTOCK_PASSWORD` | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Cuenta de servicio. Por defecto el SUPERADMIN inicial, que siempre existe. Se recomienda una cuenta `ADMIN_WAREHOUSE` dedicada. |
+| `RESTOCK_BACKEND_URL` | `http://backend:8080` | |
+| `RESTOCK_RUN_ON_START` | `true` | Corrida inicial, con reintentos mientras el backend arranca. |
+
+`make deploy` levanta `backend` y `restock-cron` (este último no tiene estado).
+
+## 7. Seeding: 2 años de historia realista
+
+El seed de demo (`DemoDataset` + `DemoHistory`) genera **2 años** de historia para que todos los consumidores (dashboard, reportes, reposición) tengan muchos datos diarios, semanales y anuales. Se simula de forma **causal, día por día**:
+
+1. **Llegan las entregas** de proveedores programadas para ese día (recepciones `COMPLETED`, ya ubicadas).
+2. **Se procesan las órdenes** del día en orden de llegada. Si alguno de los ítems no tiene stock disponible, la orden se cancela con motivo **"Stock insuficiente"**. El resto se completa y descuenta stock.
+3. **Un comprador simulado** revisa todos los productos cada día hábil con la fórmula de §4 y los mismos parámetros que `restock-cron`, y pide lo que sugiere. Las entregas llegan entre 3 y 6 días después y el 12% llega en dos partes.
+
+Así el stock nunca es negativo, **físico = Σ recepciones ubicadas − Σ ítems despachados** (el gráfico de movimientos cierra), y las reposiciones siguen visiblemente a la demanda.
+
+| Aspecto | Valor |
 |---|---|
-| 7.1 | Las recepciones no vinculadas **no generan** `RestockOrder`: una recepción sin pedido es justamente eso. El histórico baja de 73 a 59 restock orders. Con los 8 en tránsito de 7.3 quedan 67 pedidos y 74 recepciones (73 + 1 parcial). Se actualiza `DASHBOARD_INTEGRATION.md`. |
-| 7.2 | El colchón de stock pasa a depender del producto, repartido en tres grupos deterministas, para que con los parámetros del ejemplo (§4.4) aparezcan los tres casos: **(a) dispara** (colchón por debajo del punto de reposición), **(b) salvado por lo que viene en camino** (mismo colchón bajo + una `RestockOrder` reciente sin recepción que lleva la posición por encima del punto de reposición) y **(c) sano** (colchón holgado, como hoy). |
-| 7.3 | Se agregan `RestockOrder` recientes (últimos días, sin recepción) para los productos del grupo (b), y una parcialmente recibida para mostrar que se descuenta lo ya recibido. |
+| Volumen | ≈ 57.000 órdenes (entre 20 y 300 por día), ≈ 2.000 pedidos de reposición, ≈ 2.300 recepciones |
+| Patrón diario | Horario laboral de 08 a 20 h, con picos a media mañana y a media tarde |
+| Patrón semanal | De lunes a viernes alto, sábado ~60%, domingo ~35% |
+| Estacionalidad anual | Pico en noviembre y diciembre, valle en enero y febrero, con curva propia por categoría (tecnología marca los picos, alimentos casi plana, útiles con vuelta a clases en febrero y marzo) |
+| Picos | Hot Sale (mayo), Black Friday (×2,6), Cyber Monday, semana de Navidad, y 2 promociones de 3 días por producto y por año |
+| Crecimiento | ≈ 15% interanual |
+| Cancelaciones | ≈ 3% del cliente y ≈ 4–5% por falta de stock |
+| Telemetría de flota | 2 años cada 30 minutos (retención de VictoriaMetrics: 800 días) |
 
-Se mantiene todo lo demás: el volumen de órdenes y su distribución en el año no cambian, así que los gráficos existentes no se ven afectados. El producto 0 sigue siendo el caso intencional de *bajo stock sin demanda*: con demanda 0 su punto de reposición es 0 y no dispara.
+**Estado final.** Para que el análisis muestre los tres casos con los parámetros del ejemplo (§4.4), el cierre de la simulación ajusta el estado final **solo con eventos de negocio** (nunca editando stock a mano). Primero, lo que quedaba en tránsito llega esa mañana. Después, por grupos de productos:
+- **(a) A reponer:** órdenes grandes de clientes en los últimos 3 días los dejan debajo del punto de reposición.
+- **(b) Cubiertos por lo que viene en camino:** lo mismo, más un pedido reciente que todavía no llegó. Uno de esos pedidos ya está recibido a medias.
+- **(c) Sanos:** si hace falta, una entrega de reposición esa mañana.
+
+El producto 0 sigue siendo el caso intencional de *bajo stock sin demanda* (30 unidades contra un mínimo de 50, nunca pedido).
+
+El seeder inserta en bloque (`insert`), porque `saveAll` con ids precargados hace un upsert por documento. Como siempre, el seed solo corre sobre una base **vacía**.
+
+**Límites de consulta.** Para que esos 2 años se puedan graficar en una sola llamada, `/query/*` (agregaciones) y `/metrics/query` aceptan rangos de hasta **731 días**. El tope de puntos por serie de `/metrics/query` obliga a usar un `step` de 2 h o más en rangos de 2 años.
 
 ## 8. Implementación
 
@@ -241,16 +299,20 @@ Se mantiene todo lo demás: el volumen de órdenes y su distribución en el año
 | `RestockSuggestionService` | `service/metrics/restock/` | Lee productos, órdenes de la ventana larga, restock orders y recepciones, más el disponible neto de `ProductService`, y aplica la fórmula. |
 | `ComputedMetricDescriptor` + registro | `service/metrics/` | Segunda lista del mismo `MetricRegistry` (`computed()`), que alimenta `computed_metrics` en el catálogo. |
 | `RestockSuggestionsRequest` / `RestockSuggestionRow` / `ComputedMetricResponse<T>` | `api/metrics/` | Records del request, de la fila (redondeo a 2 decimales) y del sobre común. |
-| Endpoint | `MetricsController` | `@PostMapping("/restock-suggestions")`, mismos roles que el controller. |
+| Endpoints | `MetricsController` | `POST /restock-suggestions` (simulación, mismos roles que el controller) y `POST /restock-suggestions/apply` (corrida diaria, solo `SUPERADMIN`/`ADMIN_WAREHOUSE`). |
+| `ProductRestock` | `domain/` | Record embebido en `Product` (`restock`), escrito solo por `RestockSuggestionService.apply` con un `$set` por producto en bulk. Se expone como `ProductResponse.Restock`. |
+| `stock.physical` | `api/product/ProductResponse` | Stock físico (`available + reserved`). |
+| `restock-cron` | `docker-compose.yml`, `config/restock-cron/restock-cron.sh` | `curl` + `crond`. Parámetros y horario en env vars. Lo levanta `make deploy`. |
+| `DemoHistory` | `config/` | Simulación causal de 2 años (§7), usada por `DemoDataset`. |
 | `INVALID_METRIC_PARAMS` | `InvalidMetricParamsException` + `GlobalExceptionHandler` | El mensaje, en español, nombra el param. |
 
 `ProductService.netAvailableStock` expone el disponible neto (físico − reservado) reutilizando sus agregaciones bulk.
 
 **Tests:**
 - `RestockFormulaTest`: el ejemplo de §4.4 (escenarios 1 y 2), `alpha` en 0 y en 1, demanda 0.
-- `RestockSuggestionServiceTest`: ventanas (un día no cuenta dos veces), órdenes CANCELLED excluidas, en pedido neto de lo recibido y nunca negativo.
+- `RestockInputsTest` / `RestockSuggestionServiceTest`: ventanas (un día no cuenta dos veces), órdenes CANCELLED excluidas, en pedido neto de lo **ubicado** y nunca negativo, `apply` escribe cada producto con `calculated_at`.
 - `MetricsControllerTest` / `MetricsControllerSecurityTest`: validación → `INVALID_METRIC_PARAMS`, roles, catálogo con `computed_metrics`.
-- `DemoDatasetTest`: con los params de §4.4 aparecen los tres grupos de §7.2 y no hay restock orders huérfanas de §7.1.
+- `DemoDatasetTest`: 2 años de órdenes, estacionalidad semanal y anual, pico de Black Friday, crecimiento interanual, libro de stock que cierra, posiciones dentro de su capacidad, los tres casos con los params de §4.4 y ningún pedido huérfano.
 
 **Docs:** `DASHBOARD_INTEGRATION.md` (nueva sección + conteos del seed), colección Bruno `docs/bruno/metrics/restock-suggestions.bru`.
 
@@ -261,4 +323,6 @@ Se mantiene todo lo demás: el volumen de órdenes y su distribución en el año
 | Un endpoint por métrica con un sobre común | Un único `POST /metrics/compute {metric, params}` | Cada endpoint queda legible y documentado en OpenAPI con su propio schema. Un motor genérico sería otro mecanismo en paralelo a `/query`. |
 | Parámetros por request, obligatorios | Parámetros guardados en el backend | Pedido explícito: cada equipo decide sus parámetros de negocio. Si más adelante se quieren defaults compartidos, se agregan sin romper el contrato. |
 | Demanda por `createdAt` de órdenes no canceladas | Por `completedAt` de órdenes COMPLETED | La demanda nace cuando se pide. Contar por despacho retrasa la señal y deja vacía la ventana reciente mientras las órdenes siguen pendientes. |
-| Calcular a demanda | Precalcular y guardar | El volumen (decenas de productos, un año de órdenes) se agrega en milisegundos y así el resultado siempre refleja los parámetros enviados. |
+| Simulación a demanda + corrida diaria guardada en el producto | Solo precalcular | La simulación (`POST`) responde con los parámetros que manda cada equipo. La corrida diaria guarda una recomendación oficial en el producto, que es lo que pidió el negocio y lo estándar en la industria (corrida nocturna). |
+| Parámetros de la corrida en env vars del cron | Parámetros guardados en el backend | Cambiarlos no requiere redeploy ni endpoints: se recrea solo el contenedor del cron. El backend sigue sin conocer parámetros. |
+| Cron como contenedor aparte que llama a un endpoint | `@Scheduled` dentro del backend | El calendario y los parámetros quedan fuera del backend. Además, el cálculo pasa por el mismo endpoint, con la misma validación y la misma auditoría que cualquier llamada. |

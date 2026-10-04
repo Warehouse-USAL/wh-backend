@@ -226,11 +226,32 @@ Una fila por producto, **primero los que hay que reponer** (de mayor a menor can
   `stock.available` de `GET /products`).
 - **`inventory_position = available_stock + on_order_stock`**. Lo reservado **no** se resta de
   nuevo.
-- **`on_order_stock`**: lo pedido a proveedores que todavía no llegó (pedido − recibido).
+- **`on_order_stock`**: lo pedido a proveedores que todavía no está ubicado en una posición
+  (pedido − ubicado; lo recibido pero pendiente de ubicación sigue contando acá).
 
 Con la semilla de demo y exactamente esos params van a ver los tres casos: productos a reponer,
 productos cubiertos por un pedido en camino (`on_order_stock > 0`, `should_restock: false`) y
 productos sanos.
+
+### La recomendación diaria: `product.restock`
+
+No hace falta llamar a la simulación para mostrar qué reponer. Una vez por día el servicio
+`restock-cron` corre el análisis con los parámetros oficiales y deja el resultado **en cada
+producto**, que leen en `GET /products` y `GET /products/{id}`:
+
+```json
+"stock": {"available": 140, "reserved": 20, "physical": 160, "min": 10},
+"restock": {"should_restock": true, "suggested_quantity": 179, "reorder_point": 158.5,
+            "target_stock": 318.8, "inventory_position": 140,
+            "calculated_at": "2026-10-05T06:00:00Z"}
+```
+
+- `restock` es una foto a la hora de `calculated_at` (todos los días a las 03:00, hora de
+  Buenos Aires). Vale `null` si todavía no corrió nunca.
+- `stock.physical` es lo que hay en el depósito. `available = physical − reserved` es lo libre
+  para nuevas órdenes.
+- La simulación (`POST /metrics/restock-suggestions`) sigue disponible para probar otros
+  parámetros, y no modifica `product.restock`.
 
 ---
 
@@ -537,7 +558,7 @@ Guíense por `code`; `message` es para mostrar.
 | `INVALID_FILTER_VALUE` | Valor con formato incorrecto |
 | `METRICS_UNAVAILABLE` | **503** — VictoriaMetrics caído |
 | `UNKNOWN_METRIC` / `UNKNOWN_DIMENSION` | No está en el catálogo de métricas |
-| `INVALID_METRIC_PARAMS` | Métrica calculada: parámetro faltante, fuera de rango o inconsistente, o categoría inexistente; el `message` dice cuál |
+| `INVALID_METRIC_PARAMS` | Métrica calculada: parámetro faltante, fuera de rango o inconsistente, categoría inexistente, o `filters` en el `apply`; el `message` dice cuál |
 
 **`METRICS_UNAVAILABLE` es el único que no es culpa del request.** Si VictoriaMetrics se cae,
 `/metrics/query` responde 503 y `/query/*` sigue funcionando normal. Degraden los gráficos de
@@ -547,20 +568,21 @@ rovers y dejen el resto del dashboard vivo.
 
 ## 8. Datos de demo
 
-Levantando el stack con `SEED_DEMO=true` sobre una base vacía obtienen:
+Levantando el stack con `SEED_DEMO=true` sobre una base vacía obtienen **2 años de historia**
+simulada día por día (detalle en `docs/RFC_Metricas_Calculadas.md` §7):
 
 - 13 usuarios, 24 productos, 35 posiciones, 6 rovers
-- **729 órdenes cubriendo un año completo** (25 recientes de los últimos ~13 días, con el mismo
-  mix de estados de siempre, más 704 históricas COMPLETED/CANCELLED repartidas en los 352 días
-  anteriores) — con las 4 prioridades representadas
-- 67 órdenes de reposición y 74 recepciones: el histórico del año para el gráfico de movimientos
-  de stock (1 de cada 5 recepciones llega sin pedido), más 8 pedidos **en camino** de los últimos
-  días, uno de ellos recibido a medias
-- Stock armado para que `POST /metrics/restock-suggestions`, con los params del ejemplo (§4.1),
-  muestre productos a reponer, productos cubiertos por lo que viene en camino y productos sanos
-- **365 días de historial de flota ya cargado**, a resolución de 30 minutos (antes eran 7 días a
-  5 minutos — un año entero a esa resolución habría sido ~13× más puntos por serie de lo que
-  `/api/v1/import` conviene recibir de una sola vez)
+- **≈ 57.000 órdenes** (entre 20 y 300 por día) con horario laboral, ciclo semanal (domingo ~35%
+  de un día hábil), estacionalidad anual por categoría (pico en noviembre y diciembre, valle en
+  enero y febrero), picos de Hot Sale, Black Friday, Cyber Monday y Navidad, promociones por
+  producto y ≈ 15% de crecimiento interanual. Incluye las 4 prioridades y cancelaciones (del
+  cliente y por falta de stock).
+- **≈ 2.000 pedidos de reposición y ≈ 2.300 recepciones** que siguen a la demanda (un comprador
+  simulado repone cada día hábil con la misma fórmula del cron). El stock cierra:
+  físico = recepciones ubicadas − ítems despachados.
+- Estado final con los tres casos del análisis de reposición (a reponer, cubierto por lo que viene
+  en camino, sano). La primera corrida de `restock-cron` los deja en `product.restock`.
+- **2 años de historial de flota** cada 30 minutos.
 
 Ese último punto importa: el almacén de métricas no tiene backfill, así que sin la semilla los
 gráficos de rovers arrancarían vacíos. Con ella tienen datos para graficar desde el minuto cero,
