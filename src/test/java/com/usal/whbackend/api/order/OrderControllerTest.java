@@ -143,6 +143,34 @@ class OrderControllerTest {
   }
 
   @Test
+  @WithMockUser(roles = "ADMIN_SALES")
+  void createOrder_withIdempotencyKey_passesHeaderToService() throws Exception {
+    when(orderService.createOrder(any(), anyString(), eq("key-abc-123"))).thenReturn(sampleOrder);
+    mockMvc
+        .perform(
+            post("/orders")
+                .header("Idempotency-Key", "key-abc-123")
+                .contentType("application/json")
+                .content("{\"items\":[],\"destination_area\":\"AREA-A\"}"))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.order").exists());
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_SALES")
+  void createOrder_withBlankIdempotencyKey_callsStandardCreateOrder() throws Exception {
+    when(orderService.createOrder(any(), anyString())).thenReturn(sampleOrder);
+    mockMvc
+        .perform(
+            post("/orders")
+                .header("Idempotency-Key", "   ")
+                .contentType("application/json")
+                .content("{\"items\":[],\"destination_area\":\"AREA-A\"}"))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.order").exists());
+  }
+
+  @Test
   @WithMockUser(roles = "ADMIN_WAREHOUSE")
   void cancelOrder_returns200() throws Exception {
     when(orderService.cancelOrder(anyString(), any())).thenReturn(sampleOrder);

@@ -2,6 +2,7 @@ package com.usal.whbackend.service;
 
 import com.usal.whbackend.api.order.CreateOrderRequest;
 import com.usal.whbackend.domain.Address;
+import com.usal.whbackend.domain.IdempotencyRecord;
 import com.usal.whbackend.domain.Order;
 import com.usal.whbackend.domain.OrderItem;
 import com.usal.whbackend.domain.OrderPriority;
@@ -9,6 +10,7 @@ import com.usal.whbackend.domain.OrderStatus;
 import com.usal.whbackend.domain.Product;
 import com.usal.whbackend.domain.Vehicle;
 import com.usal.whbackend.domain.VehicleStatus;
+import com.usal.whbackend.repository.IdempotencyRecordRepository;
 import com.usal.whbackend.repository.OrderRepository;
 import com.usal.whbackend.repository.ProductRepository;
 import com.usal.whbackend.repository.VehicleRepository;
@@ -18,9 +20,12 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.mongodb.core.query.Update;
@@ -40,6 +45,7 @@ public class OrderService {
   private final StockDrainPort stockDrainPort;
   private final List<OrderEventPublisher> orderEventPublishers;
   private final List<StockEventPublisher> stockEventPublishers;
+  private final IdempotencyRecordRepository idempotencyRecordRepository;
 
   /**
    * Per-product locks that serialize the stock-check → order-save window. Prevents the TOCTOU race
@@ -50,9 +56,36 @@ public class OrderService {
    * lock (e.g. Redis Redlock) or an atomic reservation counter in MongoDB.
    */
   private final ConcurrentHashMap<String, ReentrantLock> productLocks = new ConcurrentHashMap<>();
+  private final ConcurrentHashMap<String, ReentrantLock> idempotencyLocks = new ConcurrentHashMap<>();
 
   private ReentrantLock getProductLock(String productId) {
     return productLocks.computeIfAbsent(productId, k -> new ReentrantLock());
+  }
+
+  private ReentrantLock getIdempotencyLock(String key) {
+    return idempotencyLocks.computeIfAbsent(key, k -> new ReentrantLock());
+  }
+
+  @Autowired
+  public OrderService(
+      OrderRepository orderRepository,
+      ProductRepository productRepository,
+      ProductService productService,
+      VehicleRepository vehicleRepository,
+      VehicleUpdateExecutor vehicleUpdateExecutor,
+      StockDrainPort stockDrainPort,
+      List<OrderEventPublisher> orderEventPublishers,
+      List<StockEventPublisher> stockEventPublishers,
+      IdempotencyRecordRepository idempotencyRecordRepository) {
+    this.orderRepository = orderRepository;
+    this.productRepository = productRepository;
+    this.productService = productService;
+    this.vehicleRepository = vehicleRepository;
+    this.vehicleUpdateExecutor = vehicleUpdateExecutor;
+    this.stockDrainPort = stockDrainPort;
+    this.orderEventPublishers = List.copyOf(orderEventPublishers);
+    this.stockEventPublishers = List.copyOf(stockEventPublishers);
+    this.idempotencyRecordRepository = idempotencyRecordRepository;
   }
 
   public OrderService(
@@ -64,14 +97,16 @@ public class OrderService {
       StockDrainPort stockDrainPort,
       List<OrderEventPublisher> orderEventPublishers,
       List<StockEventPublisher> stockEventPublishers) {
-    this.orderRepository = orderRepository;
-    this.productRepository = productRepository;
-    this.productService = productService;
-    this.vehicleRepository = vehicleRepository;
-    this.vehicleUpdateExecutor = vehicleUpdateExecutor;
-    this.stockDrainPort = stockDrainPort;
-    this.orderEventPublishers = List.copyOf(orderEventPublishers);
-    this.stockEventPublishers = List.copyOf(stockEventPublishers);
+    this(
+        orderRepository,
+        productRepository,
+        productService,
+        vehicleRepository,
+        vehicleUpdateExecutor,
+        stockDrainPort,
+        orderEventPublishers,
+        stockEventPublishers,
+        null);
   }
 
   public Page<Order> getOrders(
@@ -112,8 +147,54 @@ public class OrderService {
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "ORDER_NOT_FOUND"));
   }
 
-  @Transactional
   public Order createOrder(CreateOrderRequest request, String userId) {
+    return createOrder(request, userId, null);
+  }
+
+  public Order createOrder(CreateOrderRequest request, String userId, String idempotencyKey) {
+    if (idempotencyKey != null
+        && !idempotencyKey.isBlank()
+        && idempotencyRecordRepository != null) {
+      String trimmedKey = idempotencyKey.trim();
+      ReentrantLock lock = getIdempotencyLock(trimmedKey);
+      lock.lock();
+      try {
+        Optional<IdempotencyRecord> existing = idempotencyRecordRepository.findByKey(trimmedKey);
+        if (existing.isPresent()) {
+          IdempotencyRecord record = existing.get();
+          if (record.getUserId() != null && !record.getUserId().equals(userId)) {
+            throw new ResponseStatusException(
+                HttpStatus.CONFLICT, "IDEMPOTENCY_KEY_USER_MISMATCH");
+          }
+          return orderRepository
+              .findById(record.getOrderId())
+              .orElseThrow(
+                  () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "ORDER_NOT_FOUND"));
+        }
+
+        Order order = executeCreateOrder(request, userId);
+        try {
+          idempotencyRecordRepository.save(
+              new IdempotencyRecord(trimmedKey, userId, order.getId(), Instant.now()));
+        } catch (DuplicateKeyException e) {
+          return idempotencyRecordRepository
+              .findByKey(trimmedKey)
+              .flatMap(rec -> orderRepository.findById(rec.getOrderId()))
+              .orElse(order);
+        }
+        return order;
+      } finally {
+        lock.unlock();
+        if (!lock.hasQueuedThreads()) {
+          idempotencyLocks.remove(trimmedKey, lock);
+        }
+      }
+    }
+    return executeCreateOrder(request, userId);
+  }
+
+  @Transactional
+  protected Order executeCreateOrder(CreateOrderRequest request, String userId) {
     if (request.destinationArea() == null || request.destinationArea().isBlank()) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "DESTINATION_AREA_REQUIRED");
     }
