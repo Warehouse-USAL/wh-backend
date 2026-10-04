@@ -9,6 +9,7 @@ import com.usal.whbackend.api.restock.reception.CreateReceptionRequest.Assignmen
 import com.usal.whbackend.domain.Position;
 import com.usal.whbackend.domain.Product;
 import com.usal.whbackend.domain.Reception;
+import com.usal.whbackend.domain.ReceptionStatus;
 import com.usal.whbackend.domain.RestockOrder;
 import com.usal.whbackend.domain.StockSize;
 import com.usal.whbackend.repository.ProductRepository;
@@ -85,7 +86,7 @@ class ReceptionServiceTest {
             48,
             StockSize.PALLET,
             "Distribuidora XYZ",
-            List.of(new AssignmentRequest("pos-1", 30), new AssignmentRequest("pos-2", 10)));
+            List.of(new AssignmentRequest("pos-1", 30), new AssignmentRequest("pos-2", 20)));
 
     var ex =
         assertThrows(
@@ -93,6 +94,42 @@ class ReceptionServiceTest {
     assertEquals(HttpStatus.BAD_REQUEST, ex.getStatusCode());
     assertEquals("ASSIGNMENT_QUANTITY_MISMATCH", ex.getReason());
     verifyNoInteractions(positionService);
+  }
+
+  @Test
+  void createReception_withoutAssignments_createsWithPendingLocation() {
+    when(productRepository.findById("p1")).thenReturn(Optional.of(activeProduct("p1")));
+    when(receptionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    var req = new CreateReceptionRequest(null, "p1", 48, StockSize.PALLET, "Distribuidora XYZ", null);
+    Reception result = receptionService.createReception(req, "user-1");
+
+    verifyNoInteractions(positionService);
+    assertEquals(ReceptionStatus.PENDING_LOCATION, result.getStatus());
+    assertTrue(result.getAssignments().isEmpty());
+    assertEquals(48, result.getQuantityReceived());
+  }
+
+  @Test
+  void createReception_withPartialAssignments_createsWithPendingLocation() {
+    when(productRepository.findById("p1")).thenReturn(Optional.of(activeProduct("p1")));
+    when(positionService.increaseStock(anyString(), eq("p1"), anyInt())).thenReturn(new Position());
+    when(receptionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    var req =
+        new CreateReceptionRequest(
+            null,
+            "p1",
+            48,
+            StockSize.PALLET,
+            "Distribuidora XYZ",
+            List.of(new AssignmentRequest("pos-1", 30)));
+    Reception result = receptionService.createReception(req, "user-1");
+
+    verify(positionService).increaseStock("pos-1", "p1", 30);
+    verifyNoMoreInteractions(positionService);
+    assertEquals(ReceptionStatus.PENDING_LOCATION, result.getStatus());
+    assertEquals(1, result.getAssignments().size());
   }
 
   @Test
@@ -143,6 +180,7 @@ class ReceptionServiceTest {
     assertEquals(StockSize.PALLET, result.getDeliveryUnit());
     assertEquals("user-1", result.getReceivedByUserId());
     assertEquals(2, result.getAssignments().size());
+    assertEquals(ReceptionStatus.COMPLETED, result.getStatus());
     assertNull(result.getRestockOrderId());
   }
 
@@ -193,13 +231,102 @@ class ReceptionServiceTest {
   }
 
   @Test
+  void assignPositions_receptionNotFound_throwsNotFound() {
+    when(receptionRepository.findById("rcp-1")).thenReturn(Optional.empty());
+    assertThrows(
+        ReceptionNotFoundException.class,
+        () ->
+            receptionService.assignPositions(
+                "rcp-1", List.of(new AssignmentRequest("pos-1", 10))));
+  }
+
+  @Test
+  void assignPositions_alreadyCompleted_throwsBadRequest() {
+    Reception r = new Reception();
+    r.setId("rcp-1");
+    r.setQuantityReceived(10);
+    r.setStatus(ReceptionStatus.COMPLETED);
+    when(receptionRepository.findById("rcp-1")).thenReturn(Optional.of(r));
+
+    var ex =
+        assertThrows(
+            ResponseStatusException.class,
+            () ->
+                receptionService.assignPositions(
+                    "rcp-1", List.of(new AssignmentRequest("pos-1", 10))));
+    assertEquals(HttpStatus.BAD_REQUEST, ex.getStatusCode());
+    assertEquals("RECEPTION_ALREADY_COMPLETED", ex.getReason());
+    verifyNoInteractions(positionService);
+  }
+
+  @Test
+  void assignPositions_exceedsRemainingQuantity_throwsBadRequest() {
+    Reception r = new Reception();
+    r.setId("rcp-1");
+    r.setQuantityReceived(20);
+    r.setStatus(ReceptionStatus.PENDING_LOCATION);
+    r.setAssignments(List.of(new Reception.Assignment("pos-1", 15)));
+    when(receptionRepository.findById("rcp-1")).thenReturn(Optional.of(r));
+
+    var ex =
+        assertThrows(
+            ResponseStatusException.class,
+            () ->
+                receptionService.assignPositions(
+                    "rcp-1", List.of(new AssignmentRequest("pos-2", 10))));
+    assertEquals(HttpStatus.BAD_REQUEST, ex.getStatusCode());
+    assertEquals("ASSIGNMENT_QUANTITY_MISMATCH", ex.getReason());
+    verifyNoInteractions(positionService);
+  }
+
+  @Test
+  void assignPositions_partialQuantity_remainsPendingLocation() {
+    Reception r = new Reception();
+    r.setId("rcp-1");
+    r.setProductId("p1");
+    r.setQuantityReceived(20);
+    r.setStatus(ReceptionStatus.PENDING_LOCATION);
+    r.setAssignments(List.of(new Reception.Assignment("pos-1", 10)));
+    when(receptionRepository.findById("rcp-1")).thenReturn(Optional.of(r));
+    when(positionService.increaseStock(anyString(), eq("p1"), anyInt())).thenReturn(new Position());
+    when(receptionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    Reception result =
+        receptionService.assignPositions("rcp-1", List.of(new AssignmentRequest("pos-2", 5)));
+
+    verify(positionService).increaseStock("pos-2", "p1", 5);
+    assertEquals(ReceptionStatus.PENDING_LOCATION, result.getStatus());
+    assertEquals(2, result.getAssignments().size());
+  }
+
+  @Test
+  void assignPositions_fullRemainingQuantity_completesReception() {
+    Reception r = new Reception();
+    r.setId("rcp-1");
+    r.setProductId("p1");
+    r.setQuantityReceived(20);
+    r.setStatus(ReceptionStatus.PENDING_LOCATION);
+    r.setAssignments(List.of(new Reception.Assignment("pos-1", 10)));
+    when(receptionRepository.findById("rcp-1")).thenReturn(Optional.of(r));
+    when(positionService.increaseStock(anyString(), eq("p1"), anyInt())).thenReturn(new Position());
+    when(receptionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    Reception result =
+        receptionService.assignPositions("rcp-1", List.of(new AssignmentRequest("pos-2", 10)));
+
+    verify(positionService).increaseStock("pos-2", "p1", 10);
+    assertEquals(ReceptionStatus.COMPLETED, result.getStatus());
+    assertEquals(2, result.getAssignments().size());
+  }
+
+  @Test
   void getReceptions_invalidToDate_throwsBadRequest() {
     var ex =
         assertThrows(
             ResponseStatusException.class,
             () ->
                 receptionService.getReceptions(
-                    null, null, null, "not-a-date", PageRequest.of(0, 10)));
+                    null, null, null, null, "not-a-date", PageRequest.of(0, 10)));
     assertEquals(HttpStatus.BAD_REQUEST, ex.getStatusCode());
     assertEquals("INVALID_DATE_FORMAT", ex.getReason());
   }
@@ -212,7 +339,20 @@ class ReceptionServiceTest {
 
     var page =
         receptionService.getReceptions(
-            "p1", "rso-1", "2026-01-01T00:00:00Z", null, PageRequest.of(0, 10));
+            "p1", "rso-1", null, "2026-01-01T00:00:00Z", null, PageRequest.of(0, 10));
+
+    assertEquals(1, page.getTotalElements());
+  }
+
+  @Test
+  void getReceptions_withStatusFilter_appliesStatusCriteria() {
+    when(mongoTemplate.count(any(Query.class), eq(Reception.class))).thenReturn(1L);
+    when(mongoTemplate.find(any(Query.class), eq(Reception.class)))
+        .thenReturn(List.of(new Reception()));
+
+    var page =
+        receptionService.getReceptions(
+            null, null, ReceptionStatus.PENDING_LOCATION, null, null, PageRequest.of(0, 10));
 
     assertEquals(1, page.getTotalElements());
   }
@@ -222,7 +362,7 @@ class ReceptionServiceTest {
     when(mongoTemplate.count(any(Query.class), eq(Reception.class))).thenReturn(0L);
     when(mongoTemplate.find(any(Query.class), eq(Reception.class))).thenReturn(List.of());
 
-    var page = receptionService.getReceptions(null, null, null, null, PageRequest.of(0, 10));
+    var page = receptionService.getReceptions(null, null, null, null, null, PageRequest.of(0, 10));
 
     assertEquals(0, page.getTotalElements());
   }
@@ -235,7 +375,7 @@ class ReceptionServiceTest {
 
     var page =
         receptionService.getReceptions(
-            null, null, null, "2026-12-31T00:00:00Z", PageRequest.of(0, 10));
+            null, null, null, null, "2026-12-31T00:00:00Z", PageRequest.of(0, 10));
 
     assertEquals(1, page.getTotalElements());
   }

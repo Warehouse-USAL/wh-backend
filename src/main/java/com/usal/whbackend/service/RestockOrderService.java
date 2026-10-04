@@ -9,7 +9,9 @@ import com.usal.whbackend.service.exception.RestockOrderNotFoundException;
 import java.time.Instant;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.aggregation.Aggregation;
 import org.springframework.data.mongodb.core.aggregation.AggregationResults;
@@ -71,7 +73,14 @@ public class RestockOrderService {
       query.addCriteria(createdAt);
     }
     long total = mongoTemplate.count(query, RestockOrder.class);
-    var items = mongoTemplate.find(query.with(pageable), RestockOrder.class);
+    Pageable sorted =
+        pageable.getSort().isSorted()
+            ? pageable
+            : PageRequest.of(
+                pageable.getPageNumber(),
+                pageable.getPageSize(),
+                Sort.by(Sort.Direction.DESC, "createdAt"));
+    var items = mongoTemplate.find(query.with(sorted), RestockOrder.class);
     return new PageImpl<>(items, pageable, total);
   }
 

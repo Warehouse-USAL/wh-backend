@@ -145,6 +145,7 @@ public class EntityRegistry {
                   FieldDescriptor.of("quantityReceived", FieldType.NUMBER),
                   FieldDescriptor.of("deliveryUnit", FieldType.ENUM),
                   FieldDescriptor.of("supplier", FieldType.STRING),
+                  FieldDescriptor.of("status", FieldType.ENUM),
                   FieldDescriptor.of("createdAt", FieldType.INSTANT)),
               "createdAt"),
           new EntityDescriptor(

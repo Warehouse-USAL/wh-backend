@@ -28,7 +28,7 @@ import org.springframework.stereotype.Component;
  * never a field it left untouched.
  */
 @Component
-class VehicleUpdateExecutor {
+public class VehicleUpdateExecutor {
 
   private final MongoTemplate mongoTemplate;
 
@@ -40,7 +40,7 @@ class VehicleUpdateExecutor {
    * @param previousStatus the vehicle's status immediately before this update was applied
    * @param updated the vehicle document immediately after this update was applied
    */
-  record Result(VehicleStatus previousStatus, Vehicle updated) {}
+  public record Result(VehicleStatus previousStatus, Vehicle updated) {}
 
   /**
    * Reads the current state of vehicle {@code vehicleId}, hands it to {@code updateBuilder} to
@@ -55,7 +55,7 @@ class VehicleUpdateExecutor {
    * field it does not name, which is the actual data-loss failure mode this class exists to
    * prevent.
    */
-  Optional<Result> apply(String vehicleId, Function<Vehicle, Update> updateBuilder) {
+  public Optional<Result> apply(String vehicleId, Function<Vehicle, Update> updateBuilder) {
     Vehicle previous = mongoTemplate.findById(vehicleId, Vehicle.class);
     if (previous == null) {
       return Optional.empty();

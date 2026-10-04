@@ -25,6 +25,10 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.mongodb.core.FindAndModifyOptions;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
 
 @ExtendWith(MockitoExtension.class)
 class PositionServiceTest {
@@ -33,6 +37,7 @@ class PositionServiceTest {
   @Mock LineRepository lineRepository;
   @Mock ZoneRepository zoneRepository;
   @Mock ProductRepository productRepository;
+  @Mock MongoTemplate mongoTemplate;
   @InjectMocks PositionService positionService;
 
   private Line line(String id, String zoneId) {
@@ -468,7 +473,16 @@ class PositionServiceTest {
     p.setCurrentStock(0);
     p.setSizeStockToSave(null);
     when(positionRepository.findById("p1")).thenReturn(Optional.of(p));
-    when(positionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    Position updated = position("p1", "l1", "z1");
+    updated.setProductId("product-1");
+    updated.setCurrentStock(10);
+    when(mongoTemplate.findAndModify(
+            any(Query.class),
+            any(Update.class),
+            any(FindAndModifyOptions.class),
+            eq(Position.class)))
+        .thenReturn(updated);
 
     Position result = positionService.increaseStock("p1", "product-1", 10);
 
@@ -484,7 +498,16 @@ class PositionServiceTest {
     p.setCurrentStock(10);
     p.setSizeStockToSave(null);
     when(positionRepository.findById("p1")).thenReturn(Optional.of(p));
-    when(positionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    Position updated = position("p1", "l1", "z1");
+    updated.setProductId("product-1");
+    updated.setCurrentStock(15);
+    when(mongoTemplate.findAndModify(
+            any(Query.class),
+            any(Update.class),
+            any(FindAndModifyOptions.class),
+            eq(Position.class)))
+        .thenReturn(updated);
 
     Position result = positionService.increaseStock("p1", "product-1", 5);
 
@@ -663,7 +686,16 @@ class PositionServiceTest {
 
     when(positionRepository.findById("p1")).thenReturn(Optional.of(p));
     when(productRepository.findById("product-1")).thenReturn(Optional.of(prod));
-    when(positionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    Position updated = position("p1", "l1", "z1");
+    updated.setProductId("product-1");
+    updated.setCurrentStock(5);
+    when(mongoTemplate.findAndModify(
+            any(Query.class),
+            any(Update.class),
+            any(FindAndModifyOptions.class),
+            eq(Position.class)))
+        .thenReturn(updated);
 
     Position result = positionService.increaseStock("p1", "product-1", 5);
 

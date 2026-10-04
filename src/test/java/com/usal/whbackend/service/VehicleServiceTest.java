@@ -9,6 +9,7 @@ import com.usal.whbackend.api.vehicle.RegisterVehicleRequest;
 import com.usal.whbackend.domain.Vehicle;
 import com.usal.whbackend.domain.VehicleStatus;
 import com.usal.whbackend.repository.VehicleRepository;
+import com.usal.whbackend.repository.kafka.VehicleUpdateExecutor;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -28,6 +29,7 @@ class VehicleServiceTest {
 
   @Mock VehicleRepository vehicleRepository;
   @Mock VehicleEventPublisher vehicleEventPublisher;
+  @Mock VehicleUpdateExecutor vehicleUpdateExecutor;
   @InjectMocks VehicleService vehicleService;
 
   @Test
@@ -107,14 +109,14 @@ class VehicleServiceTest {
 
   @Test
   void updateVehicle_appliesOnlyProvidedFields() {
-    Vehicle existing = new Vehicle();
-    existing.setId("VHC-001");
-    existing.setStatus(VehicleStatus.IDLE);
-    existing.setPositionX(1.0);
-    existing.setPositionY(2.0);
-    existing.setBattery(50);
-    when(vehicleRepository.findById("VHC-001")).thenReturn(Optional.of(existing));
-    when(vehicleRepository.save(any(Vehicle.class))).thenAnswer(inv -> inv.getArgument(0));
+    Vehicle updated = new Vehicle();
+    updated.setId("VHC-001");
+    updated.setStatus(VehicleStatus.OFFLINE);
+    updated.setPositionX(1.0);
+    updated.setPositionY(2.0);
+    updated.setBattery(30);
+    when(vehicleUpdateExecutor.apply(eq("VHC-001"), any()))
+        .thenReturn(Optional.of(new VehicleUpdateExecutor.Result(VehicleStatus.IDLE, updated)));
 
     PatchVehicleRequest request = new PatchVehicleRequest("offline", null, null, 30, null, null);
     Vehicle result = vehicleService.updateVehicle("VHC-001", request);
@@ -128,13 +130,18 @@ class VehicleServiceTest {
 
   @Test
   void updateVehicle_allFields_updatesAll() {
-    Vehicle existing = new Vehicle();
-    existing.setId("VHC-002");
-    existing.setStatus(VehicleStatus.IDLE);
-    when(vehicleRepository.findById("VHC-002")).thenReturn(Optional.of(existing));
-    when(vehicleRepository.save(any(Vehicle.class))).thenAnswer(inv -> inv.getArgument(0));
-
     Instant now = Instant.parse("2026-01-01T00:00:00Z");
+    Vehicle updated = new Vehicle();
+    updated.setId("VHC-002");
+    updated.setStatus(VehicleStatus.BUSY);
+    updated.setPositionX(5.0);
+    updated.setPositionY(10.0);
+    updated.setBattery(80);
+    updated.setCurrentOrderId("ORDER-99");
+    updated.setLastSeenAt(now);
+    when(vehicleUpdateExecutor.apply(eq("VHC-002"), any()))
+        .thenReturn(Optional.of(new VehicleUpdateExecutor.Result(VehicleStatus.IDLE, updated)));
+
     PatchVehicleRequest request = new PatchVehicleRequest("busy", 5.0, 10.0, 80, "ORDER-99", now);
     Vehicle result = vehicleService.updateVehicle("VHC-002", request);
 
@@ -148,7 +155,7 @@ class VehicleServiceTest {
 
   @Test
   void updateVehicle_unknownId_throws404() {
-    when(vehicleRepository.findById("no-existe")).thenReturn(Optional.empty());
+    when(vehicleUpdateExecutor.apply(eq("no-existe"), any())).thenReturn(Optional.empty());
 
     PatchVehicleRequest request = new PatchVehicleRequest("idle", null, null, null, null, null);
     ResponseStatusException ex =
@@ -158,5 +165,20 @@ class VehicleServiceTest {
 
     assertEquals(404, ex.getStatusCode().value());
     assertEquals("VEHICLE_NOT_FOUND", ex.getReason());
+  }
+
+  @Test
+  void updateVehicle_emptyPatch_returnsCurrentVehicleWithoutCallingExecutor() {
+    Vehicle existing = new Vehicle();
+    existing.setId("VHC-003");
+    existing.setStatus(VehicleStatus.IDLE);
+    when(vehicleRepository.findById("VHC-003")).thenReturn(Optional.of(existing));
+
+    PatchVehicleRequest request = new PatchVehicleRequest(null, null, null, null, null, null);
+    Vehicle result = vehicleService.updateVehicle("VHC-003", request);
+
+    assertEquals("VHC-003", result.getId());
+    verify(vehicleUpdateExecutor, never()).apply(any(), any());
+    verify(vehicleEventPublisher).broadcastVehicleUpdate(result);
   }
 }

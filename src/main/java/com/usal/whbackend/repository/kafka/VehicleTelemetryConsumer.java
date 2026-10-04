@@ -36,7 +36,7 @@ public class VehicleTelemetryConsumer {
   public void consume(String payload) {
     try {
       VehicleTelemetryMessage msg = objectMapper.readValue(payload, VehicleTelemetryMessage.class);
-      VehicleStatus current = VehicleStatus.valueOf(msg.status().toUpperCase());
+      VehicleStatus current = parseStatus(msg.status());
       Instant timestamp = Instant.parse(msg.timestamp());
 
       vehicleUpdateExecutor
@@ -48,18 +48,21 @@ public class VehicleTelemetryConsumer {
                         .set("positionX", msg.position().x())
                         .set("positionY", msg.position().y())
                         .set("battery", msg.battery())
-                        .set("status", current)
                         .set("lastSeenAt", timestamp);
-                // Coming back online starts a fresh operation window: a vehicle that was offline
-                // for a week and just reconnected has zero hours of operation, not a week's
-                // worth. Going offline (or into a self-reported error) ends whatever window was
-                // open, so "hours in operation" never keeps climbing for a vehicle that is
-                // actually down.
-                if (previous.getStatus() == VehicleStatus.OFFLINE
-                    && (current == VehicleStatus.IDLE || current == VehicleStatus.BUSY)) {
-                  update.set("operationSince", timestamp);
-                } else if (current == VehicleStatus.OFFLINE || current == VehicleStatus.ERROR) {
-                  update.set("operationSince", null);
+                if (current != null) {
+                  update.set("status", current);
+                  // Coming back online starts a fresh operation window: a vehicle that was
+                  // offline/errored for a while and just reconnected has zero hours of operation,
+                  // not the whole down-window's worth. Going offline (or into a self-reported
+                  // error) ends whatever window was open, so "hours in operation" never keeps
+                  // climbing for a vehicle that is actually down.
+                  if ((previous.getStatus() == VehicleStatus.OFFLINE
+                          || previous.getStatus() == VehicleStatus.ERROR)
+                      && (current == VehicleStatus.IDLE || current == VehicleStatus.BUSY)) {
+                    update.set("operationSince", timestamp);
+                  } else if (current == VehicleStatus.OFFLINE || current == VehicleStatus.ERROR) {
+                    update.set("operationSince", null);
+                  }
                 }
                 return update;
               })
@@ -73,18 +76,38 @@ public class VehicleTelemetryConsumer {
                 // Only on an actual change. Rovers publish continuously, so counting every
                 // message would make the transition counter a message counter, and every
                 // failure rate derived from it meaningless.
-                VehicleStatus previousStatus = result.previousStatus();
-                if (previousStatus != current) {
-                  telemetry.recordStatusTransition(
-                      new VehicleStatusChange(
-                          msg.vehicleId(),
-                          previousStatus == null ? "UNKNOWN" : previousStatus.name(),
-                          current.name(),
-                          VehicleStatusChange.UNCATEGORIZED));
+                if (current != null) {
+                  VehicleStatus previousStatus = result.previousStatus();
+                  if (previousStatus != current) {
+                    telemetry.recordStatusTransition(
+                        new VehicleStatusChange(
+                            msg.vehicleId(),
+                            previousStatus == null ? "UNKNOWN" : previousStatus.name(),
+                            current.name(),
+                            VehicleStatusChange.UNCATEGORIZED));
+                  }
                 }
               });
     } catch (Exception e) {
       log.warn("Failed to process vehicle.telemetry message: {}", e.getMessage());
+    }
+  }
+
+  /**
+   * An unrecognized status must not sink the whole message: position/battery/lastSeenAt are still
+   * real and should still be applied even when the producer sends a status this consumer does not
+   * know yet.
+   */
+  private VehicleStatus parseStatus(String raw) {
+    if (raw == null) {
+      log.warn("Missing vehicle status — applying position/battery only");
+      return null;
+    }
+    try {
+      return VehicleStatus.valueOf(raw.toUpperCase());
+    } catch (IllegalArgumentException e) {
+      log.warn("Unrecognized vehicle status '{}' — applying position/battery only", raw);
+      return null;
     }
   }
 }

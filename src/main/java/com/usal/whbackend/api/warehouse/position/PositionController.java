@@ -98,7 +98,7 @@ public class PositionController {
     double containerVolume = request.size().getVolumeCm3();
     double requiredVolume = productVolume * request.quantity();
     boolean fits = requiredVolume <= containerVolume;
-    int maxQuantityAllowed = productVolume > 0 ? (int) (containerVolume / productVolume) : 0;
+    int maxQuantityAllowed = PositionService.maxUnitsByVolume(productVolume, containerVolume);
 
     return ResponseEntity.ok(
         new FitValidationResponse(

@@ -28,6 +28,8 @@ public class Reception {
   private List<Assignment> assignments;
   private String receivedByUserId;
 
+  @Indexed private ReceptionStatus status;
+
   @Indexed private Instant createdAt;
 
   public Reception() {}
@@ -94,6 +96,23 @@ public class Reception {
 
   public void setReceivedByUserId(String receivedByUserId) {
     this.receivedByUserId = receivedByUserId;
+  }
+
+  public ReceptionStatus getStatus() {
+    if (status == null) {
+      int assigned =
+          assignments == null
+              ? 0
+              : assignments.stream().mapToInt(Assignment::getQuantity).sum();
+      return assigned >= quantityReceived
+          ? ReceptionStatus.COMPLETED
+          : ReceptionStatus.PENDING_LOCATION;
+    }
+    return status;
+  }
+
+  public void setStatus(ReceptionStatus status) {
+    this.status = status;
   }
 
   public Instant getCreatedAt() {
