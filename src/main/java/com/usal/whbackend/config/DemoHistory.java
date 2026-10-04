@@ -77,6 +77,9 @@ final class DemoHistory {
   private static final int OPENING_STOCK = 250;
   private static final int NEVER_ORDERED_STOCK = 30;
   private static final String STOCKOUT = "Stock insuficiente";
+  // The longest created → completed span DemoDataset gives a completed order (up to 4h to start,
+  // up to 6h to deliver): an order more recent than this cannot have completed yet.
+  private static final java.time.Duration MAX_CYCLE = java.time.Duration.ofHours(10);
   private static final String[] CUSTOMER_REASONS = {
     "Cancelado por el cliente", "Dirección de entrega incorrecta"
   };
@@ -201,7 +204,6 @@ final class DemoHistory {
         review(d);
       }
     }
-    // Near-term orders created today (none today, but keep the simulation total).
     processOrders(0, nearTermByDay.getOrDefault(0, List.of()));
     shapeEndState();
     return new Result(orders, restockOrders, receptions);
@@ -319,9 +321,8 @@ final class DemoHistory {
 
   private void processOrders(int d, List<Order> fixed) {
     List<Intent> day = new ArrayList<>();
-    if (d >= 1) {
-      day.addAll(intents(d));
-    }
+    // Today only up to now: nothing is seeded in the future.
+    intents(d).stream().filter(i -> i.created().isBefore(now)).forEach(day::add);
     fixed.forEach(o -> day.add(new Intent(o.getCreatedAt(), o.getItems(), o)));
     day.sort(Comparator.comparing(Intent::created));
     for (Intent intent : day) {
@@ -356,11 +357,9 @@ final class DemoHistory {
       total += weights[i];
     }
 
-    // Yesterday only up to noon, so even the slowest delivery has completed before now.
-    int hours = d == 1 ? 5 : HOUR_WEIGHTS.length;
     List<Intent> result = new ArrayList<>(count);
     for (int k = 0; k < count; k++) {
-      Instant created = at(d, FIRST_HOUR + weightedHour(hours), random.nextInt(60));
+      Instant created = at(d, FIRST_HOUR + weightedHour(HOUR_WEIGHTS.length), random.nextInt(60));
       result.add(new Intent(created, items(weights, total), null));
     }
     return result;
@@ -422,6 +421,16 @@ final class DemoHistory {
     if (!inStock) {
       orders.add(
           maker.make(n, OrderStatus.CANCELLED, intent.items(), null, intent.created(), STOCKOUT));
+      return;
+    }
+    if (intent.created().plus(MAX_CYCLE).isAfter(now)) {
+      // Too recent to have shipped by now: still waiting, holding its units.
+      for (OrderItem item : intent.items()) {
+        int idx = indexById.get(item.getProductId());
+        reserved[idx] += item.getQuantity();
+        units[idx][d] += item.getQuantity();
+      }
+      orders.add(maker.make(n, OrderStatus.PENDING, intent.items(), null, intent.created(), null));
       return;
     }
     for (OrderItem item : intent.items()) {
@@ -560,6 +569,15 @@ final class DemoHistory {
     }
     open.clear();
 
+    // Open orders hold their units: a product whose reservations outgrew its stock got an urgent
+    // delivery this morning, so available stock is never negative.
+    for (int i = 0; i < products.size(); i++) {
+      if (available(i) < 0) {
+        OpenOrder urgent = purchase(i, -available(i), now.minus(1, ChronoUnit.DAYS), 0);
+        receive(i, urgent, urgent.remaining, now.minus(2, ChronoUnit.HOURS));
+      }
+    }
+
     Map<String, RestockInputs.Demand> before = demand();
     for (int i = 1; i < products.size(); i++) {
       int group = (i - 1) % 3;
@@ -645,11 +663,15 @@ final class DemoHistory {
     for (int i = 0; i < products.size(); i++) {
       List<Position> hosts = positionsByProduct.get(products.get(i).getId());
       int left = stock[i];
-      for (int h = 0; h < hosts.size(); h++) {
-        Position pos = hosts.get(h);
-        int put = h == hosts.size() - 1 ? left : Math.min(left, pos.getMaximumCapacity());
+      for (Position pos : hosts) {
+        int put = Math.min(left, pos.getMaximumCapacity());
         pos.setCurrentStock(put);
         left -= put;
+      }
+      if (left > 0) {
+        // The simulation caps every purchase at capacity; reaching here is a bug in it.
+        throw new IllegalStateException(
+            products.get(i).getSku() + " exceeds its positions' capacity by " + left);
       }
     }
   }

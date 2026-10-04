@@ -161,8 +161,8 @@ class DemoDatasetTest {
     assertThat(orders).hasSizeBetween(40_000, 70_000);
     Map<OrderStatus, Long> byStatus =
         orders.stream().collect(Collectors.groupingBy(Order::getStatus, Collectors.counting()));
-    // Only the near-term batch is open: history is closed by definition.
-    assertThat(byStatus.get(OrderStatus.PENDING)).isEqualTo(7);
+    // The near-term batch (7 pending, 2 riding a rover) plus whatever arrived too recently to ship.
+    assertThat(byStatus.get(OrderStatus.PENDING)).isGreaterThanOrEqualTo(7);
     assertThat(byStatus.get(OrderStatus.IN_PROGRESS)).isEqualTo(2);
     assertThat(byStatus.get(OrderStatus.COMPLETED)).isGreaterThan(35_000);
     assertThat(byStatus.get(OrderStatus.CANCELLED)).isPositive();

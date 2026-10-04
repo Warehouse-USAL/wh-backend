@@ -17,6 +17,7 @@ import com.usal.whbackend.domain.VehicleStatus;
 import com.usal.whbackend.domain.Zone;
 import com.usal.whbackend.service.metrics.restock.RestockParams;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
@@ -72,10 +73,19 @@ public final class DemoDataset {
   };
 
   private final UnaryOperator<String> passwordHasher;
-  private final Instant now = Instant.now();
+  private final Instant now;
+  // The catalogue, warehouse and accounts predate the order history that references them.
+  private final Instant catalogueEpoch;
 
   public DemoDataset(UnaryOperator<String> passwordHasher) {
+    this(passwordHasher, Instant.now());
+  }
+
+  /** Anchors the whole dataset at {@code now}; tests use it to build the seed on any date. */
+  DemoDataset(UnaryOperator<String> passwordHasher, Instant now) {
     this.passwordHasher = passwordHasher;
+    this.now = now;
+    this.catalogueEpoch = now.minus(DemoHistory.HISTORY_DAYS + 10L, ChronoUnit.DAYS);
   }
 
   /** Builds the full dataset. Deterministic except for absolute timestamps (anchored to now). */
@@ -141,7 +151,7 @@ public final class DemoDataset {
     u.setRole(role);
     u.setActive(true);
     u.setPasswordHash(passwordHasher.apply(SHARED_PASSWORD));
-    u.setCreatedAt(now.minus(daysAgo, ChronoUnit.DAYS));
+    u.setCreatedAt(catalogueEpoch.minus(daysAgo, ChronoUnit.DAYS));
     u.setAddress(montevideoAddress(id.hashCode()));
     return u;
   }
@@ -219,7 +229,7 @@ public final class DemoDataset {
     p.setDescription(description);
     p.setCategory(category.name());
     p.setActive(true);
-    p.setCreatedAt(now.minus(35L - globalIdx, ChronoUnit.DAYS));
+    p.setCreatedAt(catalogueEpoch.plus(5L * 24 + globalIdx, ChronoUnit.HOURS));
 
     Product.Price price = new Product.Price();
     price.setAmountCents(50_000L + category.ordinal() * 100_000L + globalIdx * 25_000L);
@@ -274,7 +284,7 @@ public final class DemoDataset {
       for (int pi = 1; pi <= POSITIONS_PER_LINE; pi++) {
         String name = String.format("P%02d", pi);
         String posId = "pos-" + ln.getId() + "-" + name;
-        Instant created = now.minus(40L - globalIdx, ChronoUnit.DAYS);
+        Instant created = catalogueEpoch.plus(24L + globalIdx, ChronoUnit.HOURS);
         String productId =
             globalIdx < PRODUCT_POSITIONS
                 ? products.get(globalIdx % products.size()).getId()
@@ -292,7 +302,7 @@ public final class DemoDataset {
     z.setZoneCode(code);
     z.setActive(true);
     z.setMaxAllowedLines(10);
-    z.setCreatedAt(now.minus(45, ChronoUnit.DAYS));
+    z.setCreatedAt(catalogueEpoch);
     return z;
   }
 
@@ -303,7 +313,7 @@ public final class DemoDataset {
     l.setNumberLine(number);
     l.setActive(true);
     l.setMaxAllowedPositions(20);
-    l.setCreatedAt(now.minus(44, ChronoUnit.DAYS));
+    l.setCreatedAt(catalogueEpoch.plus(1, ChronoUnit.HOURS));
     return l;
   }
 
@@ -402,8 +412,14 @@ public final class DemoDataset {
       Vehicle vehicle,
       int daysAgo,
       String cancelReason) {
-    return makeOrder(
-        n, status, users, products, vehicle, now.minus(daysAgo, ChronoUnit.DAYS), cancelReason);
+    // During working hours on that day, not at whatever time of day the seed happens to run.
+    Instant created =
+        LocalDate.ofInstant(now, DemoHistory.ZONE)
+            .minusDays(daysAgo)
+            .atTime(9 + n % 9, n * 7 % 60)
+            .atZone(DemoHistory.ZONE)
+            .toInstant();
+    return makeOrder(n, status, users, products, vehicle, created, cancelReason);
   }
 
   private Order makeOrder(
