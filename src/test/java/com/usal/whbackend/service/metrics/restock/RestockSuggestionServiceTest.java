@@ -105,6 +105,32 @@ class RestockSuggestionServiceTest {
   }
 
   @Test
+  void suggest_readsOnlyTheFieldsOnOrderNeeds() {
+    // Restock orders and receptions accumulate forever; read just what the sum uses.
+    when(mongoTemplate.find(any(Query.class), eq(Product.class)))
+        .thenReturn(List.of(product("p1", "SKU-1")));
+    when(mongoTemplate.find(any(Query.class), eq(Order.class))).thenReturn(List.of());
+    RestockOrder ro = new RestockOrder();
+    ro.setId("ro-1");
+    ro.setProductId("p1");
+    ro.setQuantityRequested(10);
+    when(mongoTemplate.find(any(Query.class), eq(RestockOrder.class))).thenReturn(List.of(ro));
+    when(mongoTemplate.find(any(Query.class), eq(Reception.class))).thenReturn(List.of());
+    when(productService.netAvailableStock(anyList())).thenReturn(Map.of("p1", 0));
+
+    service.suggest(EXAMPLE, List.of(), null);
+
+    ArgumentCaptor<Query> restock = ArgumentCaptor.forClass(Query.class);
+    verify(mongoTemplate).find(restock.capture(), eq(RestockOrder.class));
+    assertThat(restock.getValue().getFieldsObject().keySet())
+        .containsExactlyInAnyOrder("productId", "quantityRequested");
+    ArgumentCaptor<Query> receptions = ArgumentCaptor.forClass(Query.class);
+    verify(mongoTemplate).find(receptions.capture(), eq(Reception.class));
+    assertThat(receptions.getValue().getFieldsObject().keySet())
+        .containsExactlyInAnyOrder("restockOrderId", "assignments.quantity");
+  }
+
+  @Test
   void suggest_listsSuggestionsFirstThenLargestQuantity() {
     when(mongoTemplate.find(any(Query.class), eq(Product.class)))
         .thenReturn(List.of(product("healthy", "A"), product("small", "B"), product("big", "C")));

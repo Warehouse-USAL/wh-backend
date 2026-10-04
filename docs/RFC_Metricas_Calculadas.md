@@ -238,6 +238,8 @@ El endpoint calcula igual que la simulación y **guarda la recomendación en cad
 
 - Los consumidores lo leen en `GET /products` y `GET /products/{id}`. Vale `null` hasta la primera corrida, y el cron corre una vez al arrancar para que eso no pase después de un deploy o un seed.
 - Es una **foto** al momento de `calculated_at`: los movimientos del día se reflejan en la corrida siguiente.
+- **Solo la corrida diaria escribe `restock`.** Editar un producto (`PATCH`) actualiza los demás campos sin tocar `restock`, así una edición que coincida con la corrida no restaura la recomendación anterior.
+- **Un producto desactivado pierde su `restock`**, porque ya no se repone. Lo limpia la baja del producto y, como red de seguridad, cada corrida lo limpia en todos los productos inactivos.
 - Solo `SUPERADMIN` y `ADMIN_WAREHOUSE` pueden llamar al `apply`. La simulación (`POST /metrics/restock-suggestions`) sigue siendo de solo lectura, así que nadie que pruebe parámetros pisa la recomendación guardada.
 - Las ventanas son móviles respecto del momento de la corrida (§4.1). No hay `from`/`to`.
 

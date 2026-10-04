@@ -166,17 +166,21 @@ public class RestockSuggestionService {
         Order.class);
   }
 
+  /**
+   * Restock orders and receptions accumulate with no end date (an order has no status to close it),
+   * so both reads project only the fields {@link RestockInputs#onOrderByProduct} sums.
+   */
   private Map<String, Integer> findOnOrder(List<String> productIds) {
-    List<RestockOrder> restockOrders =
-        mongoTemplate.find(
-            new Query(Criteria.where("productId").in(productIds)), RestockOrder.class);
+    Query orders = new Query(Criteria.where("productId").in(productIds));
+    orders.fields().include("productId", "quantityRequested");
+    List<RestockOrder> restockOrders = mongoTemplate.find(orders, RestockOrder.class);
     if (restockOrders.isEmpty()) {
       return Map.of();
     }
     List<String> restockOrderIds = restockOrders.stream().map(RestockOrder::getId).toList();
-    List<Reception> receptions =
-        mongoTemplate.find(
-            new Query(Criteria.where("restockOrderId").in(restockOrderIds)), Reception.class);
+    Query located = new Query(Criteria.where("restockOrderId").in(restockOrderIds));
+    located.fields().include("restockOrderId", "assignments.quantity");
+    List<Reception> receptions = mongoTemplate.find(located, Reception.class);
     return RestockInputs.onOrderByProduct(restockOrders, receptions);
   }
 }

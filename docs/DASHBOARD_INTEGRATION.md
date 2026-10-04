@@ -247,7 +247,7 @@ producto**, que leen en `GET /products` y `GET /products/{id}`:
 ```
 
 - `restock` es una foto a la hora de `calculated_at` (todos los días a las 03:00, hora de
-  Buenos Aires). Vale `null` si todavía no corrió nunca.
+  Buenos Aires). Vale `null` si todavía no corrió nunca o si el producto está desactivado.
 - `stock.physical` es lo que hay en el depósito. `available = physical − reserved` es lo libre
   para nuevas órdenes.
 - La simulación (`POST /metrics/restock-suggestions`) sigue disponible para probar otros

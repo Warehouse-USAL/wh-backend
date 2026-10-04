@@ -28,8 +28,12 @@ ENV_FILE=/tmp/restock-cron.env
 
 log() { echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) restock-cron: $*"; }
 
-# Escapes a value for embedding inside a JSON string.
-json_escape() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
+# Escapes a value for embedding inside a JSON string: backslash, quote, tab, CR and newline.
+json_escape() {
+  printf '%s' "$1" \
+    | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g' -e "s/$(printf '\t')/\\\\t/g" -e "s/$(printf '\r')/\\\\r/g" \
+    | awk '{ printf "%s%s", (NR > 1 ? "\\n" : ""), $0 }'
+}
 
 # Waits until the backend reports itself ready. Its HTTP port opens before startup runners
 # finish — the admin bootstrap and the demo seed — so logging in or applying earlier could be
