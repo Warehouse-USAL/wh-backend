@@ -17,7 +17,7 @@ public class OrderItem {
     this.productId = productId;
     this.sku = sku;
     this.quantity = quantity;
-    this.unitPrice = unitPrice;
+    this.unitPrice = unitPrice == null ? null : new Product.Price(unitPrice);
   }
 
   public String getProductId() {
@@ -45,11 +45,11 @@ public class OrderItem {
   }
 
   public Product.Price getUnitPrice() {
-    return unitPrice;
+    return unitPrice == null ? null : new Product.Price(unitPrice);
   }
 
   public void setUnitPrice(Product.Price unitPrice) {
-    this.unitPrice = unitPrice;
+    this.unitPrice = unitPrice == null ? null : new Product.Price(unitPrice);
   }
 }
 

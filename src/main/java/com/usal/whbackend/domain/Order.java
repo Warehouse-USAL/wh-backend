@@ -135,10 +135,10 @@ public class Order {
   }
 
   public Product.Price getTotal() {
-    return total;
+    return total == null ? null : new Product.Price(total);
   }
 
   public void setTotal(Product.Price total) {
-    this.total = total;
+    this.total = total == null ? null : new Product.Price(total);
   }
 }
