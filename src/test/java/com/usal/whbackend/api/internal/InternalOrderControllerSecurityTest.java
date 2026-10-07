@@ -1,5 +1,6 @@
 package com.usal.whbackend.api.internal;
 
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
@@ -122,7 +123,7 @@ class InternalOrderControllerSecurityTest {
   @Test
   @WithMockUser(roles = "ADMIN_WAREHOUSE")
   void changeStatus_withAdminWarehouse_returns200() throws Exception {
-    when(orderService.changeStatus(anyString(), anyString())).thenReturn(new Order());
+    when(orderService.changeStatus(anyString(), anyString(), any())).thenReturn(new Order());
     mockMvc
         .perform(
             patch("/internal/orders/order-1/status")
@@ -134,7 +135,7 @@ class InternalOrderControllerSecurityTest {
   @Test
   @WithMockUser(roles = "SUPERADMIN")
   void changeStatus_withSuperadmin_returns200() throws Exception {
-    when(orderService.changeStatus(anyString(), anyString())).thenReturn(new Order());
+    when(orderService.changeStatus(anyString(), anyString(), any())).thenReturn(new Order());
     mockMvc
         .perform(
             patch("/internal/orders/order-1/status")

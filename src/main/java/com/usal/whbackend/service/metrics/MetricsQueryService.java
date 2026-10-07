@@ -60,4 +60,8 @@ public class MetricsQueryService {
   public List<MetricDescriptor> catalog(Set<UserRole> roles) {
     return registry.visibleTo(roles);
   }
+
+  public List<ComputedMetricDescriptor> computedCatalog(Set<UserRole> roles) {
+    return registry.computedVisibleTo(roles);
+  }
 }

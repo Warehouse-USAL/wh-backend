@@ -148,7 +148,7 @@ MongoDB and Redpanda data is persisted to `data/` at the project root (bind-moun
 
 ## Demo data
 
-To populate a **fresh** database with a complete, interconnected demo dataset — users across every role, a product catalog, a stocked warehouse, vehicles, and orders in every state — set `SEED_DEMO=true` before the first boot:
+To populate a **fresh** database with a complete, interconnected demo dataset — users across every role, a product catalog, a stocked warehouse, vehicles, and **two years** of seasonal order, restock and fleet history (~57k orders) — set `SEED_DEMO=true` before the first boot:
 
 ```bash
 SEED_DEMO=true make up-dev
@@ -157,6 +157,10 @@ SEED_DEMO=true make up-dev
 It runs once on startup and is **idempotent**: if products already exist it does nothing, so it is safe across restarts and off by default (it can never fire on an existing database unless you opt in). To re-seed, reset the database first (`make down` and delete `data/`, or drop the Mongo database) and boot again.
 
 Login credentials for the seeded accounts are listed in [docs/demo-credentials.md](docs/demo-credentials.md) (shared password `Demo1234!`).
+
+## Daily restock run (`restock-cron`)
+
+The `restock-cron` compose service calls `POST /metrics/restock-suggestions/apply` once a day, which stores each active product's restock recommendation on the product (`product.restock`). Its schedule (UTC) and business params are env vars with defaults — `RESTOCK_SCHEDULE`, `RESTOCK_ALPHA`, `RESTOCK_RECENT_DAYS`, `RESTOCK_LONG_DAYS`, `RESTOCK_SAFETY_DAYS`, `RESTOCK_LEAD_TIME_DAYS`, `RESTOCK_COVERAGE_DAYS` — plus the service account `RESTOCK_USER` / `RESTOCK_PASSWORD` (defaults to the bootstrap admin). Change one in `.env` and run `docker compose up -d restock-cron`; the backend is untouched. See [docs/RFC_Metricas_Calculadas.md](docs/RFC_Metricas_Calculadas.md) §6.3.
 
 ---
 

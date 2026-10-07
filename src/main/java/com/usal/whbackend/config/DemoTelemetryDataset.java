@@ -33,8 +33,9 @@ public final class DemoTelemetryDataset {
   // several times the point count VictoriaMetrics' /api/v1/import is comfortable receiving in one
   // seed run, and a proportionally larger in-memory build. 30-minute resolution keeps a year of
   // history smooth enough for any dashboard chart while keeping both bounded, the same trade-off
-  // a real long-range retention policy makes by downsampling older data.
-  public static final int DAYS = 365;
+  // a real long-range retention policy makes by downsampling older data. Two years, so every app
+  // reading the backend can chart year-over-year; VictoriaMetrics retention is sized to match.
+  public static final int DAYS = 730;
   public static final Duration RESOLUTION = Duration.ofMinutes(30);
 
   /** The label the collector attaches, so seeded points land on the same series as live ones. */

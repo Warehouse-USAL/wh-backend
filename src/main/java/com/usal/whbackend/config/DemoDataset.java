@@ -9,25 +9,19 @@ import com.usal.whbackend.domain.OrderStatus;
 import com.usal.whbackend.domain.Position;
 import com.usal.whbackend.domain.Product;
 import com.usal.whbackend.domain.ProductCategory;
-import com.usal.whbackend.domain.Reception;
-import com.usal.whbackend.domain.ReceptionStatus;
-import com.usal.whbackend.domain.RestockOrder;
 import com.usal.whbackend.domain.StockSize;
 import com.usal.whbackend.domain.User;
 import com.usal.whbackend.domain.UserRole;
 import com.usal.whbackend.domain.Vehicle;
 import com.usal.whbackend.domain.VehicleStatus;
 import com.usal.whbackend.domain.Zone;
+import com.usal.whbackend.service.metrics.restock.RestockParams;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.EnumSet;
 import java.util.List;
-import java.util.Map;
-import java.util.Set;
 import java.util.function.UnaryOperator;
-import java.util.stream.Collectors;
 
 /**
  * Builds a complete, internally-consistent "production-looking" demo dataset entirely in memory.
@@ -49,27 +43,18 @@ public final class DemoDataset {
   private static final String EMAIL_DOMAIN = "@smartwarehouse.local";
   private static final String CURRENCY = "ARS";
 
-  /** Units left available (above reservations) for each product after completed orders drain. */
-  private static final int HEALTHY_BUFFER = 30;
+  /**
+   * The business document's example params (RFC_Metricas_Calculadas.md §4.4), which are also the
+   * {@code restock-cron} defaults. The simulated buyer in {@link DemoHistory} restocks with them
+   * and the end state is shaped against them, so the first daily run — or a dashboard calling
+   * {@code POST /metrics/restock-suggestions} with these values — sees every case: restock now,
+   * covered by stock in transit, and healthy.
+   */
+  static final RestockParams DEMO_RESTOCK_PARAMS = new RestockParams(0.3, 7, 60, 2, 5, 7);
 
   private static final int PRODUCT_POSITIONS = 32;
   private static final int POSITIONS_PER_LINE = 5;
   private static final int POSITION_MAX_CAPACITY = 500;
-
-  // How far back the historical order batch reaches, so the dashboard has a full year to chart
-  // instead of the ~3 weeks the near-term batch alone covers. Starts after the near-term window
-  // (which reaches back 13 days) rather than at day 1, so the two batches do not overlap.
-  private static final int HISTORICAL_START_DAY = 14;
-  private static final int HISTORICAL_END_DAY = 365;
-  private static final int HISTORICAL_ORDERS_PER_DAY = 2;
-
-  // Cadence for the restock/reception history: one request-and-delivery pair every N days,
-  // cycling through every product round-robin, so the stock-movements chart has a year of
-  // stock-IN events to plot alongside the orders' stock-OUT signal.
-  private static final int RECEPTION_INTERVAL_DAYS = 5;
-  private static final String[] SUPPLIERS = {
-    "Distribuidora del Sur S.A.", "Importadora Andina Ltda.", "Mayorista Rioplatense"
-  };
 
   private static final String[] DESTINATIONS = {
     "Depósito Central",
@@ -88,10 +73,19 @@ public final class DemoDataset {
   };
 
   private final UnaryOperator<String> passwordHasher;
-  private final Instant now = Instant.now();
+  private final Instant now;
+  // The catalogue, warehouse and accounts predate the order history that references them.
+  private final Instant catalogueEpoch;
 
   public DemoDataset(UnaryOperator<String> passwordHasher) {
+    this(passwordHasher, Instant.now());
+  }
+
+  /** Anchors the whole dataset at {@code now}; tests use it to build the seed on any date. */
+  DemoDataset(UnaryOperator<String> passwordHasher, Instant now) {
     this.passwordHasher = passwordHasher;
+    this.now = now;
+    this.catalogueEpoch = now.minus(DemoHistory.HISTORY_DAYS + 10L, ChronoUnit.DAYS);
   }
 
   /** Builds the full dataset. Deterministic except for absolute timestamps (anchored to now). */
@@ -103,14 +97,27 @@ public final class DemoDataset {
     List<Position> positions = new ArrayList<>();
     buildWarehouse(products, zones, lines, positions);
     List<Vehicle> vehicles = buildVehicles();
-    List<Order> orders = buildOrders(users, products, vehicles);
-    orders.addAll(buildHistoricalOrders(users, products, vehicles, orders.size()));
-    simulateStock(products, positions, orders);
-    List<RestockOrder> restockOrders = new ArrayList<>();
-    List<Reception> receptions = new ArrayList<>();
-    buildReceptionHistory(products, positions, restockOrders, receptions);
+    List<Order> nearTerm = buildOrders(users, products, vehicles);
+    DemoHistory.Result history =
+        new DemoHistory(
+                now,
+                DEMO_RESTOCK_PARAMS,
+                products,
+                positions,
+                vehicles,
+                (n, status, items, vehicle, created, reason) ->
+                    orderWithItems(n, status, users, items, vehicle, created, reason))
+            .simulate(nearTerm, nearTerm.size());
     return new DemoData(
-        users, products, zones, lines, positions, vehicles, orders, restockOrders, receptions);
+        users,
+        products,
+        zones,
+        lines,
+        positions,
+        vehicles,
+        history.orders(),
+        history.restockOrders(),
+        history.receptions());
   }
 
   // ── Users ────────────────────────────────────────────────────────────────────
@@ -144,7 +151,7 @@ public final class DemoDataset {
     u.setRole(role);
     u.setActive(true);
     u.setPasswordHash(passwordHasher.apply(SHARED_PASSWORD));
-    u.setCreatedAt(now.minus(daysAgo, ChronoUnit.DAYS));
+    u.setCreatedAt(catalogueEpoch.minus(daysAgo, ChronoUnit.DAYS));
     u.setAddress(montevideoAddress(id.hashCode()));
     return u;
   }
@@ -222,7 +229,7 @@ public final class DemoDataset {
     p.setDescription(description);
     p.setCategory(category.name());
     p.setActive(true);
-    p.setCreatedAt(now.minus(35L - globalIdx, ChronoUnit.DAYS));
+    p.setCreatedAt(catalogueEpoch.plus(5L * 24 + globalIdx, ChronoUnit.HOURS));
 
     Product.Price price = new Product.Price();
     price.setAmountCents(50_000L + category.ordinal() * 100_000L + globalIdx * 25_000L);
@@ -277,7 +284,7 @@ public final class DemoDataset {
       for (int pi = 1; pi <= POSITIONS_PER_LINE; pi++) {
         String name = String.format("P%02d", pi);
         String posId = "pos-" + ln.getId() + "-" + name;
-        Instant created = now.minus(40L - globalIdx, ChronoUnit.DAYS);
+        Instant created = catalogueEpoch.plus(24L + globalIdx, ChronoUnit.HOURS);
         String productId =
             globalIdx < PRODUCT_POSITIONS
                 ? products.get(globalIdx % products.size()).getId()
@@ -295,7 +302,7 @@ public final class DemoDataset {
     z.setZoneCode(code);
     z.setActive(true);
     z.setMaxAllowedLines(10);
-    z.setCreatedAt(now.minus(45, ChronoUnit.DAYS));
+    z.setCreatedAt(catalogueEpoch);
     return z;
   }
 
@@ -306,7 +313,7 @@ public final class DemoDataset {
     l.setNumberLine(number);
     l.setActive(true);
     l.setMaxAllowedPositions(20);
-    l.setCreatedAt(now.minus(44, ChronoUnit.DAYS));
+    l.setCreatedAt(catalogueEpoch.plus(1, ChronoUnit.HOURS));
     return l;
   }
 
@@ -405,8 +412,14 @@ public final class DemoDataset {
       Vehicle vehicle,
       int daysAgo,
       String cancelReason) {
-    return makeOrder(
-        n, status, users, products, vehicle, now.minus(daysAgo, ChronoUnit.DAYS), cancelReason);
+    // During working hours on that day, not at whatever time of day the seed happens to run.
+    Instant created =
+        LocalDate.ofInstant(now, DemoHistory.ZONE)
+            .minusDays(daysAgo)
+            .atTime(9 + n % 9, n * 7 % 60)
+            .atZone(DemoHistory.ZONE)
+            .toInstant();
+    return makeOrder(n, status, users, products, vehicle, created, cancelReason);
   }
 
   private Order makeOrder(
@@ -417,13 +430,25 @@ public final class DemoDataset {
       Vehicle vehicle,
       Instant created,
       String cancelReason) {
+    return orderWithItems(
+        n, status, users, buildItems(n, products), vehicle, created, cancelReason);
+  }
+
+  private Order orderWithItems(
+      int n,
+      OrderStatus status,
+      List<User> users,
+      List<OrderItem> items,
+      Vehicle vehicle,
+      Instant created,
+      String cancelReason) {
     Order o = new Order();
     String id = String.format("o-%04d", n);
     o.setId(id);
     o.setStatus(status);
     o.setPriority(OrderPriority.values()[Math.floorMod(n, OrderPriority.values().length)]);
     o.setRequestedByUserId(users.get(n % users.size()).getId());
-    o.setItems(buildItems(n, products));
+    o.setItems(items);
     o.setDestinationArea(DESTINATIONS[n % DESTINATIONS.length]);
     o.setAddress(montevideoAddress(n * 7));
     o.setCreatedAt(created);
@@ -435,7 +460,7 @@ public final class DemoDataset {
         vehicle.setCurrentOrderId(id);
       }
       case COMPLETED -> {
-        // Jittered by n rather than a fixed 3h/5h pair, so a year of history has real cycle-time
+        // Jittered by n rather than a fixed 3h/5h pair, so the history has real cycle-time
         // variance instead of every completed order taking exactly the same 5 hours.
         Instant started = created.plus(1 + Math.floorMod(n, 4), ChronoUnit.HOURS);
         o.setStartedAt(started);
@@ -450,103 +475,6 @@ public final class DemoDataset {
     return o;
   }
 
-  // ── Historical orders (past year, COMPLETED/CANCELLED only) ────────────────────
-
-  /**
-   * Extends the near-term batch built by {@link #buildOrders} back across a full year, so charts
-   * bucketed by day or hour have real history instead of ~3 weeks of data next to a 365-day axis.
-   * Deliberately COMPLETED/CANCELLED only: a year-old PENDING or IN_PROGRESS order would be a
-   * standing bug in any real system, so seeding one would be seeding a lie.
-   */
-  private List<Order> buildHistoricalOrders(
-      List<User> users, List<Product> products, List<Vehicle> vehicles, int startIndex) {
-    List<Order> orders = new ArrayList<>();
-    String[] reasons = {
-      "Stock insuficiente", "Cancelado por el cliente", "Dirección de entrega incorrecta"
-    };
-    int n = startIndex;
-    for (int daysAgo = HISTORICAL_START_DAY; daysAgo <= HISTORICAL_END_DAY; daysAgo++) {
-      for (int slot = 0; slot < HISTORICAL_ORDERS_PER_DAY; slot++) {
-        n++;
-        boolean cancelled = n % 7 == 0;
-        OrderStatus status = cancelled ? OrderStatus.CANCELLED : OrderStatus.COMPLETED;
-        Vehicle vehicle = cancelled ? null : vehicles.get(n % vehicles.size());
-        String reason = cancelled ? reasons[n % reasons.length] : null;
-        int hourOfDay = (n * 7) % 24;
-        Instant created =
-            now.minus(daysAgo, ChronoUnit.DAYS)
-                .truncatedTo(ChronoUnit.DAYS)
-                .plus(hourOfDay, ChronoUnit.HOURS);
-        orders.add(makeOrder(n, status, users, products, vehicle, created, reason));
-      }
-    }
-    return orders;
-  }
-
-  // ── Restock/reception history (past year, stock-IN events) ─────────────────────
-
-  /**
-   * A restock order + linked reception every {@link #RECEPTION_INTERVAL_DAYS}, cycling through
-   * every product, so the stock-movements chart (#54/#55) has a year of stock-IN events. Every
-   * fifth reception omits the {@code restockOrderId} link, matching {@link Reception}'s real
-   * contract: a reception need not reference an order.
-   *
-   * <p>Deliberately does not touch {@link Position#getCurrentStock()} — {@link #simulateStock}
-   * already derives a self-consistent stock picture from orders alone, and reconciling that
-   * simulation against an independent reception history is not needed for what this seeds the data
-   * for: exercising the {@code /query/receptions} chart with plausible stock-IN events.
-   */
-  private void buildReceptionHistory(
-      List<Product> products,
-      List<Position> positions,
-      List<RestockOrder> restockOrders,
-      List<Reception> receptions) {
-    int n = 0;
-    for (int daysAgo = HISTORICAL_END_DAY;
-        daysAgo >= RECEPTION_INTERVAL_DAYS;
-        daysAgo -= RECEPTION_INTERVAL_DAYS) {
-      n++;
-      Product product = products.get(n % products.size());
-      Position position =
-          positions.stream()
-              .filter(p -> product.getId().equals(p.getProductId()))
-              .findFirst()
-              .orElse(null);
-      if (position == null) {
-        continue;
-      }
-
-      int quantity = 40 + (n % 6) * 20;
-      Instant requestedAt = now.minus(daysAgo + 1, ChronoUnit.DAYS);
-      Instant receivedAt = now.minus(daysAgo, ChronoUnit.DAYS);
-      String supplier = SUPPLIERS[n % SUPPLIERS.length];
-
-      RestockOrder restockOrder = new RestockOrder();
-      restockOrder.setId(String.format("ro-%04d", n));
-      restockOrder.setProductId(product.getId());
-      restockOrder.setQuantityRequested(quantity);
-      restockOrder.setSupplier(supplier);
-      restockOrder.setRequestedByUserId("u-warehouse");
-      restockOrder.setCreatedAt(requestedAt);
-      restockOrders.add(restockOrder);
-
-      boolean linked = n % 5 != 0;
-
-      Reception reception = new Reception();
-      reception.setId(String.format("rec-%04d", n));
-      reception.setRestockOrderId(linked ? restockOrder.getId() : null);
-      reception.setProductId(product.getId());
-      reception.setQuantityReceived(quantity);
-      reception.setDeliveryUnit(StockSize.values()[n % StockSize.values().length]);
-      reception.setSupplier(supplier);
-      reception.setStatus(ReceptionStatus.COMPLETED);
-      reception.setAssignments(List.of(new Reception.Assignment(position.getId(), quantity)));
-      reception.setReceivedByUserId("u-warehouse");
-      reception.setCreatedAt(receivedAt);
-      receptions.add(reception);
-    }
-  }
-
   private List<OrderItem> buildItems(int n, List<Product> products) {
     int count = 1 + (n % 3);
     List<OrderItem> items = new ArrayList<>();
@@ -557,76 +485,6 @@ public final class DemoDataset {
       items.add(new OrderItem(p.getId(), p.getSku(), qty));
     }
     return items;
-  }
-
-  // ── Causal stock simulation ─────────────────────────────────────────────────────
-
-  private void simulateStock(List<Product> products, List<Position> positions, List<Order> orders) {
-    Map<String, List<Position>> byProduct =
-        positions.stream()
-            .filter(p -> p.getProductId() != null)
-            .collect(Collectors.groupingBy(Position::getProductId));
-    byProduct.values().forEach(list -> list.sort(Comparator.comparing(Position::getCreatedAt)));
-
-    Map<String, Integer> completed = sumQuantities(orders, EnumSet.of(OrderStatus.COMPLETED));
-    Map<String, Integer> reserved =
-        sumQuantities(orders, EnumSet.of(OrderStatus.PENDING, OrderStatus.IN_PROGRESS));
-
-    // Place initial inbound stock so each product can cover its completed + reserved demand +
-    // buffer.
-    for (Product p : products) {
-      List<Position> hosts = byProduct.get(p.getId());
-      if (hosts == null) {
-        continue;
-      }
-      int total =
-          completed.getOrDefault(p.getId(), 0)
-              + reserved.getOrDefault(p.getId(), 0)
-              + HEALTHY_BUFFER;
-      distributeStock(total, hosts);
-    }
-
-    // Draw down stock for completed orders, FIFO (oldest position first).
-    for (Order o : orders) {
-      if (o.getStatus() != OrderStatus.COMPLETED) {
-        continue;
-      }
-      for (OrderItem item : o.getItems()) {
-        List<Position> hosts = byProduct.get(item.getProductId());
-        if (hosts != null) {
-          drainFifo(hosts, item.getQuantity());
-        }
-      }
-    }
-  }
-
-  private void distributeStock(int total, List<Position> hosts) {
-    int base = total / hosts.size();
-    int remainder = total % hosts.size();
-    for (int i = 0; i < hosts.size(); i++) {
-      hosts.get(i).setCurrentStock(base + (i < remainder ? 1 : 0));
-    }
-  }
-
-  private void drainFifo(List<Position> hosts, int quantity) {
-    int remaining = quantity;
-    for (Position pos : hosts) {
-      if (remaining <= 0) {
-        break;
-      }
-      int drained = Math.min(remaining, pos.getCurrentStock());
-      pos.setCurrentStock(pos.getCurrentStock() - drained);
-      remaining -= drained;
-    }
-  }
-
-  private Map<String, Integer> sumQuantities(List<Order> orders, Set<OrderStatus> statuses) {
-    return orders.stream()
-        .filter(o -> statuses.contains(o.getStatus()))
-        .flatMap(o -> o.getItems().stream())
-        .collect(
-            Collectors.groupingBy(
-                OrderItem::getProductId, Collectors.summingInt(OrderItem::getQuantity)));
   }
 
   // ── Shared helpers ───────────────────────────────────────────────────────────

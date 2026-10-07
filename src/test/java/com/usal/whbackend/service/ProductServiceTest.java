@@ -11,16 +11,21 @@ import com.usal.whbackend.domain.Line;
 import com.usal.whbackend.domain.Position;
 import com.usal.whbackend.domain.Product;
 import com.usal.whbackend.domain.ProductCategory;
+import com.usal.whbackend.domain.ProductRestock;
 import com.usal.whbackend.domain.Zone;
 import com.usal.whbackend.repository.LineRepository;
 import com.usal.whbackend.repository.PositionRepository;
 import com.usal.whbackend.repository.ProductRepository;
 import com.usal.whbackend.repository.ZoneRepository;
 import com.usal.whbackend.service.storage.StorageService;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import org.bson.Document;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -31,7 +36,12 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.aggregation.Aggregation;
 import org.springframework.data.mongodb.core.aggregation.AggregationResults;
+import org.springframework.data.mongodb.core.convert.MappingMongoConverter;
+import org.springframework.data.mongodb.core.convert.MongoCustomConversions;
+import org.springframework.data.mongodb.core.convert.NoOpDbRefResolver;
+import org.springframework.data.mongodb.core.mapping.MongoMappingContext;
 import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.web.server.ResponseStatusException;
 
 @ExtendWith(MockitoExtension.class)
@@ -44,6 +54,87 @@ class ProductServiceTest {
   @Mock ZoneRepository zoneRepository;
   @Mock StorageService storageService;
   @InjectMocks ProductService productService;
+
+  // A real converter, configured as Spring Boot does: targeted product updates are built from the
+  // mapped document.
+  private static final MappingMongoConverter CONVERTER = converter();
+
+  private static MappingMongoConverter converter() {
+    MongoCustomConversions conversions = new MongoCustomConversions(List.of());
+    MongoMappingContext context = new MongoMappingContext();
+    context.setSimpleTypeHolder(conversions.getSimpleTypeHolder());
+    context.afterPropertiesSet();
+    MappingMongoConverter converter =
+        new MappingMongoConverter(NoOpDbRefResolver.INSTANCE, context);
+    converter.setCustomConversions(conversions);
+    converter.afterPropertiesSet();
+    return converter;
+  }
+
+  @BeforeEach
+  void realConverter() {
+    lenient().when(mongoTemplate.getConverter()).thenReturn(CONVERTER);
+  }
+
+  private Document capturedUpdate() {
+    ArgumentCaptor<Update> update = ArgumentCaptor.forClass(Update.class);
+    verify(mongoTemplate).updateFirst(any(Query.class), update.capture(), eq(Product.class));
+    return update.getValue().getUpdateObject();
+  }
+
+  // ── product.restock is written only by the daily restock run ───────────────
+
+  @Test
+  void updateProduct_neverWritesRestock_soAnOverlappingDailyRunIsNotUndone() {
+    Product p = activeProduct("1");
+    p.setRestock(new ProductRestock(true, 5, 3.0, 8.0, 1, Instant.parse("2026-10-05T06:00:00Z")));
+    when(productRepository.findById("1")).thenReturn(Optional.of(p));
+    when(positionRepository.findByProductIdInAndIsActiveTrue(any())).thenReturn(List.of());
+    mockZeroSingleReservedStock();
+
+    productService.updateProduct(
+        "1",
+        new UpdateProductRequest(
+            "NewName", null, null, null, null, null, null, null, null, null, null, null, null));
+
+    Document update = capturedUpdate();
+    Document set = update.get("$set", Document.class);
+    assertEquals("NewName", set.get("name"));
+    assertFalse(set.containsKey("restock"));
+    assertFalse(set.containsKey("_id"));
+    assertNull(update.get("$unset"));
+  }
+
+  @Test
+  void updateProduct_deactivating_clearsTheRestockRecommendation() {
+    Product p = activeProduct("1");
+    when(productRepository.findById("1")).thenReturn(Optional.of(p));
+    when(positionRepository.findByProductIdInAndIsActiveTrue(any())).thenReturn(List.of());
+    mockZeroSingleReservedStock();
+
+    productService.updateProduct(
+        "1",
+        new UpdateProductRequest(
+            null, null, null, null, null, null, null, null, false, null, null, null, null));
+
+    Document update = capturedUpdate();
+    assertEquals(false, update.get("$set", Document.class).get("active"));
+    assertTrue(update.get("$unset", Document.class).containsKey("restock"));
+  }
+
+  @Test
+  void deleteProduct_deactivatesAndClearsTheRestockRecommendation() {
+    Product p = activeProduct("1");
+    when(productRepository.findById("1")).thenReturn(Optional.of(p));
+    when(positionRepository.findByProductIdIn(any())).thenReturn(List.of());
+
+    productService.deleteProduct("1");
+
+    Document update = capturedUpdate();
+    assertEquals(false, update.get("$set", Document.class).get("active"));
+    assertTrue(update.get("$unset", Document.class).containsKey("restock"));
+    verify(productRepository, never()).save(any());
+  }
 
   private Product activeProduct(String id) {
     Product p = new Product();
@@ -74,6 +165,26 @@ class ProductServiceTest {
     when(emptyResults.getUniqueMappedResult()).thenReturn(null);
     when(mongoTemplate.aggregate(any(Aggregation.class), anyString(), any(Class.class)))
         .thenReturn((AggregationResults) emptyResults);
+  }
+
+  // ── netAvailableStock ──────────────────────────────────────────────────────
+
+  @Test
+  void netAvailableStock_sumsActivePositionsPerProductAndReportsUnstockedAsZero() {
+    Position a = new Position();
+    a.setProductId("p1");
+    a.setCurrentStock(30);
+    Position b = new Position();
+    b.setProductId("p1");
+    b.setCurrentStock(12);
+    when(positionRepository.findByProductIdInAndIsActiveTrue(List.of("p1", "p2")))
+        .thenReturn(List.of(a, b));
+    mockZeroBulkReservedStock();
+
+    var net = productService.netAvailableStock(List.of("p1", "p2"));
+
+    assertEquals(42, net.get("p1"));
+    assertEquals(0, net.get("p2"));
   }
 
   // ── getProducts ────────────────────────────────────────────────────────────
@@ -269,7 +380,6 @@ class ProductServiceTest {
   void updateProduct_existingProduct_updatesFields() {
     Product p = activeProduct("1");
     when(productRepository.findById("1")).thenReturn(Optional.of(p));
-    when(productRepository.save(any())).thenReturn(p);
     when(positionRepository.findByProductIdInAndIsActiveTrue(any())).thenReturn(List.of());
     mockZeroSingleReservedStock();
 
@@ -278,7 +388,7 @@ class ProductServiceTest {
         new UpdateProductRequest(
             "NewName", null, null, null, null, null, null, null, null, null, null, null, null));
 
-    verify(productRepository).save(any());
+    verify(mongoTemplate).updateFirst(any(Query.class), any(Update.class), eq(Product.class));
   }
 
   @Test
@@ -299,13 +409,12 @@ class ProductServiceTest {
   void deleteProduct_existingProduct_setsActiveFalse() {
     Product p = activeProduct("1");
     when(productRepository.findById("1")).thenReturn(Optional.of(p));
-    when(productRepository.save(any())).thenReturn(p);
     when(positionRepository.findByProductIdIn(any())).thenReturn(List.of());
 
     productService.deleteProduct("1");
 
     assertFalse(p.isActive());
-    verify(productRepository).save(p);
+    verify(mongoTemplate).updateFirst(any(Query.class), any(Update.class), eq(Product.class));
   }
 
   @Test
@@ -324,7 +433,6 @@ class ProductServiceTest {
     p.setImages(List.of(img1, img2));
 
     when(productRepository.findById("1")).thenReturn(Optional.of(p));
-    when(productRepository.save(any())).thenReturn(p);
     when(positionRepository.findByProductIdIn(any())).thenReturn(List.of());
 
     productService.deleteProduct("1");
@@ -337,7 +445,6 @@ class ProductServiceTest {
   void deleteProduct_withoutImages_doesNotCallStorage() {
     Product p = activeProduct("1");
     when(productRepository.findById("1")).thenReturn(Optional.of(p));
-    when(productRepository.save(any())).thenReturn(p);
     when(positionRepository.findByProductIdIn(any())).thenReturn(List.of());
 
     productService.deleteProduct("1");
@@ -357,7 +464,6 @@ class ProductServiceTest {
     p.setImages(List.of(img1, img2));
 
     when(productRepository.findById("1")).thenReturn(Optional.of(p));
-    when(productRepository.save(any())).thenReturn(p);
     when(positionRepository.findByProductIdInAndIsActiveTrue(any())).thenReturn(List.of());
     mockZeroSingleReservedStock();
 
@@ -382,14 +488,13 @@ class ProductServiceTest {
 
     verify(storageService).deleteByUrl("/api/v1/files/images/remove.jpg");
     verify(storageService, never()).deleteByUrl("/api/v1/files/images/keep.jpg");
-    verify(productRepository).save(any());
+    verify(mongoTemplate).updateFirst(any(Query.class), any(Update.class), eq(Product.class));
   }
 
   @Test
   void updateProduct_imagesNull_doesNotTouchStorage() {
     Product p = activeProduct("1");
     when(productRepository.findById("1")).thenReturn(Optional.of(p));
-    when(productRepository.save(any())).thenReturn(p);
     when(positionRepository.findByProductIdInAndIsActiveTrue(any())).thenReturn(List.of());
     mockZeroSingleReservedStock();
 
@@ -636,7 +741,6 @@ class ProductServiceTest {
   void updateProduct_allFields_areApplied() {
     Product p = activeProduct("1");
     when(productRepository.findById("1")).thenReturn(Optional.of(p));
-    when(productRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
     when(positionRepository.findByProductIdInAndIsActiveTrue(any())).thenReturn(List.of());
     mockZeroSingleReservedStock();
 
@@ -697,7 +801,6 @@ class ProductServiceTest {
     img.setUrl("/api/v1/files/images/old.jpg");
     p.setImages(List.of(img));
     when(productRepository.findById("1")).thenReturn(Optional.of(p));
-    when(productRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
     when(positionRepository.findByProductIdInAndIsActiveTrue(any())).thenReturn(List.of());
     doThrow(new IllegalStateException("minio down"))
         .when(storageService)
@@ -725,7 +828,6 @@ class ProductServiceTest {
     occupied.setProductId("1");
     occupied.setCurrentStock(12);
     when(productRepository.findById("1")).thenReturn(Optional.of(p));
-    when(productRepository.save(any())).thenReturn(p);
     when(positionRepository.findByProductIdIn(List.of("1"))).thenReturn(List.of(occupied));
 
     productService.deleteProduct("1");

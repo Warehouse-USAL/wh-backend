@@ -10,12 +10,13 @@ VictoriaMetrics: ustedes hablan HTTP + JSON contra dos endpoints y listo.
 
 ## 1. En dos minutos
 
-Hay **dos APIs**, y la diferencia es qué tipo de pregunta responde cada una:
+Hay **dos APIs de datos** y una familia de **métricas calculadas**, según qué pregunta respondan:
 
 | API | Responde | Fuente |
 |---|---|---|
 | `POST /metrics/query` | "¿cómo evolucionó esto en el tiempo?" — series temporales de los rovers | VictoriaMetrics |
 | `POST /query/{entidad}` | "¿cuánto/cuántos hay, agrupado por …?" — datos de negocio | MongoDB |
+| `POST /metrics/{métrica}` | "¿qué dice la fórmula de negocio X?" — cálculo hecho en el backend | MongoDB |
 
 Cada una tiene un catálogo que se describe a sí mismo. **Empiecen por ahí**: el catálogo dice qué
 campos existen, qué operadores acepta cada uno y qué agregaciones son válidas. Si algo no está en
@@ -30,6 +31,11 @@ Eso es deliberado, no una limitación: esas definiciones son suyas. Si el backen
 entregamos fallas, tiempos, demanda y stock, y ustedes dividen y aplican sus umbrales.
 
 Cada métrica de esta guía dice explícitamente qué devuelve el backend y qué calculan ustedes.
+
+**La excepción son las métricas calculadas** (§4.1). Cuando una fórmula de negocio la usan varios
+equipos, como la sugerencia de reposición, la calcula el backend para que todos obtengan el mismo
+número. Los **parámetros** de esa fórmula (α, lead time, cobertura…) los siguen decidiendo ustedes:
+se mandan en cada request.
 
 ---
 
@@ -86,6 +92,19 @@ escritura. No pueden romper nada desde el dashboard aunque se equivoquen.
 
 - `dimensions` — las únicas etiquetas que pueden usar en `filters` y `group_by`
 - `permitted_aggregations` — las únicas válidas **para esa métrica**
+
+La misma respuesta trae `computed_metrics`: las métricas calculadas, cada una con su endpoint
+(`path`) y los `params` y `filters` que acepta, con tipo y rango:
+
+```json
+{
+  "name": "restock_suggestions",
+  "path": "/metrics/restock-suggestions",
+  "display_name": "Sugerencia de reposición",
+  "params": [{"name": "alpha", "type": "number", "min": 0.0, "max": 1.0, "description": "…"}, …],
+  "filters": [{"name": "product_ids", "type": "string[]", "description": "…"}, …]
+}
+```
 
 ### `GET /query/catalog`
 
@@ -161,10 +180,78 @@ estuvo ocupado la mitad del bloque aporta 0.5.
 Si quieren un número entero tipo "ahora mismo", usen un `step` chico (`1m`, `5m`). Si quieren
 "actividad de la flota en 24h", un `step` grande es exactamente lo que buscan.
 
-**2. Retención: ~400 días.** VictoriaMetrics ahora guarda poco más de un año (subimos la
-retención — antes eran 30 días). Lo que **no** cambió es el límite por consulta: `from`/`to` de
-una misma llamada siguen sin poder abarcar más de 31 días. Para graficar el año completo, encadenen
-llamadas de a 31 días — el histórico está ahí, sólo no entra en una consulta sola.
+**2. Retención y rango: 2 años.** VictoriaMetrics guarda unos 800 días y la semilla carga 2 años
+de historial de flota. Una sola llamada puede abarcar hasta **731 días** de `from`/`to`. Lo que
+la mantiene barata es el tope de **11.000 puntos por serie**: para 2 años, usen un `step` de `2h`
+o más (`6h` o `1d` son buenos valores para un gráfico anual). Un `step` más fino sobre un rango
+tan largo responde `QUERY_TOO_BROAD`.
+
+---
+
+## 4.1. Métricas calculadas
+
+Contrato común a todas (detalle en `docs/RFC_Metricas_Calculadas.md`):
+
+- `POST /metrics/{métrica}` con `{"params": {…}, "filters": {…}}`. **Todos los `params` son
+  obligatorios**: el backend no completa valores por defecto. `filters` es opcional.
+- Responde `{"metric", "params_used", "generated_at", "data": [...]}`. `params_used` repite lo
+  que mandaron, ya validado, y `generated_at` indica cuándo se calculó.
+- Un parámetro faltante o fuera de rango devuelve **400 `INVALID_METRIC_PARAMS`**, y el `message`
+  nombra el parámetro.
+
+### `POST /metrics/restock-suggestions`
+
+Demanda diaria ponderada y, por producto activo, si hay que reponer y cuánto.
+
+```json
+POST /metrics/restock-suggestions
+{"params": {"alpha": 0.3, "recent_days": 7, "long_days": 60,
+            "safety_days": 2, "lead_time_days": 5, "coverage_days": 7},
+ "filters": {"category": "TECNOLOGIA"}}
+```
+
+Una fila por producto, **primero los que hay que reponer** (de mayor a menor cantidad sugerida):
+
+```json
+{"product_id": "p-HER-005", "sku": "HER-005", "name": "Llave ajustable Bahco 10\"",
+ "long_term_demand": 0.43, "recent_demand": 1.14, "blended_demand": 0.65,
+ "safety_stock": 0.87, "reorder_point": 4.1, "target_stock": 8.63,
+ "available_stock": 2, "on_order_stock": 0, "inventory_position": 2,
+ "should_restock": true, "suggested_quantity": 7}
+```
+
+- **Demanda**: unidades de órdenes no canceladas, contadas por fecha de creación. La ventana larga
+  excluye la reciente, así que el promedio largo se divide por `long_days − recent_days`.
+- **`available_stock`** ya descuenta lo reservado por órdenes pendientes o en curso (es el mismo
+  `stock.available` de `GET /products`).
+- **`inventory_position = available_stock + on_order_stock`**. Lo reservado **no** se resta de
+  nuevo.
+- **`on_order_stock`**: lo pedido a proveedores que todavía no está ubicado en una posición
+  (pedido − ubicado; lo recibido pero pendiente de ubicación sigue contando acá).
+
+Con la semilla de demo y exactamente esos params van a ver los tres casos: productos a reponer,
+productos cubiertos por un pedido en camino (`on_order_stock > 0`, `should_restock: false`) y
+productos sanos.
+
+### La recomendación diaria: `product.restock`
+
+No hace falta llamar a la simulación para mostrar qué reponer. Una vez por día el servicio
+`restock-cron` corre el análisis con los parámetros oficiales y deja el resultado **en cada
+producto**, que leen en `GET /products` y `GET /products/{id}`:
+
+```json
+"stock": {"available": 140, "reserved": 20, "physical": 160, "min": 10},
+"restock": {"should_restock": true, "suggested_quantity": 179, "reorder_point": 158.5,
+            "target_stock": 318.8, "inventory_position": 140,
+            "calculated_at": "2026-10-05T06:00:00Z"}
+```
+
+- `restock` es una foto a la hora de `calculated_at` (todos los días a las 03:00, hora de
+  Buenos Aires). Vale `null` si todavía no corrió nunca o si el producto está desactivado.
+- `stock.physical` es lo que hay en el depósito. `available = physical − reserved` es lo libre
+  para nuevas órdenes.
+- La simulación (`POST /metrics/restock-suggestions`) sigue disponible para probar otros
+  parámetros, y no modifica `product.restock`.
 
 ---
 
@@ -246,7 +333,7 @@ backend sepa cuál es. Son `null` en órdenes que no llegaron a esa etapa, y `av
 | Claves de `group_by` | 3 |
 | Filas — modo agregado | 100 por defecto, 1000 máx |
 | Filas — modo documento | 25 por defecto, 100 máx |
-| Ventana obligatoria en `orders` | sí, máximo 92 días |
+| Ventana obligatoria en `orders` | sí, máximo 731 días (2 años) |
 | Tiempo de ejecución | 10 s |
 
 > **`orders` exige una ventana de fechas; `positions`, `products` y `vehicles` no.**
@@ -431,7 +518,7 @@ Con esas tres respuestas:
 | **18 · Cobertura promedio** | promedio de lo anterior |
 | **18 · SKUs en riesgo** | días a quiebre < su umbral |
 | **18 · Dead stock** | `on_hand > 0` y sin demanda en la ventana |
-| **21 · Reposición requerida** | `on_hand < min_stock` |
+| **21 · Reposición requerida** | `on_hand < min_stock`, o directamente `POST /metrics/restock-suggestions` (§4.1) si quieren la sugerencia por demanda ponderada |
 
 **Extra · Utilización por zona**
 ```json
@@ -471,6 +558,7 @@ Guíense por `code`; `message` es para mostrar.
 | `INVALID_FILTER_VALUE` | Valor con formato incorrecto |
 | `METRICS_UNAVAILABLE` | **503** — VictoriaMetrics caído |
 | `UNKNOWN_METRIC` / `UNKNOWN_DIMENSION` | No está en el catálogo de métricas |
+| `INVALID_METRIC_PARAMS` | Métrica calculada: parámetro faltante, fuera de rango o inconsistente, categoría inexistente, o `filters` en el `apply`; el `message` dice cuál |
 
 **`METRICS_UNAVAILABLE` es el único que no es culpa del request.** Si VictoriaMetrics se cae,
 `/metrics/query` responde 503 y `/query/*` sigue funcionando normal. Degraden los gráficos de
@@ -480,17 +568,21 @@ rovers y dejen el resto del dashboard vivo.
 
 ## 8. Datos de demo
 
-Levantando el stack con `SEED_DEMO=true` sobre una base vacía obtienen:
+Levantando el stack con `SEED_DEMO=true` sobre una base vacía obtienen **2 años de historia**
+simulada día por día (detalle en `docs/RFC_Metricas_Calculadas.md` §7):
 
 - 13 usuarios, 24 productos, 35 posiciones, 6 rovers
-- **729 órdenes cubriendo un año completo** (25 recientes de los últimos ~13 días, con el mismo
-  mix de estados de siempre, más 704 históricas COMPLETED/CANCELLED repartidas en los 352 días
-  anteriores) — con las 4 prioridades representadas
-- 73 órdenes de reposición + 73 recepciones repartidas en el año, para el gráfico de movimientos
-  de stock
-- **365 días de historial de flota ya cargado**, a resolución de 30 minutos (antes eran 7 días a
-  5 minutos — un año entero a esa resolución habría sido ~13× más puntos por serie de lo que
-  `/api/v1/import` conviene recibir de una sola vez)
+- **≈ 57.000 órdenes** (entre 20 y 300 por día) con horario laboral, ciclo semanal (domingo ~35%
+  de un día hábil), estacionalidad anual por categoría (pico en noviembre y diciembre, valle en
+  enero y febrero), picos de Hot Sale, Black Friday, Cyber Monday y Navidad, promociones por
+  producto y ≈ 15% de crecimiento interanual. Incluye las 4 prioridades y cancelaciones (del
+  cliente y por falta de stock).
+- **≈ 2.000 pedidos de reposición y ≈ 2.300 recepciones** que siguen a la demanda (un comprador
+  simulado repone cada día hábil con la misma fórmula del cron). El stock cierra:
+  físico = recepciones ubicadas − ítems despachados.
+- Estado final con los tres casos del análisis de reposición (a reponer, cubierto por lo que viene
+  en camino, sano). La primera corrida de `restock-cron` los deja en `product.restock`.
+- **2 años de historial de flota** cada 30 minutos.
 
 Ese último punto importa: el almacén de métricas no tiene backfill, así que sin la semilla los
 gráficos de rovers arrancarían vacíos. Con ella tienen datos para graficar desde el minuto cero,

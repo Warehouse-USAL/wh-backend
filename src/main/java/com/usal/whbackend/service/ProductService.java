@@ -19,6 +19,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import org.bson.Document;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -28,6 +29,7 @@ import org.springframework.data.mongodb.core.aggregation.Aggregation;
 import org.springframework.data.mongodb.core.aggregation.AggregationResults;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -76,6 +78,21 @@ public class ProductService {
     AggregationResults<StockSum> results = mongoTemplate.aggregate(agg, "orders", StockSum.class);
     StockSum sum = results.getUniqueMappedResult();
     return sum != null ? sum.total() : 0;
+  }
+
+  /**
+   * Stock free to cover new orders, per product: on hand in active positions minus what pending and
+   * in-progress orders have reserved. The same figure as {@code stock.available} on the product
+   * API. Every requested id is present; a product with no stock maps to 0.
+   */
+  public Map<String, Integer> netAvailableStock(List<String> productIds) {
+    Map<String, Integer> onHand = bulkAvailableStock(productIds);
+    Map<String, Integer> reserved = bulkReservedStock(productIds);
+    return productIds.stream()
+        .distinct()
+        .collect(
+            Collectors.toMap(
+                id -> id, id -> onHand.getOrDefault(id, 0) - reserved.getOrDefault(id, 0)));
   }
 
   private Map<String, Integer> bulkAvailableStock(List<String> productIds) {
@@ -298,8 +315,8 @@ public class ProductService {
     if (request.width() != null) product.setWidth(request.width());
     if (request.length() != null) product.setLength(request.length());
     if (request.weight() != null) product.setWeight(request.weight());
-    Product saved = productRepository.save(product);
-    return ProductResponse.from(saved, computeAvailableStock(id), computeReservedStock(id));
+    saveExceptRestock(product);
+    return ProductResponse.from(product, computeAvailableStock(id), computeReservedStock(id));
   }
 
   @Transactional
@@ -313,7 +330,7 @@ public class ProductService {
     deleteImagesFromStorage(product.getImages());
 
     product.setActive(false);
-    productRepository.save(product);
+    saveExceptRestock(product);
     // Clear all position assignments for this product (cascade effect)
     positionRepository
         .findByProductIdIn(List.of(id))
@@ -323,6 +340,29 @@ public class ProductService {
               p.setCurrentStock(0);
               positionRepository.save(p);
             });
+  }
+
+  /**
+   * Persists every field but {@code restock}, which only the daily restock run writes: a whole-
+   * document save loaded before that run and written after it would put back the previous
+   * recommendation. A deactivated product loses its recommendation — it is no longer restocked.
+   *
+   * <p>Only fields present on the mapped document are set. The update paths never null a field out,
+   * so this is equivalent to a save for everything they touch.
+   */
+  private void saveExceptRestock(Product product) {
+    Document doc = new Document();
+    mongoTemplate.getConverter().write(product, doc);
+    doc.remove("_id");
+    doc.remove("_class");
+    doc.remove("restock");
+    Update update = new Update();
+    doc.forEach(update::set);
+    if (!product.isActive()) {
+      update.unset("restock");
+    }
+    mongoTemplate.updateFirst(
+        new Query(Criteria.where("_id").is(product.getId())), update, Product.class);
   }
 
   public List<ProductLocationEntry> getProductLocation(String id) {

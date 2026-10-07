@@ -128,7 +128,13 @@ services:
     restart: unless-stopped
 
   minio:
-    image: quay.io/minio/minio:latest
+    # minio/minio is no longer published (Docker Hub, quay.io and ghcr all refuse anonymous pulls). Chainguard's
+    # maintained MinIO server build keeps the same entrypoint, env, data format and `mc` for the
+    # healthcheck; its free tier only tags `latest`, so the digest is the pin. Reads data written
+    # by earlier MinIO releases — a one-way upgrade: do not roll the binary back afterwards.
+    image: cgr.dev/chainguard/minio:latest@sha256:4cf4831a2bbcf13ddca09c1cbcc9faff716dd3c4247e0babc32864b8ee8e0034
+    # Runs as uid 65532 by default; existing volumes and bind mounts are root-owned.
+    user: "0:0"
     command: server /data --console-address ":9001"
     ports:
       - "9000:9000"
@@ -151,10 +157,10 @@ services:
   victoriametrics:
     image: victoriametrics/victoria-metrics:v1.111.0
     command:
-      # Was 30d. The demo seed now backfills a full year of fleet history (DemoTelemetrySeeder)
-      # so the dashboard has something to build MTBF/MTTR/Pareto charts against — at 30d, VM's
-      # own retention would silently evict everything older than a month right after seeding it.
-      - "-retentionPeriod=400d"
+      # Was 30d, then 400d. The demo seed now backfills two years of fleet history
+      # (DemoTelemetrySeeder) so dashboards can chart year-over-year — a shorter retention would
+      # silently evict the oldest year right after seeding it. 800d leaves margin past 730.
+      - "-retentionPeriod=800d"
       - "-httpListenAddr=:8428"
       # Without this VM sizes its caches at -memory.allowedPercent=60 of host RAM (~5GB on a
       # dev laptop). The prod box is a shared HP ProLiant already running five containers, so
@@ -183,6 +189,44 @@ services:
       - "4318:4318"
     depends_on:
       victoriametrics:
+        condition: service_started
+    networks:
+      - wh-network
+    restart: unless-stopped
+
+  # The daily restock run (docs/RFC_Metricas_Calculadas.md). Calls the backend's
+  # POST /metrics/restock-suggestions/apply, which stores each product's recommendation on the
+  # product. The business params live here, not in the backend: change one in .env and run
+  # `docker compose up -d restock-cron` — only this container is recreated. Stateless.
+  restock-cron:
+    image: curlimages/curl:8.11.1
+    # busybox crond needs root to run jobs; the container only ever runs curl.
+    user: root
+    entrypoint: ["/bin/sh", "/opt/restock-cron/restock-cron.sh", "entrypoint"]
+    environment:
+      RESTOCK_BACKEND_URL: ${RESTOCK_BACKEND_URL:-http://backend:8080}
+      # Defaults to the bootstrap SUPERADMIN, which always exists. Prefer a dedicated
+      # ADMIN_WAREHOUSE account: set RESTOCK_USER / RESTOCK_PASSWORD.
+      RESTOCK_USER: ${RESTOCK_USER:-${ADMIN_EMAIL:-admin@smartwarehouse.local}}
+      RESTOCK_PASSWORD: ${RESTOCK_PASSWORD:-${ADMIN_PASSWORD:-}}
+      # Evaluated in UTC: 06:00 UTC is 03:00 in Buenos Aires / Montevideo.
+      RESTOCK_SCHEDULE: ${RESTOCK_SCHEDULE:-0 6 * * *}
+      RESTOCK_ALPHA: ${RESTOCK_ALPHA:-0.3}
+      RESTOCK_RECENT_DAYS: ${RESTOCK_RECENT_DAYS:-7}
+      RESTOCK_LONG_DAYS: ${RESTOCK_LONG_DAYS:-60}
+      RESTOCK_SAFETY_DAYS: ${RESTOCK_SAFETY_DAYS:-2}
+      RESTOCK_LEAD_TIME_DAYS: ${RESTOCK_LEAD_TIME_DAYS:-5}
+      RESTOCK_COVERAGE_DAYS: ${RESTOCK_COVERAGE_DAYS:-7}
+      # Runs once at start (retrying while the backend boots) so product.restock is never
+      # empty after a deploy or a fresh seed.
+      RESTOCK_RUN_ON_START: ${RESTOCK_RUN_ON_START:-true}
+      # Seconds to wait for backend readiness per run, and first-run attempts on transient errors.
+      RESTOCK_READY_TIMEOUT: ${RESTOCK_READY_TIMEOUT:-900}
+      RESTOCK_STARTUP_RETRIES: ${RESTOCK_STARTUP_RETRIES:-60}
+    volumes:
+      - ./config/restock-cron/restock-cron.sh:/opt/restock-cron/restock-cron.sh:ro
+    depends_on:
+      backend:
         condition: service_started
     networks:
       - wh-network

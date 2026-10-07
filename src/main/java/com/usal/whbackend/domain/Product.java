@@ -33,6 +33,9 @@ public class Product {
   // Default sort for /query/products.
   @Indexed private Instant createdAt;
 
+  // Written only by the daily restock run; null until the first run.
+  private ProductRestock restock;
+
   public Product() {}
 
   // ── Core getters/setters ───────────────────────────────────────────────────
@@ -133,6 +136,14 @@ public class Product {
     this.createdAt = createdAt;
   }
 
+  public ProductRestock getRestock() {
+    return restock;
+  }
+
+  public void setRestock(ProductRestock restock) {
+    this.restock = restock;
+  }
+
   public double getHeight() {
     return height;
   }
@@ -223,6 +234,14 @@ public class Product {
     private boolean taxIncluded;
 
     public Price() {}
+
+    public Price(Price other) {
+      if (other != null) {
+        this.amountCents = other.amountCents;
+        this.currency = other.currency;
+        this.taxIncluded = other.taxIncluded;
+      }
+    }
 
     public long getAmountCents() {
       return amountCents;

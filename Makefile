@@ -34,9 +34,11 @@ up-prod: ## Start services in production mode (requires env vars set)
 	docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 	@echo "Production services started on port 8080"
 
-deploy: ## Pull the newest backend image and restart ONLY the backend (data services untouched)
+deploy: ## Pull the newest backend image and restart the backend + restock-cron (data untouched)
 	docker compose -f docker-compose.yml -f docker-compose.prod.yml pull backend
-	docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d backend
+	docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps backend restock-cron
+	@# Recreated only when its compose config changed (e.g. retention); its volume persists.
+	docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps victoriametrics
 	@echo "Backend redeployed"
 
 up-infra: ## Start only MongoDB, Redpanda and MinIO (for local Gradle development)

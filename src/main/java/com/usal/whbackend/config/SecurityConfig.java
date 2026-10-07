@@ -37,7 +37,12 @@ public class SecurityConfig {
                     .permitAll()
                     .requestMatchers("/ws/v1/**")
                     .permitAll()
-                    .requestMatchers("/actuator/health", "/actuator/info")
+                    // Probes report only UP/DOWN; restock-cron waits on readiness before login.
+                    .requestMatchers(
+                        "/actuator/health",
+                        "/actuator/health/readiness",
+                        "/actuator/health/liveness",
+                        "/actuator/info")
                     .permitAll()
                     .requestMatchers("/api/v1/files/**")
                     .permitAll()
