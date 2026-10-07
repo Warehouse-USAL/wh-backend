@@ -13,9 +13,16 @@ version = "0.0.1-SNAPSHOT"
 
 java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of(21)
+        languageVersion = JavaLanguageVersion.of(
+            if (System.getenv("CI") != null) 21 else (System.getProperty("java.specification.version")?.toIntOrNull() ?: 21)
+        )
     }
 }
+
+tasks.withType<JavaCompile> {
+    options.release.set(21)
+}
+
 
 repositories {
     mavenCentral()
