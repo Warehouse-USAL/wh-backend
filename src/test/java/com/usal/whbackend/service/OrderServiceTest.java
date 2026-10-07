@@ -634,6 +634,65 @@ class OrderServiceTest {
   }
 
   @Test
+  void changeStatus_toCompleted_publishesOrderCompletedEvent() {
+    Order order = new Order();
+    order.setId("ord-1");
+    order.setStatus(OrderStatus.IN_PROGRESS);
+    order.setItems(List.of());
+    when(orderRepository.findById("ord-1")).thenReturn(Optional.of(order));
+    when(orderRepository.update(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    orderService.changeStatus("ord-1", "completed");
+
+    verify(orderRepository).publishCompleted(order);
+  }
+
+  @Test
+  void changeStatus_toCompleted_withExplicitCompletedAt_usesIt() {
+    Instant when = Instant.parse("2025-10-01T12:00:00Z");
+    Order order = new Order();
+    order.setId("ord-1");
+    order.setStatus(OrderStatus.IN_PROGRESS);
+    order.setItems(List.of());
+    when(orderRepository.findById("ord-1")).thenReturn(Optional.of(order));
+    when(orderRepository.update(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    Order result = orderService.changeStatus("ord-1", "completed", when);
+
+    assertEquals(when, result.getCompletedAt());
+  }
+
+  @Test
+  void changeStatus_toInProgress_ignoresCompletedAtAndNeverPublishesCompleted() {
+    Order order = new Order();
+    order.setId("ord-1");
+    order.setStatus(OrderStatus.PENDING);
+    when(orderRepository.findById("ord-1")).thenReturn(Optional.of(order));
+    when(orderRepository.update(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    Order result =
+        orderService.changeStatus("ord-1", "in_progress", Instant.parse("2025-10-01T12:00:00Z"));
+
+    assertNull(result.getCompletedAt());
+    verify(orderRepository, never()).publishCompleted(any());
+  }
+
+  @Test
+  void completeOrder_setsStatusAndTimestampDrainsStockAndPublishes() {
+    List<OrderItem> items = List.of(new OrderItem("prod-1", "SKU-1", 3));
+    Order order = new Order();
+    order.setItems(items);
+    Instant when = Instant.parse("2025-10-01T12:00:00Z");
+
+    orderService.completeOrder(order, when);
+
+    assertEquals(OrderStatus.COMPLETED, order.getStatus());
+    assertEquals(when, order.getCompletedAt());
+    verify(stockDrainPort).drain(items);
+    verify(orderRepository).publishCompleted(order);
+  }
+
+  @Test
   void changeStatus_toInProgress_setsStartedAtAndDoesNotDrain() {
     Order order = new Order();
     order.setId("ord-1");

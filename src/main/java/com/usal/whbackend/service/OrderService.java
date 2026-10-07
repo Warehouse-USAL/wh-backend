@@ -30,7 +30,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
-public class OrderService {
+public class OrderService implements OrderCompletionPort {
 
   private final OrderRepository orderRepository;
   private final ProductRepository productRepository;
@@ -295,8 +295,16 @@ public class OrderService {
    * (FIFO) exactly as the consumer does. Reverting to PENDING is rejected, and orders already in a
    * terminal state (COMPLETED/CANCELLED) cannot be modified.
    */
-  @Transactional
   public Order changeStatus(String id, String status) {
+    return changeStatus(id, status, null);
+  }
+
+  /**
+   * Same as {@link #changeStatus(String, String)}, with an optional {@code completedAt} that is
+   * honoured only when completing (defaults to now). Lets the demo seeder back-date completions.
+   */
+  @Transactional
+  public Order changeStatus(String id, String status, Instant completedAt) {
     if (status == null) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "INVALID_STATUS");
     }
@@ -323,11 +331,7 @@ public class OrderService {
         }
         order.setStatus(OrderStatus.IN_PROGRESS);
       }
-      case COMPLETED -> {
-        order.setStatus(OrderStatus.COMPLETED);
-        order.setCompletedAt(Instant.now());
-        stockDrainPort.drain(order.getItems());
-      }
+      case COMPLETED -> completeOrder(order, completedAt != null ? completedAt : Instant.now());
       case CANCELLED -> order.setStatus(OrderStatus.CANCELLED);
       default -> {
         throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "INVALID_STATUS_TRANSITION");
@@ -337,5 +341,18 @@ public class OrderService {
     Order saved = orderRepository.update(order);
     orderEventPublishers.forEach(p -> p.broadcastOrderUpdate(saved));
     return saved;
+  }
+
+  /**
+   * Single path for finishing an order, shared by the {@code order.status} consumer and {@link
+   * #changeStatus}: marks it COMPLETED, drains its stock and publishes {@code order.completed}. The
+   * caller persists the order afterwards.
+   */
+  @Override
+  public void completeOrder(Order order, Instant completedAt) {
+    order.setStatus(OrderStatus.COMPLETED);
+    order.setCompletedAt(completedAt);
+    stockDrainPort.drain(order.getItems());
+    orderRepository.publishCompleted(order);
   }
 }

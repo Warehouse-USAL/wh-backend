@@ -15,9 +15,10 @@ import com.usal.whbackend.domain.OrderStatus;
 import com.usal.whbackend.domain.Vehicle;
 import com.usal.whbackend.domain.VehicleStatus;
 import com.usal.whbackend.repository.OrderMongoRepository;
+import com.usal.whbackend.service.OrderCompletionPort;
 import com.usal.whbackend.service.OrderEventPublisher;
-import com.usal.whbackend.service.StockDrainPort;
 import com.usal.whbackend.service.VehicleEventPublisher;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
@@ -38,7 +39,7 @@ class OrderStatusConsumerTest {
 
   @Mock OrderMongoRepository orderMongoRepository;
   @Mock OrderEventPublisher orderEventPublisher;
-  @Mock StockDrainPort stockDrainPort;
+  @Mock OrderCompletionPort orderCompletion;
   @Mock VehicleUpdateExecutor vehicleUpdateExecutor;
   @Mock VehicleEventPublisher vehicleEventPublisher;
   OrderStatusConsumer consumer;
@@ -53,7 +54,7 @@ class OrderStatusConsumerTest {
         new OrderStatusConsumer(
             orderMongoRepository,
             List.of(orderEventPublisher),
-            stockDrainPort,
+            orderCompletion,
             vehicleUpdateExecutor,
             vehicleEventPublisher,
             objectMapper);
@@ -94,9 +95,8 @@ class OrderStatusConsumerTest {
 
     ArgumentCaptor<Order> captor = ArgumentCaptor.forClass(Order.class);
     verify(orderMongoRepository).save(captor.capture());
-    assertEquals(OrderStatus.COMPLETED, captor.getValue().getStatus());
-    // Drain must be called with the order's item list.
-    verify(stockDrainPort).drain(items);
+    // Completion (status, completedAt, drain, event) is delegated to the shared method.
+    verify(orderCompletion).completeOrder(captor.getValue(), Instant.parse("2026-05-01T10:05:00Z"));
   }
 
   @Test
@@ -110,8 +110,8 @@ class OrderStatusConsumerTest {
 
     consumer.consume(serialize("ord-1", "vhc-1", "completed", "2026-05-01T10:05:00Z"));
 
-    // drain() is still called — StockDrainPort impl guards against null items.
-    verify(stockDrainPort).drain(null);
+    verify(orderCompletion)
+        .completeOrder(any(Order.class), eq(Instant.parse("2026-05-01T10:05:00Z")));
   }
 
   @Test
@@ -174,9 +174,7 @@ class OrderStatusConsumerTest {
             + "\"status\":\"completed\",\"timestamp\":null}";
     consumer.consume(payload);
 
-    ArgumentCaptor<Order> captor = ArgumentCaptor.forClass(Order.class);
-    verify(orderMongoRepository).save(captor.capture());
-    assertEquals(OrderStatus.COMPLETED, captor.getValue().getStatus());
+    verify(orderCompletion).completeOrder(any(Order.class), any(Instant.class));
   }
 
   // ── cancelled ─────────────────────────────────────────────────────────────
@@ -194,7 +192,7 @@ class OrderStatusConsumerTest {
     ArgumentCaptor<Order> captor = ArgumentCaptor.forClass(Order.class);
     verify(orderMongoRepository).save(captor.capture());
     assertEquals(OrderStatus.CANCELLED, captor.getValue().getStatus());
-    verify(stockDrainPort, never()).drain(any());
+    verify(orderCompletion, never()).completeOrder(any(), any());
   }
 
   @Test
@@ -243,7 +241,7 @@ class OrderStatusConsumerTest {
     consumer.consume(serialize("ord-x", "vhc-1", "completed", "2026-05-01T10:05:00Z"));
 
     verify(orderMongoRepository, never()).save(any());
-    verify(stockDrainPort, never()).drain(any());
+    verify(orderCompletion, never()).completeOrder(any(), any());
   }
 
   // ── helpers ────────────────────────────────────────────────────────────────

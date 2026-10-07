@@ -4,8 +4,8 @@ import com.usal.whbackend.domain.Order;
 import com.usal.whbackend.domain.OrderStatus;
 import com.usal.whbackend.domain.VehicleStatus;
 import com.usal.whbackend.repository.OrderMongoRepository;
+import com.usal.whbackend.service.OrderCompletionPort;
 import com.usal.whbackend.service.OrderEventPublisher;
-import com.usal.whbackend.service.StockDrainPort;
 import com.usal.whbackend.service.VehicleEventPublisher;
 import java.time.Instant;
 import java.util.List;
@@ -22,7 +22,7 @@ public class OrderStatusConsumer {
   private static final Logger log = LoggerFactory.getLogger(OrderStatusConsumer.class);
   private final OrderMongoRepository orderMongoRepository;
   private final List<OrderEventPublisher> orderEventPublishers;
-  private final StockDrainPort stockDrainPort;
+  private final OrderCompletionPort orderCompletion;
   private final VehicleUpdateExecutor vehicleUpdateExecutor;
   private final VehicleEventPublisher vehicleEventPublisher;
   private final ObjectMapper objectMapper;
@@ -30,13 +30,13 @@ public class OrderStatusConsumer {
   public OrderStatusConsumer(
       OrderMongoRepository orderMongoRepository,
       List<OrderEventPublisher> orderEventPublishers,
-      StockDrainPort stockDrainPort,
+      OrderCompletionPort orderCompletion,
       VehicleUpdateExecutor vehicleUpdateExecutor,
       VehicleEventPublisher vehicleEventPublisher,
       ObjectMapper objectMapper) {
     this.orderMongoRepository = orderMongoRepository;
     this.orderEventPublishers = List.copyOf(orderEventPublishers);
-    this.stockDrainPort = stockDrainPort;
+    this.orderCompletion = orderCompletion;
     this.vehicleUpdateExecutor = vehicleUpdateExecutor;
     this.vehicleEventPublisher = vehicleEventPublisher;
     this.objectMapper = objectMapper;
@@ -72,9 +72,7 @@ public class OrderStatusConsumer {
         order.setStartedAt(parseTimestamp(msg.timestamp()));
       }
       case "completed" -> {
-        order.setStatus(OrderStatus.COMPLETED);
-        order.setCompletedAt(parseTimestamp(msg.timestamp()));
-        stockDrainPort.drain(order.getItems());
+        orderCompletion.completeOrder(order, parseTimestamp(msg.timestamp()));
         releaseVehicle(order.getAssignedVehicleId());
       }
       case "cancelled" -> {
