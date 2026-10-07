@@ -235,6 +235,14 @@ public class Product {
 
     public Price() {}
 
+    public Price(Price other) {
+      if (other != null) {
+        this.amountCents = other.amountCents;
+        this.currency = other.currency;
+        this.taxIncluded = other.taxIncluded;
+      }
+    }
+
     public long getAmountCents() {
       return amountCents;
     }

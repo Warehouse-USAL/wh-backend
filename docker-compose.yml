@@ -128,7 +128,7 @@ services:
     restart: unless-stopped
 
   minio:
-    # minio/minio is no longer published (Docker Hub, quay.io and ghcr all refuse it). Chainguard's
+    # minio/minio is no longer published (Docker Hub, quay.io and ghcr all refuse anonymous pulls). Chainguard's
     # maintained MinIO server build keeps the same entrypoint, env, data format and `mc` for the
     # healthcheck; its free tier only tags `latest`, so the digest is the pin. Reads data written
     # by earlier MinIO releases — a one-way upgrade: do not roll the binary back afterwards.

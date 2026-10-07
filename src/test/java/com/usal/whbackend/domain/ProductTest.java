@@ -56,6 +56,24 @@ class ProductTest {
   }
 
   @Test
+  void price_copyConstructor() {
+    Product.Price original = new Product.Price();
+    original.setAmountCents(2000L);
+    original.setCurrency("USD");
+    original.setTaxIncluded(true);
+
+    Product.Price copy = new Product.Price(original);
+    assertEquals(2000L, copy.getAmountCents());
+    assertEquals("USD", copy.getCurrency());
+    assertTrue(copy.isTaxIncluded());
+
+    Product.Price nullCopy = new Product.Price(null);
+    assertEquals(0L, nullCopy.getAmountCents());
+    assertNull(nullCopy.getCurrency());
+    assertFalse(nullCopy.isTaxIncluded());
+  }
+
+  @Test
   void specs_gettersAndSetters() {
     Product product = new Product();
     Product.Spec spec = new Product.Spec();

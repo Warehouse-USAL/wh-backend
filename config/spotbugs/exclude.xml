@@ -5,16 +5,15 @@
         <Bug pattern="EI_EXPOSE_REP2"/>
         <Class name="~.*(Controller|Config|Repository|Service|Consumer)"/>
     </Match>
-    <!-- Product is an intentionally mutable MongoDB document class; defensive copies on
-         embedded value objects (Price, ProductImage, Spec) would conflict with Spring Data
-         MongoDB's reflective field-setting during deserialization. -->
+    <!-- Product, Order, and OrderItem are mutable MongoDB domain classes; embedded value objects
+         (Price, ProductImage, Spec) are handled by Spring Data MongoDB reflective field-setting. -->
     <Match>
         <Bug pattern="EI_EXPOSE_REP"/>
-        <Class name="~com\.usal\.whbackend\.domain\.Product(\$.*)?"/>
+        <Class name="~com\.usal\.whbackend\.domain\.(Product(\$.*)?|Order|OrderItem)"/>
     </Match>
     <Match>
         <Bug pattern="EI_EXPOSE_REP2"/>
-        <Class name="~com\.usal\.whbackend\.domain\.Product(\$.*)?"/>
+        <Class name="~com\.usal\.whbackend\.domain\.(Product(\$.*)?|Order|OrderItem)"/>
     </Match>
     <!-- The two query request DTOs hold an unmodifiable wrapper around a private defensive copy,
          so the fields genuinely cannot be mutated from outside. SpotBugs recognises List.copyOf as
