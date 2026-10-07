@@ -59,6 +59,9 @@ public class InternalOrderController {
   public ResponseEntity<Map<String, OrderResponse>> changeStatus(
       @PathVariable String id, @RequestBody ChangeOrderStatusRequest request) {
     return ResponseEntity.ok(
-        Map.of("order", OrderResponse.from(orderService.changeStatus(id, request.status()))));
+        Map.of(
+            "order",
+            OrderResponse.from(
+                orderService.changeStatus(id, request.status(), request.completedAt()))));
   }
 }

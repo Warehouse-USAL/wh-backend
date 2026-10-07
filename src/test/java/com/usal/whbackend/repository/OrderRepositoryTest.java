@@ -21,6 +21,7 @@ import java.util.concurrent.CompletableFuture;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
@@ -30,6 +31,7 @@ import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.support.SendResult;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 @ExtendWith(MockitoExtension.class)
@@ -62,6 +64,50 @@ class OrderRepositoryTest {
     // Kafka publish is async — wait briefly for the background thread to fire
     Thread.sleep(100);
     verify(kafka).send(eq("order.dispatch"), anyString());
+  }
+
+  @Test
+  void publishCompleted_sendsCamelCasePayloadToOrderCompletedTopic() throws Exception {
+    Order order = new Order();
+    order.setId("o-0421");
+    order.setRequestedByUserId("u-operator-3");
+    order.setDestinationArea("Sucursal Pocitos");
+    order.setCompletedAt(Instant.parse("2026-08-30T14:22:05Z"));
+    order.setItems(
+        List.of(
+            new OrderItem("p-TEC-002", "TEC-002", 2), new OrderItem("p-TEC-004", "TEC-004", 1)));
+
+    orderRepository.publishCompleted(order);
+
+    Thread.sleep(100);
+    ArgumentCaptor<String> json = ArgumentCaptor.forClass(String.class);
+    verify(kafka).send(eq("order.completed"), json.capture());
+    ObjectMapper mapper = new ObjectMapper();
+    JsonNode node = mapper.readTree(json.getValue());
+    assertEquals("o-0421", node.get("orderId").asString());
+    assertEquals("u-operator-3", node.get("userId").asString());
+    assertEquals("Sucursal Pocitos", node.get("destinationArea").asString());
+    assertEquals("2026-08-30T14:22:05Z", node.get("completedAt").asString());
+    assertEquals(2, node.get("items").size());
+    assertEquals("TEC-002", node.get("items").get(0).get("sku").asString());
+    assertEquals("p-TEC-002", node.get("items").get(0).get("productId").asString());
+    assertEquals(2, node.get("items").get(0).get("quantity").asInt());
+  }
+
+  @Test
+  void publishCompleted_withNullItemsAndCompletedAt_publishesEmptyItemsAndNull() throws Exception {
+    Order order = new Order();
+    order.setId("o-1");
+    order.setItems(null);
+
+    orderRepository.publishCompleted(order);
+
+    Thread.sleep(100);
+    ArgumentCaptor<String> json = ArgumentCaptor.forClass(String.class);
+    verify(kafka).send(eq("order.completed"), json.capture());
+    JsonNode node = new ObjectMapper().readTree(json.getValue());
+    assertEquals(0, node.get("items").size());
+    assertTrue(node.get("completedAt").isNull());
   }
 
   @Test

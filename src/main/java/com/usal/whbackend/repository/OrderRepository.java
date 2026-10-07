@@ -3,6 +3,7 @@ package com.usal.whbackend.repository;
 import com.usal.whbackend.domain.Order;
 import com.usal.whbackend.domain.OrderStatus;
 import com.usal.whbackend.repository.kafka.OrderCancelMessage;
+import com.usal.whbackend.repository.kafka.OrderCompletedMessage;
 import com.usal.whbackend.repository.kafka.OrderDispatchMessage;
 import java.time.Instant;
 import java.util.List;
@@ -124,6 +125,27 @@ public class OrderRepository {
             address,
             Instant.now().toString());
     sendAsync("order.dispatch", msg);
+  }
+
+  /** Publishes the {@code order.completed} fact consumed by {@code wh-suggestions}. */
+  public void publishCompleted(Order order) {
+    List<OrderCompletedMessage.Item> items =
+        order.getItems() == null
+            ? List.of()
+            : order.getItems().stream()
+                .map(
+                    i ->
+                        new OrderCompletedMessage.Item(
+                            i.getSku(), i.getProductId(), i.getQuantity()))
+                .toList();
+    OrderCompletedMessage msg =
+        new OrderCompletedMessage(
+            order.getId(),
+            order.getRequestedByUserId(),
+            order.getDestinationArea(),
+            items,
+            order.getCompletedAt() == null ? null : order.getCompletedAt().toString());
+    sendAsync("order.completed", msg);
   }
 
   private void publishCancel(Order order, String reason) {

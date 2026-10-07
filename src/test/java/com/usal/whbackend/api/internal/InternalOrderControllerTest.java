@@ -1,6 +1,7 @@
 package com.usal.whbackend.api.internal;
 
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -88,7 +89,7 @@ class InternalOrderControllerTest {
     completed.setRequestedByUserId("user-1");
     completed.setItems(List.of());
     completed.setCreatedAt(Instant.now());
-    when(orderService.changeStatus(eq("order-1"), eq("completed"))).thenReturn(completed);
+    when(orderService.changeStatus(eq("order-1"), eq("completed"), isNull())).thenReturn(completed);
 
     mockMvc
         .perform(
@@ -97,5 +98,25 @@ class InternalOrderControllerTest {
                 .content("{\"status\":\"completed\"}"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.order.status").value("completed"));
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void changeStatus_withCompletedAt_passesItToTheService() throws Exception {
+    Order completed = new Order();
+    completed.setId("order-1");
+    completed.setStatus(OrderStatus.COMPLETED);
+    completed.setRequestedByUserId("user-1");
+    completed.setItems(List.of());
+    completed.setCreatedAt(Instant.now());
+    Instant when = Instant.parse("2025-10-01T12:00:00Z");
+    when(orderService.changeStatus("order-1", "completed", when)).thenReturn(completed);
+
+    mockMvc
+        .perform(
+            patch("/internal/orders/order-1/status")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"status\":\"completed\",\"completed_at\":\"2025-10-01T12:00:00Z\"}"))
+        .andExpect(status().isOk());
   }
 }
