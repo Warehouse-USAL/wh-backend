@@ -114,13 +114,28 @@ class MetricsQueryTranslatorTest {
   }
 
   @Test
+  void acceptsTwoYearsOfHistoryAtACoarseEnoughStep() {
+    // The demo seed carries two years of fleet history; a dashboard must reach it in one call.
+    MetricsQueryRequest twoYears =
+        new MetricsQueryRequest(
+            "wh.vehicle.battery",
+            Instant.parse("2024-10-01T00:00:00Z"),
+            Instant.parse("2026-10-01T00:00:00Z"),
+            "6h",
+            Map.of(),
+            List.of(),
+            "avg");
+    assertThat(translator.translate(twoYears, BATTERY)).contains("wh_vehicle_battery");
+  }
+
+  @Test
   void rejectsRangeLongerThanTheCap() {
     MetricsQueryRequest tooLong =
         new MetricsQueryRequest(
             "wh.vehicle.battery",
-            Instant.parse("2026-01-01T00:00:00Z"),
-            Instant.parse("2026-06-01T00:00:00Z"),
-            "1h",
+            Instant.parse("2024-09-29T00:00:00Z"),
+            Instant.parse("2026-10-01T00:00:00Z"),
+            "6h",
             Map.of(),
             List.of(),
             "avg");

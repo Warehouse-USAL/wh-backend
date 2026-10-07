@@ -41,4 +41,3 @@ class OrderItemTest {
     assertNull(threeArg.getUnitPrice());
   }
 }
-

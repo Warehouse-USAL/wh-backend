@@ -28,7 +28,9 @@ import org.springframework.web.server.ResponseStatusException;
 @Component
 public class MetricsQueryTranslator {
 
-  static final Duration MAX_RANGE = Duration.ofDays(31);
+  // Two years, matching the seeded fleet history and the VictoriaMetrics retention. The points cap
+  // below is what keeps such a range cheap: it forces a step of at least ~2h over two years.
+  static final Duration MAX_RANGE = Duration.ofDays(731);
   static final Duration MIN_STEP = Duration.ofSeconds(10);
   static final long MAX_POINTS_PER_SERIES = 11000;
 

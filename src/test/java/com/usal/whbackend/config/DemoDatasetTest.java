@@ -8,23 +8,33 @@ import com.usal.whbackend.domain.OrderStatus;
 import com.usal.whbackend.domain.Position;
 import com.usal.whbackend.domain.Product;
 import com.usal.whbackend.domain.ProductCategory;
+import com.usal.whbackend.domain.RestockOrder;
 import com.usal.whbackend.domain.User;
 import com.usal.whbackend.domain.UserRole;
 import com.usal.whbackend.domain.Vehicle;
 import com.usal.whbackend.domain.VehicleStatus;
+import com.usal.whbackend.service.metrics.restock.RestockFormula;
+import com.usal.whbackend.service.metrics.restock.RestockInputs;
+import com.usal.whbackend.service.metrics.restock.RestockParams;
+import com.usal.whbackend.service.metrics.restock.RestockResult;
+import java.time.DayOfWeek;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.Month;
+import java.time.temporal.ChronoUnit;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 class DemoDatasetTest {
 
-  private DemoData data;
+  // Built once: two years of history is ~50k orders, and every test only reads it.
+  private static DemoData data;
 
-  @BeforeEach
-  void setUp() {
+  @BeforeAll
+  static void setUp() {
     // Fake hasher so the test stays free of BCrypt/Spring.
     data = new DemoDataset(p -> "hashed:" + p).build();
   }
@@ -145,27 +155,91 @@ class DemoDatasetTest {
   }
 
   @Test
-  void buildsAYearOfOrdersAcrossAllStatuses() {
+  void buildsTwoYearsOfOrdersAcrossAllStatuses() {
     var orders = data.getOrders();
-    // 25 near-term (unchanged) + 352 historical days * 2/day of COMPLETED/CANCELLED-only history.
-    assertThat(orders).hasSize(729);
+    // ~40–120 a day over two years; the exact count depends on the calendar the seed lands on.
+    assertThat(orders).hasSizeBetween(40_000, 70_000);
     Map<OrderStatus, Long> byStatus =
         orders.stream().collect(Collectors.groupingBy(Order::getStatus, Collectors.counting()));
-    assertThat(byStatus.get(OrderStatus.PENDING)).isEqualTo(7);
+    // The near-term batch (7 pending, 2 riding a rover) plus whatever arrived too recently to ship.
+    assertThat(byStatus.get(OrderStatus.PENDING)).isGreaterThanOrEqualTo(7);
     assertThat(byStatus.get(OrderStatus.IN_PROGRESS)).isEqualTo(2);
-    assertThat(byStatus.get(OrderStatus.COMPLETED)).isEqualTo(616);
-    assertThat(byStatus.get(OrderStatus.CANCELLED)).isEqualTo(104);
+    assertThat(byStatus.get(OrderStatus.COMPLETED)).isGreaterThan(35_000);
+    assertThat(byStatus.get(OrderStatus.CANCELLED)).isPositive();
   }
 
   @Test
-  void ordersSpanRoughlyAFullYear() {
+  void ordersSpanTwoYears() {
     Instant oldest =
         data.getOrders().stream().map(Order::getCreatedAt).min(Instant::compareTo).orElseThrow();
     Instant newest =
         data.getOrders().stream().map(Order::getCreatedAt).max(Instant::compareTo).orElseThrow();
 
     assertThat(java.time.Duration.between(oldest, newest))
-        .isGreaterThan(java.time.Duration.ofDays(360));
+        .isGreaterThan(java.time.Duration.ofDays(725));
+  }
+
+  @Test
+  void noOrderHasATimestampInTheFuture() {
+    Instant now = Instant.now();
+    for (Order o : data.getOrders()) {
+      assertThat(o.getCreatedAt()).isBefore(now);
+      if (o.getCompletedAt() != null) {
+        assertThat(o.getCompletedAt()).as("completed_at of %s", o.getId()).isBefore(now);
+      }
+    }
+  }
+
+  @Test
+  void weekdaysAreBusierThanSundays() {
+    Map<DayOfWeek, Long> byDay =
+        data.getOrders().stream()
+            .collect(
+                Collectors.groupingBy(
+                    o -> localDate(o.getCreatedAt()).getDayOfWeek(), Collectors.counting()));
+    assertThat(byDay.get(DayOfWeek.TUESDAY)).isGreaterThan(byDay.get(DayOfWeek.SUNDAY) * 2);
+  }
+
+  @Test
+  void decemberIsBusierThanFebruary() {
+    Map<Month, Double> perDay = dailyAverageByMonth();
+    assertThat(perDay.get(Month.DECEMBER)).isGreaterThan(perDay.get(Month.FEBRUARY) * 1.4);
+  }
+
+  @Test
+  void blackFridayIsASpike() {
+    // The most recent Black Friday fully inside the history.
+    LocalDate today = LocalDate.now(DemoHistory.ZONE);
+    LocalDate bf = DemoHistory.blackFriday(today.getYear());
+    if (!bf.isBefore(today)) {
+      bf = DemoHistory.blackFriday(today.getYear() - 1);
+    }
+    Map<LocalDate, Long> perDate = countByDate();
+    LocalDate spike = bf;
+    double around =
+        java.util.stream.IntStream.rangeClosed(8, 21)
+            .mapToLong(i -> perDate.getOrDefault(spike.minusDays(i), 0L))
+            .average()
+            .orElseThrow();
+    assertThat(perDate.get(bf)).isGreaterThan((long) (around * 2));
+  }
+
+  @Test
+  void theSecondYearGrewOverTheFirst() {
+    Instant oneYearAgo = Instant.now().minus(365, ChronoUnit.DAYS);
+    long lastYear =
+        data.getOrders().stream().filter(o -> o.getCreatedAt().isAfter(oneYearAgo)).count();
+    long yearBefore = data.getOrders().size() - lastYear;
+    assertThat(lastYear).isGreaterThan((long) (yearBefore * 1.08));
+  }
+
+  @Test
+  void stockoutsCancelSomeOrders() {
+    long stockouts =
+        data.getOrders().stream()
+            .filter(o -> "Stock insuficiente".equals(o.getCancelReason()))
+            .count();
+    assertThat(stockouts).isPositive().isLessThan(data.getOrders().size() / 10);
   }
 
   @Test
@@ -279,7 +353,7 @@ class DemoDatasetTest {
     assertThat(anyLow).as("a realistic demo has at least one low-stock product").isTrue();
   }
 
-  private Map<String, Integer> availableByProduct() {
+  private static Map<String, Integer> availableByProduct() {
     return data.getPositions().stream()
         .filter(Position::isActive)
         .filter(pos -> pos.getProductId() != null)
@@ -288,7 +362,7 @@ class DemoDatasetTest {
                 Position::getProductId, Collectors.summingInt(Position::getCurrentStock)));
   }
 
-  private Map<String, Integer> reservedByProduct() {
+  private static Map<String, Integer> reservedByProduct() {
     return data.getOrders().stream()
         .filter(
             o -> o.getStatus() == OrderStatus.PENDING || o.getStatus() == OrderStatus.IN_PROGRESS)
@@ -301,9 +375,136 @@ class DemoDatasetTest {
   // ── Restock/reception history ───────────────────────────────────────────────
 
   @Test
-  void buildsAYearOfRestockOrdersAndReceptions() {
-    assertThat(data.getRestockOrders()).hasSize(73);
-    assertThat(data.getReceptions()).hasSize(73);
+  void restocksReactToDemandThroughBothYears() {
+    Instant oneYearAgo = Instant.now().minus(365, ChronoUnit.DAYS);
+    long recent =
+        data.getRestockOrders().stream().filter(r -> r.getCreatedAt().isAfter(oneYearAgo)).count();
+    long older = data.getRestockOrders().size() - recent;
+    assertThat(recent).isGreaterThan(200);
+    assertThat(older).isGreaterThan(200);
+  }
+
+  @Test
+  void stockLedgerBalances() {
+    // physical = everything put away − everything shipped: the stock-movements chart adds up.
+    Map<String, Integer> in = new java.util.HashMap<>();
+    for (com.usal.whbackend.domain.Reception r : data.getReceptions()) {
+      for (var a : r.getAssignments()) {
+        in.merge(r.getProductId(), a.getQuantity(), Integer::sum);
+      }
+    }
+    Map<String, Integer> out = new java.util.HashMap<>();
+    data.getOrders().stream()
+        .filter(o -> o.getStatus() == OrderStatus.COMPLETED)
+        .flatMap(o -> o.getItems().stream())
+        .forEach(i -> out.merge(i.getProductId(), i.getQuantity(), Integer::sum));
+    Map<String, Integer> physical = availableByProduct();
+    for (Product p : data.getProducts()) {
+      assertThat(physical.getOrDefault(p.getId(), 0))
+          .as("ledger for %s", p.getSku())
+          .isEqualTo(in.getOrDefault(p.getId(), 0) - out.getOrDefault(p.getId(), 0));
+    }
+  }
+
+  @Test
+  void noPositionIsFilledBeyondItsCapacity() {
+    for (Position pos : data.getPositions()) {
+      assertThat(pos.getCurrentStock()).as(pos.getId()).isBetween(0, pos.getMaximumCapacity());
+    }
+  }
+
+  @Test
+  void noRestockOrderIsLeftDanglingInThePast() {
+    // An order that never received anything and is not recent would count as "on order" forever.
+    Map<String, Integer> received = receivedByRestockOrder();
+    Instant recent = Instant.now().minus(7, ChronoUnit.DAYS);
+    for (RestockOrder ro : data.getRestockOrders()) {
+      boolean fullyReceived = received.getOrDefault(ro.getId(), 0) >= ro.getQuantityRequested();
+      assertThat(fullyReceived || ro.getCreatedAt().isAfter(recent))
+          .as("restock order %s is fully received or still in transit", ro.getId())
+          .isTrue();
+    }
+  }
+
+  @Test
+  void oneInTransitOrderIsPartiallyReceived() {
+    Map<String, Integer> received = receivedByRestockOrder();
+    assertThat(data.getRestockOrders())
+        .anyMatch(
+            ro -> {
+              int got = received.getOrDefault(ro.getId(), 0);
+              return got > 0 && got < ro.getQuantityRequested();
+            });
+  }
+
+  // ── Restock suggestions (RFC_Metricas_Calculadas.md §7) ─────────────────────
+
+  @Test
+  void restockSuggestionsShowEveryCaseWithTheDocumentParams() {
+    Map<String, RestockResult> results = restockResults();
+
+    assertThat(results.values())
+        .as("some products need restocking")
+        .anyMatch(RestockResult::shouldRestock);
+    assertThat(results.values())
+        .as("some would need it, but stock already on its way covers them")
+        .anyMatch(
+            r ->
+                !r.shouldRestock()
+                    && r.onOrderStock() > 0
+                    && r.availableStock() <= r.reorderPoint());
+    assertThat(results.values())
+        .as("some are healthy on their own")
+        .anyMatch(r -> r.blendedDemand() > 0 && r.onOrderStock() == 0 && !r.shouldRestock());
+  }
+
+  @Test
+  void everyOrderedProductHasRecentAndLongTermDemand() {
+    Map<String, RestockInputs.Demand> demand =
+        RestockInputs.demandByProduct(
+            data.getOrders(),
+            Instant.now(),
+            DemoDataset.DEMO_RESTOCK_PARAMS.recentDays(),
+            DemoDataset.DEMO_RESTOCK_PARAMS.longDays());
+    // Product 0 is the never-ordered low-stock item; every other one has a demand history.
+    for (Product p : data.getProducts().subList(1, data.getProducts().size())) {
+      assertThat(demand.get(p.getId())).as("demand for %s", p.getSku()).isNotNull();
+      assertThat(demand.get(p.getId()).longTerm()).isPositive();
+    }
+  }
+
+  private static Map<String, RestockResult> restockResults() {
+    Map<String, Integer> available = availableByProduct();
+    Map<String, Integer> reserved = reservedByProduct();
+    Map<String, Integer> onOrder =
+        RestockInputs.onOrderByProduct(data.getRestockOrders(), data.getReceptions());
+    RestockParams params = DemoDataset.DEMO_RESTOCK_PARAMS;
+    Map<String, RestockInputs.Demand> demand =
+        RestockInputs.demandByProduct(
+            data.getOrders(), Instant.now(), params.recentDays(), params.longDays());
+    return data.getProducts().stream()
+        .collect(
+            Collectors.toMap(
+                Product::getId,
+                p -> {
+                  RestockInputs.Demand d =
+                      demand.getOrDefault(p.getId(), new RestockInputs.Demand(0, 0));
+                  return RestockFormula.compute(
+                      params,
+                      d.longTerm(),
+                      d.recent(),
+                      available.getOrDefault(p.getId(), 0) - reserved.getOrDefault(p.getId(), 0),
+                      onOrder.getOrDefault(p.getId(), 0));
+                }));
+  }
+
+  private static Map<String, Integer> receivedByRestockOrder() {
+    return data.getReceptions().stream()
+        .filter(r -> r.getRestockOrderId() != null)
+        .collect(
+            Collectors.groupingBy(
+                com.usal.whbackend.domain.Reception::getRestockOrderId,
+                Collectors.summingInt(com.usal.whbackend.domain.Reception::getQuantityReceived)));
   }
 
   @Test
@@ -360,6 +561,23 @@ class DemoDatasetTest {
             .orElseThrow();
 
     assertThat(java.time.Duration.between(oldest, newest))
-        .isGreaterThan(java.time.Duration.ofDays(350));
+        .isGreaterThan(java.time.Duration.ofDays(725));
+  }
+
+  private static LocalDate localDate(Instant instant) {
+    return LocalDate.ofInstant(instant, DemoHistory.ZONE);
+  }
+
+  private static Map<LocalDate, Long> countByDate() {
+    return data.getOrders().stream()
+        .collect(Collectors.groupingBy(o -> localDate(o.getCreatedAt()), Collectors.counting()));
+  }
+
+  private static Map<Month, Double> dailyAverageByMonth() {
+    Map<LocalDate, Long> perDate = countByDate();
+    return perDate.entrySet().stream()
+        .collect(
+            Collectors.groupingBy(
+                e -> e.getKey().getMonth(), Collectors.averagingLong(Map.Entry::getValue)));
   }
 }

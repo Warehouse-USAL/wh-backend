@@ -101,9 +101,7 @@ public class Reception {
   public ReceptionStatus getStatus() {
     if (status == null) {
       int assigned =
-          assignments == null
-              ? 0
-              : assignments.stream().mapToInt(Assignment::getQuantity).sum();
+          assignments == null ? 0 : assignments.stream().mapToInt(Assignment::getQuantity).sum();
       return assigned >= quantityReceived
           ? ReceptionStatus.COMPLETED
           : ReceptionStatus.PENDING_LOCATION;

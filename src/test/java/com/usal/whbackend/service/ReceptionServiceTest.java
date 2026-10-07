@@ -101,7 +101,8 @@ class ReceptionServiceTest {
     when(productRepository.findById("p1")).thenReturn(Optional.of(activeProduct("p1")));
     when(receptionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-    var req = new CreateReceptionRequest(null, "p1", 48, StockSize.PALLET, "Distribuidora XYZ", null);
+    var req =
+        new CreateReceptionRequest(null, "p1", 48, StockSize.PALLET, "Distribuidora XYZ", null);
     Reception result = receptionService.createReception(req, "user-1");
 
     verifyNoInteractions(positionService);
@@ -236,8 +237,7 @@ class ReceptionServiceTest {
     assertThrows(
         ReceptionNotFoundException.class,
         () ->
-            receptionService.assignPositions(
-                "rcp-1", List.of(new AssignmentRequest("pos-1", 10))));
+            receptionService.assignPositions("rcp-1", List.of(new AssignmentRequest("pos-1", 10))));
   }
 
   @Test

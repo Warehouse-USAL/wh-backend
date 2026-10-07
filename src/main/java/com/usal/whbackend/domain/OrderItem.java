@@ -52,4 +52,3 @@ public class OrderItem {
     this.unitPrice = unitPrice == null ? null : new Product.Price(unitPrice);
   }
 }
-

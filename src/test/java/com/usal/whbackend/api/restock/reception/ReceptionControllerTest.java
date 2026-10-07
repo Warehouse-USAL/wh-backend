@@ -143,7 +143,8 @@ class ReceptionControllerTest {
   @Test
   @WithMockUser(roles = "ADMIN_WAREHOUSE")
   void getReceptions_withStatusFilter_returns200() throws Exception {
-    when(receptionService.getReceptions(any(), any(), eq(ReceptionStatus.PENDING_LOCATION), any(), any(), any()))
+    when(receptionService.getReceptions(
+            any(), any(), eq(ReceptionStatus.PENDING_LOCATION), any(), any(), any()))
         .thenReturn(new PageImpl<>(List.of(reception("rcp-1")), PageRequest.of(0, 10), 1));
 
     mockMvc

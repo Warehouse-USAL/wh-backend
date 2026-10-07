@@ -86,6 +86,12 @@ public class DemoDataSeeder implements ApplicationRunner {
       log.info("Demo data already present (products exist) — skipping demo seed.");
       return;
     }
+    // Inserts below fail on any id already present, and a failing runner fails the boot. A DB
+    // with orders left behind is not fresh: skip rather than crash-loop the backend.
+    if (orderMongoRepository.count() > 0) {
+      log.warn("Demo seed skipped: no products but orders exist. Drop the database to re-seed.");
+      return;
+    }
 
     DemoData data = new DemoDataset(passwordEncoder::encode).build();
 
@@ -96,12 +102,14 @@ public class DemoDataSeeder implements ApplicationRunner {
     lineRepository.saveAll(data.getLines());
     positionRepository.saveAll(data.getPositions());
     vehicleRepository.saveAll(data.getVehicles());
-    orderMongoRepository.saveAll(data.getOrders());
-    restockOrderRepository.saveAll(data.getRestockOrders());
-    receptionRepository.saveAll(data.getReceptions());
+    // Bulk inserts: two years of history is ~50k orders, and saveAll on pre-assigned ids issues
+    // one upsert per document. The guard above guarantees the collections hold none of these ids.
+    orderMongoRepository.insert(data.getOrders());
+    restockOrderRepository.insert(data.getRestockOrders());
+    receptionRepository.insert(data.getReceptions());
 
     // Deliberately last and inside the same fresh-database guard: the metrics store has no
-    // backfill, so without this the rover charts would be blank next to three weeks of orders.
+    // backfill, so without this the rover charts would be blank next to two years of orders.
     demoTelemetrySeeder.seed(data.getVehicles());
 
     logSeedSummary(data);
@@ -111,7 +119,7 @@ public class DemoDataSeeder implements ApplicationRunner {
     List<User> users = data.getUsers();
     log.info(
         "Seeded demo data: {} users, {} products, {} zones, {} lines, {} positions, {} vehicles,"
-            + " {} orders (spanning a year), {} restock orders, {} receptions.",
+            + " {} orders (spanning two years), {} restock orders, {} receptions.",
         users.size(),
         data.getProducts().size(),
         data.getZones().size(),

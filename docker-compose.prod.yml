@@ -121,6 +121,9 @@ services:
   otel-collector:
     ports: !override []
 
+  restock-cron:
+    restart: always
+
 networks:
   wh-network:
     driver: bridge
