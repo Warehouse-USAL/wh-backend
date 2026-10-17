@@ -1,6 +1,6 @@
 services:
   backend:
-    build: .
+    build: ./backend
     ports:
       - "8080:8080"
     environment:
@@ -22,6 +22,8 @@ services:
       TELEMETRY_ENABLED: ${TELEMETRY_ENABLED:-true}
       TELEMETRY_ENDPOINT: http://otel-collector:4318/v1/metrics
       VICTORIAMETRICS_URL: http://victoriametrics:8428
+      # Shared secret the bridge sends in X-Api-Key on /infra/**. Blank = those endpoints reject everything.
+      INFRA_API_KEY: ${INFRA_API_KEY:-}
     depends_on:
       mongodb:
         condition: service_healthy
@@ -31,6 +33,26 @@ services:
         condition: service_healthy
     networks:
       - wh-network
+    restart: unless-stopped
+
+  # Temporary translator between Infra's RabbitMQ world and this backend (see bridge/README.md).
+  # Opt-in: `docker compose --profile infra up`. Needs INFRA_AMQP_URL and INFRA_API_KEY (the bridge exits at startup if either is empty).
+  bridge:
+    build: ./bridge
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+      AMQP_URL: ${INFRA_AMQP_URL:-}
+      BACKEND_URL: http://backend:8080
+      INFRA_API_KEY: ${INFRA_API_KEY:-}
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    networks:
+      - wh-network
+    profiles:
+      - infra
     restart: unless-stopped
 
   mongodb:

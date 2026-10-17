@@ -34,6 +34,7 @@ services:
       TELEMETRY_ENABLED: ${TELEMETRY_ENABLED:-true}
       TELEMETRY_ENDPOINT: ${TELEMETRY_ENDPOINT:-http://otel-collector:4318/v1/metrics}
       VICTORIAMETRICS_URL: ${VICTORIAMETRICS_URL:-http://victoriametrics:8428}
+      INFRA_API_KEY: ${INFRA_API_KEY:-}
     restart: always
     depends_on:
       mongo-init:
@@ -45,6 +46,19 @@ services:
     networks:
       - wh-network
       - wh-proxy
+
+  # Translator between Infra's RabbitMQ and the backend (see bridge/README.md). It is opt-in in dev
+  # (profile `infra`); in prod it always runs. INFRA_AMQP_URL and INFRA_API_KEY come from the
+  # server's .env — the bridge exits at startup if either is empty.
+  bridge:
+    image: ghcr.io/warehouse-usal/wh-bridge:latest
+    environment:
+      KAFKA_BROKERS: ${REDPANDA_BOOTSTRAP_SERVERS:-redpanda:9092}
+      AMQP_URL: ${INFRA_AMQP_URL:-}
+      BACKEND_URL: http://backend:8080
+      INFRA_API_KEY: ${INFRA_API_KEY:-}
+    profiles: !reset []
+    restart: always
 
   # One-shot: create the replica-set keyFile in a named volume if absent.
   # All mongo images pinned to 4.4 — the prod box (HP ProLiant) has no AVX, so

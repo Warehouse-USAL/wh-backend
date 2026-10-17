@@ -22,7 +22,7 @@
 |---|---|---|
 | RFC — Contratos Externos del Backend | Aprobada | API REST, WebSocket, entidades del sistema |
 | RFC — Arquitectura Interna del Backend | En progreso | Stack, repo, capas, DB, auth, Docker |
-| RFC — Comunicación Backend ↔ Central | Pendiente | Broker, topics, mensajes asíncronos (WIP con Grupo 5) |
+| RFC — Comunicación Backend ↔ Central | Ver sección 11 y wh-backend#128 | Contrato con Infra vía bridge |
 
 ---
 
@@ -588,86 +588,37 @@ La autenticación ocurre en el momento de la conexión: el cliente pasa el JWT c
 
 ---
 
-## 11. Comunicación Backend ↔ Central de Vehículos
+## 11. Comunicación Backend ↔ Infra
 
-La comunicación es exclusivamente asíncrona a través de Redpanda. El Backend no controla los rovers directamente ni decide qué rover toma una orden — eso es responsabilidad de la Central.
+El backend no habla con RabbitMQ ni conoce el formato de Infra. Hay un servicio aparte, el **bridge** (`bridge/`, Go, temporal), que traduce entre el mundo de Infra y este contrato. Si Infra adopta el contrato, se borra el bridge y el backend no cambia. Contrato completo: [wh-backend#128](https://github.com/Warehouse-USAL/wh-backend/issues/128).
 
-### Responsabilidades
+El backend dice **qué** y **dónde** (una orden y la lista ordenada de lugares). Elegir vehículo y guiarlo paso a paso es de Infra.
 
-| Grupo | Responsabilidad |
-|---|---|
-| Backend (G4) | Publicar órdenes nuevas en el topic hacia la Central. |
-| Backend (G4) | Consumir mensajes de telemetría y estado, actualizar snapshot y propagar via WebSocket. |
-| Backend (G4) | Mantener el registro de vehículos conocidos por el sistema. |
-| Central (G5) | Publicar actualizaciones de posición y batería de cada rover. |
-| Central (G5) | Publicar cambios de estado de órdenes a medida que los rovers operan. |
-| Central (G5) | Publicar errores o pérdidas de conexión con rovers. |
+| Canal | Dirección | Objeto |
+|---|---|---|
+| Kafka `orders` | backend → bridge → Infra | `Order` |
+| `POST /infra/orders/{id}/status` | Infra → bridge → backend | cambio de estado de la orden |
+| `POST /infra/vehicles/{id}/telemetry` | Infra → bridge → backend | telemetría del vehículo |
 
-### Mensajes del Backend hacia la Central
+`/infra/**` no usa JWT: se autentica con el header `X-Api-Key` (variable `INFRA_API_KEY`). Si la variable está vacía, todas las llamadas dan 401.
 
-**`order.dispatch`** — publicado cuando se crea una orden nueva:
+**`Order`** (key = `order_id`):
 
 ```json
-{
-  "message_type": "order.dispatch",
-  "order_id": "ORD-1002",
-  "items": [{ "product_id": "PROD-001", "sku": "SKU-ABC-123", "quantity": 10 }],
-  "destination_area": "AREA-B",
-  "published_at": "2026-05-01T10:05:00Z"
-}
+{ "order_id": "ORD-1002", "status": "pending", "stops": ["WH|Z1-L1-P07"], "destination": "AREA-B", "published_at": "2026-10-17T10:05:00Z" }
 ```
 
-**`order.cancel`** — publicado cuando una orden en curso debe cancelarse:
+`status` es `pending` al crear y `cancelled` al cancelar (el backend la cancela en el momento, sin esperar a Infra). `stops` son los `qr_code` de las posiciones de las que se retira producto, sin duplicados y en orden de recorrido (zona, línea, posición). Sin SKUs, cantidades ni vehículo.
 
-```json
-{
-  "message_type": "order.cancel",
-  "order_id": "ORD-1001",
-  "reason": "Cancelada por el usuario.",
-  "published_at": "2026-05-01T10:10:00Z"
-}
-```
+**Estado de la orden:** `{ "status": "in_progress" | "completed" | "cancelled", "vehicle_id": "...", "timestamp": "..." }`. `vehicle_id` es obligatorio en `in_progress`. Repetir un estado responde 200 sin hacer nada; una transición inválida responde 409 y una orden desconocida 404.
 
-### Mensajes de la Central hacia el Backend
+**Telemetría:** `{ "status": "idle|busy|offline|error", "battery": 79, "error": null | { "code", "message" }, "timestamp": "..." }`. Los campos extra (por ejemplo `last_qr`) se ignoran. La posición del vehículo no se actualiza por este canal.
 
-**`order.status`** — publicado cuando el estado de una orden cambia:
+**Vehículos:** el backend no los da de alta. El id de la ruta es el de Infra (por ejemplo `VHC-001`) y el backend lo traduce a un UUIDv5 determinístico; el primer estado o telemetría de un id crea el vehículo (con ese id como nombre). El resto del sistema (REST, WebSocket) solo conoce el UUID.
 
-```json
-{
-  "message_type": "order.status",
-  "order_id": "ORD-1002",
-  "vehicle_id": "VHC-001",
-  "status": "in_progress",
-  "timestamp": "2026-05-01T10:06:00Z"
-}
-```
+**Qué ignoramos de Infra:** `last_qr`, la posición del vehículo y todo lo que pasa dentro del rover (los pasos entre un objetivo y otro). Al backend solo le llegan el estado de la orden y la telemetría de arriba.
 
-Valores posibles de `status`: `in_progress`, `completed`, `cancelled`.
-
-**`vehicle.telemetry`** — publicado periódicamente:
-
-```json
-{
-  "message_type": "vehicle.telemetry",
-  "vehicle_id": "VHC-001",
-  "position": { "x": 14.2, "y": 9.1 },
-  "battery": 79,
-  "status": "busy",
-  "timestamp": "2026-05-01T10:06:30Z"
-}
-```
-
-**`vehicle.error`** — publicado cuando se detecta una anomalía:
-
-```json
-{
-  "message_type": "vehicle.error",
-  "vehicle_id": "VHC-002",
-  "error_code": "CONNECTION_LOST",
-  "message": "Sin señal desde hace 30 segundos.",
-  "timestamp": "2026-05-01T10:07:00Z"
-}
-```
+**Bridge:** confirma cada mensaje de Infra solo después de un 2xx del backend; ante 5xx o errores de red reintenta con espera creciente, y las respuestas 4xx se descartan con log.
 
 ---
 

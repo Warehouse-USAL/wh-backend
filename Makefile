@@ -1,9 +1,9 @@
-.PHONY: help up-dev run up-prod up-infra deploy down build test test-coverage lint format format-fix pr-checks logs clean
+.PHONY: e2e bridge-test help up-dev run up-prod up-infra deploy down build test test-coverage lint format format-fix pr-checks logs clean
 
 .DEFAULT_GOAL := help
 
 GRADLE = docker run --rm \
-	-v "$(PWD)":/app \
+	-v "$(PWD)/backend":/app \
 	-v wh-gradle-cache:/root/.gradle \
 	-w /app \
 	eclipse-temurin:21-jdk-alpine ./gradlew
@@ -34,9 +34,9 @@ up-prod: ## Start services in production mode (requires env vars set)
 	docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 	@echo "Production services started on port 8080"
 
-deploy: ## Pull the newest backend image and restart the backend + restock-cron (data untouched)
-	docker compose -f docker-compose.yml -f docker-compose.prod.yml pull backend
-	docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps backend restock-cron
+deploy: ## Pull the newest backend + bridge images and restart them, plus restock-cron (data untouched)
+	docker compose -f docker-compose.yml -f docker-compose.prod.yml pull backend bridge
+	docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps backend bridge restock-cron
 	@# Recreated only when its compose config changed (e.g. retention); its volume persists.
 	docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps victoriametrics
 	@echo "Backend redeployed"
@@ -59,7 +59,7 @@ down: ## Stop and remove all containers
 
 build: ## Build the application JAR
 	$(GRADLE) bootJar
-	@echo "JAR built at build/libs/"
+	@echo "JAR built at backend/build/libs/"
 
 clean: ## Clean build artifacts
 	$(GRADLE) clean
@@ -72,8 +72,8 @@ test: ## Run all tests
 test-coverage: ## Run tests and generate JaCoCo coverage report
 	$(GRADLE) test jacocoTestReport
 	@echo ""
-	@echo "Coverage report: build/reports/jacoco/test/html/index.html"
-	@open build/reports/jacoco/test/html/index.html 2>/dev/null || true
+	@echo "Coverage report: backend/build/reports/jacoco/test/html/index.html"
+	@open backend/build/reports/jacoco/test/html/index.html 2>/dev/null || true
 
 # ─── Quality targets ──────────────────────────────────────────────────────────
 
@@ -85,6 +85,14 @@ format: ## Check code formatting (Google Java Format via Spotless)
 
 format-fix: ## Apply Google Java Format to all source files
 	$(GRADLE) spotlessApply
+
+# ─── Bridge / E2E ─────────────────────────────────────────────────────────────
+
+bridge-test: ## Run the Go bridge's vet + tests
+	cd bridge && go vet ./... && go test -race ./...
+
+e2e: ## Full-stack dry run: backend <-> bridge <-> fake Infra (needs Docker; see e2e/run.sh)
+	./e2e/run.sh
 
 # ─── CI gate ──────────────────────────────────────────────────────────────────
 
