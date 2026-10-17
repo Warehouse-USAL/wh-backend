@@ -36,7 +36,7 @@ up-prod: ## Start services in production mode (requires env vars set)
 
 deploy: ## Pull the newest backend + bridge images and restart them, plus restock-cron (data untouched)
 	docker compose -f docker-compose.yml -f docker-compose.prod.yml pull backend bridge
-	docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d backend bridge restock-cron
+	docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps backend bridge restock-cron
 	@# Recreated only when its compose config changed (e.g. retention); its volume persists.
 	docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps victoriametrics
 	@echo "Backend redeployed"
