@@ -6,10 +6,11 @@ import java.util.Locale;
  * Bounded taxonomy for vehicle fault categories, carried on {@link VehicleStatusChange#category()}.
  *
  * <p>Replaces the {@link VehicleStatusChange#UNCATEGORIZED} placeholder wherever a producer
- * actually supplies a code (today: the {@code vehicle.error} Kafka message). A raw string is never
- * forwarded as-is — see {@link OtelTelemetryAdapter}'s javadoc on why an unbounded label value is a
- * cardinality hole straight into VictoriaMetrics — so an incoming code is matched against this enum
- * and anything unrecognized becomes {@link #OTHER} rather than being dropped or rejected.
+ * actually supplies a code (today: the {@code error} of an Infra telemetry reading). A raw string
+ * is never forwarded as-is — see {@link OtelTelemetryAdapter}'s javadoc on why an unbounded label
+ * value is a cardinality hole straight into VictoriaMetrics — so an incoming code is matched
+ * against this enum and anything unrecognized becomes {@link #OTHER} rather than being dropped or
+ * rejected.
  */
 public enum ErrorCode {
   CONNECTION_LOST,

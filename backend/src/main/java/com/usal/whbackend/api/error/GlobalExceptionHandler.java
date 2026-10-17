@@ -116,6 +116,7 @@ public class GlobalExceptionHandler {
               "UNBOUNDED_RANGE",
               "Una consulta agrupada debe acotarse con un filtro de fecha (ej: created_at >=)."),
           Map.entry("RESTOCK_ORDER_NOT_FOUND", "La orden de restock solicitada no existe."),
+          Map.entry("QR_CODE_ALREADY_EXISTS", "Otra posición ya tiene ese código QR."),
           Map.entry("RECEPTION_NOT_FOUND", "El remito solicitado no existe."),
           Map.entry(
               "ASSIGNMENT_QUANTITY_MISMATCH",

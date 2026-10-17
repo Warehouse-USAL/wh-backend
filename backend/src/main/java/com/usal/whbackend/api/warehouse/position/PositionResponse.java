@@ -13,6 +13,7 @@ public record PositionResponse(
     int maximumCapacity,
     StockSize sizeStockToSave,
     String productId,
+    String qrCode,
     int currentStock,
     Instant createdAt) {
 
@@ -26,6 +27,7 @@ public record PositionResponse(
         p.getMaximumCapacity(),
         p.getSizeStockToSave(),
         p.getProductId(),
+        p.getQrCode(),
         p.getCurrentStock(),
         p.getCreatedAt());
   }

@@ -20,3 +20,7 @@ telemetry:
 
 victoriametrics:
   url: ${VICTORIAMETRICS_URL:http://victoriametrics:8428}
+
+infra:
+  # Shared secret of the Infra bridge (X-Api-Key header on /infra/**). Blank rejects every call.
+  api-key: ${INFRA_API_KEY:}

@@ -29,6 +29,8 @@ import org.springframework.data.mongodb.core.FindAndModifyOptions;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 @ExtendWith(MockitoExtension.class)
 class PositionServiceTest {
@@ -81,7 +83,7 @@ class PositionServiceTest {
     when(positionRepository.save(any())).thenReturn(saved);
     Position result =
         positionService.createPosition(
-            "l1", new CreatePositionRequest("P01", 100, StockSize.MEDIO_PALLET));
+            "l1", new CreatePositionRequest("P01", 100, StockSize.MEDIO_PALLET, null));
     assertEquals("z1", result.getIdZone());
   }
 
@@ -91,7 +93,7 @@ class PositionServiceTest {
     p.setProductId("product-A");
     when(positionRepository.findById("p1")).thenReturn(Optional.of(p));
     UpdatePositionRequest req =
-        new UpdatePositionRequest(null, null, null, null, "product-B", null);
+        new UpdatePositionRequest(null, null, null, null, "product-B", null, null);
     assertThrows(
         PositionAlreadyOccupiedException.class, () -> positionService.updatePosition("p1", req));
   }
@@ -101,7 +103,7 @@ class PositionServiceTest {
     Position p = position("p1", "l1", "z1");
     p.setMaximumCapacity(50);
     when(positionRepository.findById("p1")).thenReturn(Optional.of(p));
-    UpdatePositionRequest req = new UpdatePositionRequest(null, null, 60, null, null, null);
+    UpdatePositionRequest req = new UpdatePositionRequest(null, null, 60, null, null, null, null);
     assertThrows(
         StockExceedsCapacityException.class, () -> positionService.updatePosition("p1", req));
   }
@@ -113,7 +115,7 @@ class PositionServiceTest {
     p.setCurrentStock(50);
     when(positionRepository.findById("p1")).thenReturn(Optional.of(p));
     when(positionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-    UpdatePositionRequest req = new UpdatePositionRequest(null, null, null, null, null, true);
+    UpdatePositionRequest req = new UpdatePositionRequest(null, null, null, null, null, true, null);
     Position result = positionService.updatePosition("p1", req);
     assertNull(result.getProductId());
     assertEquals(0, result.getCurrentStock());
@@ -146,7 +148,7 @@ class PositionServiceTest {
     when(positionRepository.findById("p1")).thenReturn(Optional.of(p));
     when(productRepository.findById("product-1")).thenReturn(Optional.of(prod));
 
-    UpdatePositionRequest req = new UpdatePositionRequest(null, null, 10, null, null, null);
+    UpdatePositionRequest req = new UpdatePositionRequest(null, null, 10, null, null, null, null);
 
     assertThrows(
         StockExceedsCapacityException.class, () -> positionService.updatePosition("p1", req));
@@ -170,7 +172,7 @@ class PositionServiceTest {
     when(productRepository.findById("product-1")).thenReturn(Optional.of(prod));
     when(positionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-    UpdatePositionRequest req = new UpdatePositionRequest(null, null, 5, null, null, null);
+    UpdatePositionRequest req = new UpdatePositionRequest(null, null, 5, null, null, null, null);
     Position result = positionService.updatePosition("p1", req);
 
     assertEquals(5, result.getCurrentStock());
@@ -198,7 +200,7 @@ class PositionServiceTest {
   @Test
   void createPosition_lineNotFound_throws() {
     when(lineRepository.findById("bad")).thenReturn(Optional.empty());
-    CreatePositionRequest req = new CreatePositionRequest("P01", 10, StockSize.CAJA);
+    CreatePositionRequest req = new CreatePositionRequest("P01", 10, StockSize.CAJA, null);
     assertThrows(LineNotFoundException.class, () -> positionService.createPosition("bad", req));
   }
 
@@ -207,7 +209,7 @@ class PositionServiceTest {
     Line l = line("l1", "z1");
     l.setActive(false);
     when(lineRepository.findById("l1")).thenReturn(Optional.of(l));
-    CreatePositionRequest req = new CreatePositionRequest("P01", 10, StockSize.CAJA);
+    CreatePositionRequest req = new CreatePositionRequest("P01", 10, StockSize.CAJA, null);
     var ex =
         assertThrows(
             org.springframework.web.server.ResponseStatusException.class,
@@ -218,7 +220,7 @@ class PositionServiceTest {
   @Test
   void updatePosition_notFound_throwsPositionNotFound() {
     when(positionRepository.findById("bad")).thenReturn(Optional.empty());
-    UpdatePositionRequest req = new UpdatePositionRequest(null, null, null, null, null, null);
+    UpdatePositionRequest req = new UpdatePositionRequest(null, null, null, null, null, null, null);
     assertThrows(PositionNotFoundException.class, () -> positionService.updatePosition("bad", req));
   }
 
@@ -227,7 +229,8 @@ class PositionServiceTest {
     Position p = position("p1", "l1", "z1");
     when(positionRepository.findById("p1")).thenReturn(Optional.of(p));
     when(productRepository.existsById("ghost")).thenReturn(false);
-    UpdatePositionRequest req = new UpdatePositionRequest(null, null, null, null, "ghost", null);
+    UpdatePositionRequest req =
+        new UpdatePositionRequest(null, null, null, null, "ghost", null, null);
     var ex =
         assertThrows(
             org.springframework.web.server.ResponseStatusException.class,
@@ -239,7 +242,7 @@ class PositionServiceTest {
   void updatePosition_negativeStock_throwsStockExceedsCapacity() {
     Position p = position("p1", "l1", "z1");
     when(positionRepository.findById("p1")).thenReturn(Optional.of(p));
-    UpdatePositionRequest req = new UpdatePositionRequest(null, null, -1, null, null, null);
+    UpdatePositionRequest req = new UpdatePositionRequest(null, null, -1, null, null, null, null);
     assertThrows(
         StockExceedsCapacityException.class, () -> positionService.updatePosition("p1", req));
   }
@@ -252,7 +255,7 @@ class PositionServiceTest {
     when(positionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
     UpdatePositionRequest req =
-        new UpdatePositionRequest("P99", true, 0, StockSize.PALLET, "product-A", null);
+        new UpdatePositionRequest("P99", true, 0, StockSize.PALLET, "product-A", null, null);
     Position result = positionService.updatePosition("p1", req);
 
     assertEquals("product-A", result.getProductId());
@@ -270,7 +273,7 @@ class PositionServiceTest {
     when(positionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
     UpdatePositionRequest req =
-        new UpdatePositionRequest(null, null, null, null, "product-A", null);
+        new UpdatePositionRequest(null, null, null, null, "product-A", null, null);
     assertEquals("product-A", positionService.updatePosition("p1", req).getProductId());
   }
 
@@ -282,7 +285,7 @@ class PositionServiceTest {
     when(positionRepository.findById("p1")).thenReturn(Optional.of(p));
     when(productRepository.findById("product-1")).thenReturn(Optional.empty());
 
-    UpdatePositionRequest req = new UpdatePositionRequest(null, null, 1, null, null, null);
+    UpdatePositionRequest req = new UpdatePositionRequest(null, null, 1, null, null, null, null);
     var ex =
         assertThrows(
             org.springframework.web.server.ResponseStatusException.class,
@@ -700,5 +703,89 @@ class PositionServiceTest {
     Position result = positionService.increaseStock("p1", "product-1", 5);
 
     assertEquals(5, result.getCurrentStock());
+  }
+
+  @Test
+  void createPosition_withQrCode_storesItTrimmed() {
+    when(lineRepository.findById("l1")).thenReturn(Optional.of(line("l1", "z1")));
+    when(positionRepository.existsByQrCode("WH|A-L1-P01")).thenReturn(false);
+    when(positionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    Position result =
+        positionService.createPosition(
+            "l1", new CreatePositionRequest("P01", 100, StockSize.MEDIO_PALLET, " WH|A-L1-P01 "));
+
+    assertEquals("WH|A-L1-P01", result.getQrCode());
+  }
+
+  @Test
+  void createPosition_blankQrCode_storesNone() {
+    when(lineRepository.findById("l1")).thenReturn(Optional.of(line("l1", "z1")));
+    when(positionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    Position result =
+        positionService.createPosition(
+            "l1", new CreatePositionRequest("P01", 100, StockSize.MEDIO_PALLET, "  "));
+
+    assertNull(result.getQrCode());
+  }
+
+  @Test
+  void createPosition_qrCodeAlreadyUsed_throwsConflict() {
+    when(lineRepository.findById("l1")).thenReturn(Optional.of(line("l1", "z1")));
+    when(positionRepository.existsByQrCode("WH|A-L1-P01")).thenReturn(true);
+
+    ResponseStatusException e =
+        assertThrows(
+            ResponseStatusException.class,
+            () ->
+                positionService.createPosition(
+                    "l1",
+                    new CreatePositionRequest("P01", 100, StockSize.MEDIO_PALLET, "WH|A-L1-P01")));
+
+    assertEquals("QR_CODE_ALREADY_EXISTS", e.getReason());
+    assertEquals(HttpStatus.CONFLICT, e.getStatusCode());
+  }
+
+  @Test
+  void updatePosition_qrCodeOfAnotherPosition_throwsConflict() {
+    Position p = position("p1", "l1", "z1");
+    when(positionRepository.findById("p1")).thenReturn(Optional.of(p));
+    when(positionRepository.existsByQrCode("WH|A-L1-P02")).thenReturn(true);
+    UpdatePositionRequest req =
+        new UpdatePositionRequest(null, null, null, null, null, null, "WH|A-L1-P02");
+
+    ResponseStatusException e =
+        assertThrows(
+            ResponseStatusException.class, () -> positionService.updatePosition("p1", req));
+
+    assertEquals("QR_CODE_ALREADY_EXISTS", e.getReason());
+  }
+
+  @Test
+  void updatePosition_resendingItsOwnQrCode_isNotAConflict() {
+    Position p = position("p1", "l1", "z1");
+    p.setQrCode("WH|A-L1-P01");
+    when(positionRepository.findById("p1")).thenReturn(Optional.of(p));
+    when(positionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+    UpdatePositionRequest req =
+        new UpdatePositionRequest(null, null, null, null, null, null, "WH|A-L1-P01");
+
+    Position result = positionService.updatePosition("p1", req);
+
+    assertEquals("WH|A-L1-P01", result.getQrCode());
+    verify(positionRepository, never()).existsByQrCode(any());
+  }
+
+  @Test
+  void updatePosition_withoutQrCode_leavesItAlone() {
+    Position p = position("p1", "l1", "z1");
+    p.setQrCode("WH|A-L1-P01");
+    when(positionRepository.findById("p1")).thenReturn(Optional.of(p));
+    when(positionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+    UpdatePositionRequest req =
+        new UpdatePositionRequest("P99", null, null, null, null, null, null);
+
+    assertEquals("WH|A-L1-P01", positionService.updatePosition("p1", req).getQrCode());
   }
 }

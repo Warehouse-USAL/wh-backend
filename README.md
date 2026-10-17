@@ -24,7 +24,7 @@ The only prerequisite is **Docker**. No Java, no Gradle, no MongoDB installation
 ```bash
 git clone https://github.com/Warehouse-USAL/wh-backend.git
 cd wh-backend
-cp src/main/resources/application.yml.example src/main/resources/application.yml
+cp backend/src/main/resources/application.yml.example backend/src/main/resources/application.yml
 make up-dev
 ```
 
@@ -112,7 +112,7 @@ Draft PRs are skipped by CI until marked ready for review.
 ## Project structure
 
 ```
-src/main/java/com/usal/whbackend/
+backend/src/main/java/com/usal/whbackend/
 ├── domain/          # Entities — plain Java classes annotated with @Document
 ├── repository/      # Spring Data MongoDB interfaces + Kafka producers/consumers
 ├── service/         # Business logic — @Service classes
@@ -166,6 +166,6 @@ The `restock-cron` compose service calls `POST /metrics/restock-suggestions/appl
 
 ## Environment configuration
 
-Copy `src/main/resources/application.yml.example` to `application.yml` and adjust as needed. This file is gitignored — never commit secrets.
+Copy `backend/src/main/resources/application.yml.example` to `application.yml` and adjust as needed. This file is gitignored — never commit secrets.
 
 When running via Docker Compose, connection strings are set automatically via the `docker` Spring profile (`application-docker.yml`). No manual configuration is needed for `make up-dev`.

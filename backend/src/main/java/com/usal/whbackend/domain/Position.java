@@ -20,10 +20,23 @@ public class Position {
 
   @Indexed private String productId; // nullable — source of truth for assignment
 
+  // Text printed in the position's QR code — what a vehicle compares against the stops we send.
+  // Sparse so positions without a QR yet do not collide on the unique index.
+  @Indexed(unique = true, sparse = true)
+  private String qrCode;
+
   private int currentStock;
   private Instant createdAt;
 
   public Position() {}
+
+  public String getQrCode() {
+    return qrCode;
+  }
+
+  public void setQrCode(String qrCode) {
+    this.qrCode = qrCode;
+  }
 
   public String getId() {
     return id;

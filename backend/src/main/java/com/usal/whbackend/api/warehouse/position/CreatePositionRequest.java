@@ -8,4 +8,5 @@ import jakarta.validation.constraints.NotNull;
 public record CreatePositionRequest(
     @NotBlank String positionName,
     @Min(1) int maximumCapacity,
-    @NotNull StockSize sizeStockToSave) {}
+    @NotNull StockSize sizeStockToSave,
+    String qrCode) {} // optional — text printed in the position's QR

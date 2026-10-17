@@ -14,18 +14,17 @@ import org.springframework.stereotype.Component;
 /**
  * Applies a targeted, atomic field-level update to a {@link Vehicle} document.
  *
- * <p>{@link VehicleTelemetryConsumer} and {@link VehicleErrorConsumer} both mutate the same vehicle
- * document from independently-threaded {@code @KafkaListener} containers on two different topics. A
- * whole-document read -&gt; mutate in memory -&gt; {@code save()} lets one consumer's save silently
- * revert fields the other consumer changed concurrently (a lost update): if consumer A saves the
- * full entity right after consumer B read its own (now stale) copy, B's later save overwrites A's
- * change with the stale value B never knew had moved.
+ * <p>Telemetry readings, order status changes and vehicle assignment all mutate the same vehicle
+ * document from independent request threads. A whole-document read -&gt; mutate in memory -&gt;
+ * {@code save()} lets one writer's save silently revert fields another changed concurrently (a lost
+ * update): if writer A saves the full entity right after writer B read its own (now stale) copy,
+ * B's later save overwrites A's change with the stale value B never knew had moved.
  *
- * <p>Restricting each consumer to a {@code $set} of only the fields it actually owns, applied via a
+ * <p>Restricting each writer to a {@code $set} of only the fields it actually owns, applied via a
  * single {@code findAndModify}, removes that failure mode structurally rather than by coordination:
- * MongoDB applies the update atomically, so a concurrent write from the sibling consumer can only
- * land wholly before or wholly after it, and can only ever clobber a field this update also names —
- * never a field it left untouched.
+ * MongoDB applies the update atomically, so a concurrent write can only land wholly before or
+ * wholly after it, and can only ever clobber a field this update also names — never a field it left
+ * untouched.
  */
 @Component
 public class VehicleUpdateExecutor {
@@ -41,6 +40,22 @@ public class VehicleUpdateExecutor {
    * @param updated the vehicle document immediately after this update was applied
    */
   public record Result(VehicleStatus previousStatus, Vehicle updated) {}
+
+  /**
+   * Creates vehicle {@code vehicleId} if it does not exist yet, leaving an existing one untouched.
+   * A single upsert, so two first readings racing each other still yield exactly one document.
+   */
+  public void ensureExists(String vehicleId, String name) {
+    mongoTemplate.upsert(
+        Query.query(Criteria.where("_id").is(vehicleId)),
+        new Update()
+            .setOnInsert("name", name)
+            .setOnInsert("status", VehicleStatus.OFFLINE)
+            .setOnInsert("positionX", 0.0)
+            .setOnInsert("positionY", 0.0)
+            .setOnInsert("battery", 0),
+        Vehicle.class);
+  }
 
   /**
    * Reads the current state of vehicle {@code vehicleId}, hands it to {@code updateBuilder} to

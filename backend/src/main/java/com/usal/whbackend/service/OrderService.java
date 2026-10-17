@@ -38,6 +38,7 @@ public class OrderService implements OrderCompletionPort {
   private final VehicleRepository vehicleRepository;
   private final VehicleUpdateExecutor vehicleUpdateExecutor;
   private final StockDrainPort stockDrainPort;
+  private final StopResolver stopResolver;
   private final List<OrderEventPublisher> orderEventPublishers;
   private final List<StockEventPublisher> stockEventPublishers;
 
@@ -62,6 +63,7 @@ public class OrderService implements OrderCompletionPort {
       VehicleRepository vehicleRepository,
       VehicleUpdateExecutor vehicleUpdateExecutor,
       StockDrainPort stockDrainPort,
+      StopResolver stopResolver,
       List<OrderEventPublisher> orderEventPublishers,
       List<StockEventPublisher> stockEventPublishers) {
     this.orderRepository = orderRepository;
@@ -70,6 +72,7 @@ public class OrderService implements OrderCompletionPort {
     this.vehicleRepository = vehicleRepository;
     this.vehicleUpdateExecutor = vehicleUpdateExecutor;
     this.stockDrainPort = stockDrainPort;
+    this.stopResolver = stopResolver;
     this.orderEventPublishers = List.copyOf(orderEventPublishers);
     this.stockEventPublishers = List.copyOf(stockEventPublishers);
   }
@@ -207,6 +210,7 @@ public class OrderService implements OrderCompletionPort {
       order.setPriority(request.priority() != null ? request.priority() : OrderPriority.MEDIUM);
       order.setRequestedByUserId(userId);
       order.setItems(items);
+      order.setStops(stopResolver.resolve(items));
       order.setDestinationArea(request.destinationArea());
       order.setAddress(address);
       order.setCreatedAt(Instant.now());
@@ -291,9 +295,9 @@ public class OrderService implements OrderCompletionPort {
 
   /**
    * Forces an order into the given status, simulating the asynchronous transition that would
-   * normally arrive on the {@code order.status} Kafka topic. Completing an order drains its stock
-   * (FIFO) exactly as the consumer does. Reverting to PENDING is rejected, and orders already in a
-   * terminal state (COMPLETED/CANCELLED) cannot be modified.
+   * normally be reported by Infra through {@code POST /infra/orders/{id}/status}. Completing an
+   * order drains its stock (FIFO) exactly as the consumer does. Reverting to PENDING is rejected,
+   * and orders already in a terminal state (COMPLETED/CANCELLED) cannot be modified.
    */
   public Order changeStatus(String id, String status) {
     return changeStatus(id, status, null);
@@ -344,7 +348,7 @@ public class OrderService implements OrderCompletionPort {
   }
 
   /**
-   * Single path for finishing an order, shared by the {@code order.status} consumer and {@link
+   * Single path for finishing an order, shared by the Infra status endpoint and {@link
    * #changeStatus}: marks it COMPLETED, drains its stock and publishes {@code order.completed}. The
    * caller persists the order afterwards.
    */

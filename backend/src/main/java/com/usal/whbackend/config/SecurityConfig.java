@@ -19,9 +19,11 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 public class SecurityConfig {
 
   private final JwtAuthFilter jwtAuthFilter;
+  private final InfraApiKeyFilter infraApiKeyFilter;
 
-  public SecurityConfig(JwtAuthFilter jwtAuthFilter) {
+  public SecurityConfig(JwtAuthFilter jwtAuthFilter, InfraApiKeyFilter infraApiKeyFilter) {
     this.jwtAuthFilter = jwtAuthFilter;
+    this.infraApiKeyFilter = infraApiKeyFilter;
   }
 
   @Bean
@@ -46,12 +48,17 @@ public class SecurityConfig {
                     .permitAll()
                     .requestMatchers("/api/v1/files/**")
                     .permitAll()
+                    // Called by the bridge, not by a user: InfraApiKeyFilter does the
+                    // authenticating.
+                    .requestMatchers("/infra/**")
+                    .permitAll()
                     .anyRequest()
                     .authenticated())
         .exceptionHandling(
             e ->
                 e.authenticationEntryPoint(
                     (req, res, ex) -> res.sendError(HttpServletResponse.SC_UNAUTHORIZED)))
+        .addFilterBefore(infraApiKeyFilter, UsernamePasswordAuthenticationFilter.class)
         .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
     return http.build();
   }

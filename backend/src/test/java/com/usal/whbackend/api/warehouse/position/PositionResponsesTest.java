@@ -104,13 +104,13 @@ class PositionResponsesTest {
 
   @Test
   void requestRecords_exposeComponents() {
-    CreatePositionRequest create = new CreatePositionRequest("P01", 10, StockSize.CAJA);
+    CreatePositionRequest create = new CreatePositionRequest("P01", 10, StockSize.CAJA, null);
     assertThat(create.positionName()).isEqualTo("P01");
     assertThat(create.maximumCapacity()).isEqualTo(10);
     assertThat(create.sizeStockToSave()).isEqualTo(StockSize.CAJA);
 
     UpdatePositionRequest update =
-        new UpdatePositionRequest("P02", true, 5, StockSize.PALLET, "prod-1", false);
+        new UpdatePositionRequest("P02", true, 5, StockSize.PALLET, "prod-1", false, null);
     assertThat(update.positionName()).isEqualTo("P02");
     assertThat(update.isActive()).isTrue();
     assertThat(update.currentStock()).isEqualTo(5);

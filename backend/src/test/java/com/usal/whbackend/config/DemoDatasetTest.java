@@ -580,4 +580,12 @@ class DemoDatasetTest {
             Collectors.groupingBy(
                 e -> e.getKey().getMonth(), Collectors.averagingLong(Map.Entry::getValue)));
   }
+
+  @Test
+  void everyPositionHasAUniqueQrCode() {
+    assertThat(data.getPositions())
+        .allSatisfy(p -> assertThat(p.getQrCode()).isNotBlank())
+        .extracting(Position::getQrCode)
+        .doesNotHaveDuplicates();
+  }
 }

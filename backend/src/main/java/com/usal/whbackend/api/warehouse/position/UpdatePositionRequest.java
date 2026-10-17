@@ -9,5 +9,6 @@ public record UpdatePositionRequest(
     @Min(0) Integer currentStock,
     StockSize sizeStockToSave,
     String productId, // new product to assign (or keep current if null)
-    Boolean unassignProduct) // if true, clears productId and currentStock
+    Boolean unassignProduct, // if true, clears productId and currentStock
+    String qrCode) // optional — text printed in the position's QR
 {}

@@ -212,4 +212,56 @@ class StockDrainServiceTest {
 
     verify(publisher).broadcastStockAlert(product, 9);
   }
+
+  @Test
+  void positionsToConsume_returnsTheSameOldestFirstPositionsTheDrainWouldUse() {
+    Position oldest = position("p1", 5, 0);
+    Position newer = position("p2", 10, 10);
+    Position untouched = position("p3", 10, 20);
+    when(positionRepository
+            .findByProductIdAndIsActiveTrueAndCurrentStockGreaterThanOrderByCreatedAtAsc(
+                "prod-1", 0))
+        .thenReturn(List.of(oldest, newer, untouched));
+
+    assertThat(service.positionsToConsume(List.of(item("prod-1", 8))))
+        .containsExactly(oldest, newer);
+  }
+
+  @Test
+  void positionsToConsume_doesNotTouchStockOrSaveAnything() {
+    Position only = position("p1", 5, 0);
+    when(positionRepository
+            .findByProductIdAndIsActiveTrueAndCurrentStockGreaterThanOrderByCreatedAtAsc(
+                "prod-1", 0))
+        .thenReturn(List.of(only));
+
+    service.positionsToConsume(List.of(item("prod-1", 3)));
+
+    assertThat(only.getCurrentStock()).isEqualTo(5);
+    verify(positionRepository, never()).save(any());
+    verifyNoInteractions(publisher);
+  }
+
+  @Test
+  void positionsToConsume_coversEveryItem() {
+    Position forA = position("pa", 5, 0);
+    Position forB = position("pb", 5, 0);
+    when(positionRepository
+            .findByProductIdAndIsActiveTrueAndCurrentStockGreaterThanOrderByCreatedAtAsc(
+                "prod-A", 0))
+        .thenReturn(List.of(forA));
+    when(positionRepository
+            .findByProductIdAndIsActiveTrueAndCurrentStockGreaterThanOrderByCreatedAtAsc(
+                "prod-B", 0))
+        .thenReturn(List.of(forB));
+
+    assertThat(service.positionsToConsume(List.of(item("prod-A", 1), item("prod-B", 1))))
+        .containsExactly(forA, forB);
+  }
+
+  @Test
+  void positionsToConsume_nullOrEmptyItems_isEmpty() {
+    assertThat(service.positionsToConsume(null)).isEmpty();
+    assertThat(service.positionsToConsume(List.of())).isEmpty();
+  }
 }

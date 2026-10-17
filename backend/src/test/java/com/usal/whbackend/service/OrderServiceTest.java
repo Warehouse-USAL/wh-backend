@@ -44,6 +44,7 @@ class OrderServiceTest {
   @Mock VehicleRepository vehicleRepository;
   @Mock VehicleUpdateExecutor vehicleUpdateExecutor;
   @Mock StockDrainPort stockDrainPort;
+  @Mock StopResolver stopResolver;
   @Mock OrderEventPublisher orderEventPublisher;
   @Mock StockEventPublisher stockEventPublisher;
   OrderService orderService;
@@ -58,6 +59,7 @@ class OrderServiceTest {
             vehicleRepository,
             vehicleUpdateExecutor,
             stockDrainPort,
+            stopResolver,
             List.of(orderEventPublisher),
             List.of(stockEventPublisher));
   }
@@ -244,6 +246,7 @@ class OrderServiceTest {
     Order saved = new Order();
     saved.setId("ord-new");
     when(orderRepository.save(any())).thenReturn(saved);
+    when(stopResolver.resolve(any())).thenReturn(List.of("WH|A-L1-P01"));
 
     Order result =
         orderService.createOrder(
@@ -252,7 +255,9 @@ class OrderServiceTest {
             "user-1");
 
     assertEquals("ord-new", result.getId());
-    verify(orderRepository).save(any());
+    ArgumentCaptor<Order> toSave = ArgumentCaptor.forClass(Order.class);
+    verify(orderRepository).save(toSave.capture());
+    assertEquals(List.of("WH|A-L1-P01"), toSave.getValue().getStops());
     verify(orderEventPublisher).broadcastOrderUpdate(saved);
   }
 

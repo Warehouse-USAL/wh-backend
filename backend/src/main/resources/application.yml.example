@@ -62,3 +62,7 @@ spring:
   data:
     mongodb:
       auto-index-creation: ${SPRING_DATA_MONGODB_AUTO_INDEX_CREATION:true}
+
+infra:
+  # Shared secret of the Infra bridge (X-Api-Key header on /infra/**). Blank rejects every call.
+  api-key: ${INFRA_API_KEY:}

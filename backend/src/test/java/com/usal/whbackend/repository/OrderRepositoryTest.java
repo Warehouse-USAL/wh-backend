@@ -48,14 +48,16 @@ class OrderRepositoryTest {
     @SuppressWarnings("unchecked")
     CompletableFuture<SendResult<String, String>> future = CompletableFuture.completedFuture(null);
     lenient().when(kafka.send(anyString(), anyString())).thenReturn(future);
+    lenient().when(kafka.send(anyString(), anyString(), anyString())).thenReturn(future);
   }
 
   @Test
-  void save_persistsToMongoAndPublishesDispatchToKafka() throws Exception {
+  void save_persistsToMongoAndPublishesPendingOrderKeyedByIdToKafka() throws Exception {
     Order order = new Order();
     order.setId("ord-1");
     order.setItems(List.of(new OrderItem("prod-1", "SKU-001", 2)));
     order.setDestinationArea("AREA-A");
+    order.setStops(List.of("WH|A-L1-P01", "WH|A-L1-P02"));
     when(mongo.save(order)).thenReturn(order);
 
     orderRepository.save(order);
@@ -63,7 +65,15 @@ class OrderRepositoryTest {
     verify(mongo).save(order);
     // Kafka publish is async — wait briefly for the background thread to fire
     Thread.sleep(100);
-    verify(kafka).send(eq("order.dispatch"), anyString());
+    ArgumentCaptor<String> payload = ArgumentCaptor.forClass(String.class);
+    verify(kafka).send(eq("orders"), eq("ord-1"), payload.capture());
+    JsonNode node = new ObjectMapper().readTree(payload.getValue());
+    assertEquals("ord-1", node.get("order_id").asString());
+    assertEquals("pending", node.get("status").asString());
+    assertEquals("AREA-A", node.get("destination").asString());
+    assertEquals("WH|A-L1-P01", node.get("stops").get(0).asString());
+    assertEquals("WH|A-L1-P02", node.get("stops").get(1).asString());
+    assertTrue(node.has("published_at"));
   }
 
   @Test
@@ -111,11 +121,12 @@ class OrderRepositoryTest {
   }
 
   @Test
-  void cancel_persistsToMongoAndPublishesCancelToKafka() throws Exception {
+  void cancel_persistsToMongoAndPublishesTheCancelledOrderWithItsStops() throws Exception {
     Order order = new Order();
     order.setId("ord-1");
     order.setStatus(OrderStatus.PENDING);
     order.setItems(List.of());
+    order.setStops(List.of("WH|A-L1-P01"));
     when(mongo.save(order)).thenReturn(order);
 
     orderRepository.cancel(order, "Cancelado por el usuario");
@@ -123,7 +134,11 @@ class OrderRepositoryTest {
     verify(mongo).save(order);
     // Kafka publish is async — wait briefly for the background thread to fire
     Thread.sleep(100);
-    verify(kafka).send(eq("order.cancel"), anyString());
+    ArgumentCaptor<String> payload = ArgumentCaptor.forClass(String.class);
+    verify(kafka).send(eq("orders"), eq("ord-1"), payload.capture());
+    JsonNode node = new ObjectMapper().readTree(payload.getValue());
+    assertEquals("cancelled", node.get("status").asString());
+    assertEquals("WH|A-L1-P01", node.get("stops").get(0).asString());
   }
 
   @Test
@@ -204,29 +219,30 @@ class OrderRepositoryTest {
   }
 
   @Test
-  void save_withAddress_serialisesAddressIntoDispatchMessage() throws Exception {
+  void save_neverPutsItemsAddressOrVehicleOnTheWire() throws Exception {
     Address address = new Address();
     address.setStreet("Calle 1");
-    address.setDepartment("B");
-    address.setFloor("3");
     address.setPostalCode("1000");
     Order order = new Order();
     order.setId("ord-1");
     order.setItems(List.of(new OrderItem("prod-1", "SKU-001", 2)));
     order.setAddress(address);
+    order.setAssignedVehicleId("vhc-1");
     when(mongo.save(order)).thenReturn(order);
 
     orderRepository.save(order);
 
     Thread.sleep(100);
-    org.mockito.ArgumentCaptor<String> payload = org.mockito.ArgumentCaptor.forClass(String.class);
-    verify(kafka).send(eq("order.dispatch"), payload.capture());
-    assertTrue(payload.getValue().contains("Calle 1"));
-    assertTrue(payload.getValue().contains("1000"));
+    ArgumentCaptor<String> payload = ArgumentCaptor.forClass(String.class);
+    verify(kafka).send(eq("orders"), eq("ord-1"), payload.capture());
+    JsonNode node = new ObjectMapper().readTree(payload.getValue());
+    assertEquals(
+        java.util.Set.of("order_id", "status", "stops", "destination", "published_at"),
+        new java.util.HashSet<>(node.propertyNames()));
   }
 
   @Test
-  void save_withNullItems_publishesEmptyItemList() throws Exception {
+  void save_withNoStops_publishesAnEmptyStopList() throws Exception {
     Order order = new Order();
     order.setId("ord-1");
     when(mongo.save(order)).thenReturn(order);
@@ -234,16 +250,16 @@ class OrderRepositoryTest {
     orderRepository.save(order);
 
     Thread.sleep(100);
-    org.mockito.ArgumentCaptor<String> payload = org.mockito.ArgumentCaptor.forClass(String.class);
-    verify(kafka).send(eq("order.dispatch"), payload.capture());
-    assertTrue(payload.getValue().contains("\"items\":[]"));
+    ArgumentCaptor<String> payload = ArgumentCaptor.forClass(String.class);
+    verify(kafka).send(eq("orders"), eq("ord-1"), payload.capture());
+    assertTrue(payload.getValue().contains("\"stops\":[]"));
   }
 
   @Test
   void save_kafkaFailure_isLoggedAndDoesNotPropagate() throws Exception {
     CompletableFuture<SendResult<String, String>> failed = new CompletableFuture<>();
     failed.completeExceptionally(new IllegalStateException("broker down"));
-    when(kafka.send(anyString(), anyString())).thenReturn(failed);
+    when(kafka.send(anyString(), anyString(), anyString())).thenReturn(failed);
 
     Order order = new Order();
     order.setId("ord-1");
@@ -253,7 +269,7 @@ class OrderRepositoryTest {
     orderRepository.save(order);
 
     Thread.sleep(100);
-    verify(kafka).send(eq("order.dispatch"), anyString());
+    verify(kafka).send(eq("orders"), eq("ord-1"), anyString());
   }
 
   @Test

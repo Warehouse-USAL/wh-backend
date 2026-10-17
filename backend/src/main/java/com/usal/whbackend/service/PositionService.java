@@ -125,6 +125,7 @@ public class PositionService {
     position.setPositionName(request.positionName());
     position.setMaximumCapacity(request.maximumCapacity());
     position.setSizeStockToSave(request.sizeStockToSave());
+    position.setQrCode(requireFreeQrCode(request.qrCode(), null));
     position.setActive(false);
     position.setCurrentStock(0);
     position.setCreatedAt(Instant.now());
@@ -183,11 +184,30 @@ public class PositionService {
       if (request.currentStock() != null) position.setCurrentStock(newStock);
     }
 
+    if (request.qrCode() != null) {
+      position.setQrCode(requireFreeQrCode(request.qrCode(), position));
+    }
     if (request.positionName() != null) position.setPositionName(request.positionName());
     if (request.isActive() != null) position.setActive(request.isActive());
     if (request.sizeStockToSave() != null) position.setSizeStockToSave(request.sizeStockToSave());
 
     return positionRepository.save(position);
+  }
+
+  /**
+   * Normalises a QR text (blank means none) and rejects one another position already carries, so a
+   * scanned code never resolves to two places. {@code current} is the position being edited.
+   */
+  private String requireFreeQrCode(String qrCode, Position current) {
+    if (qrCode == null || qrCode.isBlank()) {
+      return null;
+    }
+    String trimmed = qrCode.trim();
+    boolean unchanged = current != null && trimmed.equals(current.getQrCode());
+    if (!unchanged && positionRepository.existsByQrCode(trimmed)) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "QR_CODE_ALREADY_EXISTS");
+    }
+    return trimmed;
   }
 
   public void deletePosition(String id) {

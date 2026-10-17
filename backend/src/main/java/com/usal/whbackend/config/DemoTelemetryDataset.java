@@ -200,7 +200,7 @@ public final class DemoTelemetryDataset {
   /**
    * The fault category for one transition. Only a transition into or out of OFFLINE carries a real
    * category — everything else (IDLE&lt;-&gt;BUSY and so on) is not a fault at all. This matches
-   * the live system: {@code VehicleErrorConsumer} is the only place a real category is ever
+   * the live system: {@code VehicleTelemetryService} is the only place a real category is ever
    * attached to a transition, and it always drives the vehicle to OFFLINE, never to the ERROR enum
    * value (routine self-reported ERROR telemetry carries no error_code, so it would stay
    * UNCATEGORIZED and isn't simulated as a distinct fault path here). Every fault episode picks one
@@ -230,7 +230,8 @@ public final class DemoTelemetryDataset {
     }
     // One rover fails on a cycle, so mean time between failures and the Pareto have something
     // real to count rather than a single bar. Target state is OFFLINE, not ERROR — that's what
-    // VehicleErrorConsumer actually sets on a real vehicle.error event, and it's the only path
+    // VehicleTelemetryService actually sets on a telemetry reading carrying an error, and it's the
+    // only path
     // that carries a real fault category (see categoryFor). A permanently-parked vehicle never
     // changes state, so it never emits a transition and can't be confused with a fault episode.
     if (index == 5 && tick % FAULT_PERIOD_TICKS < FAULT_LENGTH_TICKS) {

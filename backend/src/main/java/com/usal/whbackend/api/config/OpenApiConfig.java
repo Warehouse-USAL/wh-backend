@@ -26,6 +26,13 @@ public class OpenApiConfig {
                         .type(SecurityScheme.Type.HTTP)
                         .scheme("bearer")
                         .bearerFormat("JWT")
-                        .description("JWT token obtained from POST /auth/login")));
+                        .description("JWT token obtained from POST /auth/login"))
+                .addSecuritySchemes(
+                    "infra-api-key",
+                    new SecurityScheme()
+                        .type(SecurityScheme.Type.APIKEY)
+                        .in(SecurityScheme.In.HEADER)
+                        .name("X-Api-Key")
+                        .description("Shared key of the Infra bridge (INFRA_API_KEY)")));
   }
 }

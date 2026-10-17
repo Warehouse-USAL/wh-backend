@@ -24,6 +24,10 @@ public class Order {
   private List<OrderItem> items;
   private String destinationArea;
 
+  // Ordered QR texts of the positions a vehicle must visit; resolved once at creation and re-sent
+  // unchanged on cancellation.
+  private List<String> stops = new ArrayList<>();
+
   // Existing OrderMongoRepository.findByAssignedVehicleId scans without this.
   @Indexed private String assignedVehicleId;
 
@@ -37,6 +41,14 @@ public class Order {
   private Product.Price total;
 
   public Order() {}
+
+  public List<String> getStops() {
+    return stops;
+  }
+
+  public void setStops(List<String> stops) {
+    this.stops = stops == null ? new ArrayList<>() : new ArrayList<>(stops);
+  }
 
   public String getId() {
     return id;

@@ -4,6 +4,7 @@ import com.usal.whbackend.domain.OrderItem;
 import com.usal.whbackend.domain.Position;
 import com.usal.whbackend.repository.PositionRepository;
 import com.usal.whbackend.repository.ProductRepository;
+import java.util.ArrayList;
 import java.util.List;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,19 +39,10 @@ public class StockDrainService implements StockDrainPort {
   public void drain(List<OrderItem> items) {
     if (items == null) return;
     for (OrderItem item : items) {
-      int remaining = item.getQuantity();
-
-      List<Position> positions =
-          positionRepository
-              .findByProductIdAndIsActiveTrueAndCurrentStockGreaterThanOrderByCreatedAtAsc(
-                  item.getProductId(), 0);
-
-      for (Position position : positions) {
-        if (remaining <= 0) break;
-        int drained = Math.min(remaining, position.getCurrentStock());
-        position.setCurrentStock(position.getCurrentStock() - drained);
+      for (Allocation allocation : allocate(item)) {
+        Position position = allocation.position();
+        position.setCurrentStock(position.getCurrentStock() - allocation.quantity());
         positionRepository.save(position);
-        remaining -= drained;
       }
 
       int totalStock =
@@ -68,4 +60,33 @@ public class StockDrainService implements StockDrainPort {
               });
     }
   }
+
+  @Override
+  public List<Position> positionsToConsume(List<OrderItem> items) {
+    if (items == null) return List.of();
+    List<Position> consumed = new ArrayList<>();
+    for (OrderItem item : items) {
+      allocate(item).forEach(a -> consumed.add(a.position()));
+    }
+    return consumed;
+  }
+
+  /** How much of {@code item} each position (oldest first) gives up; the single FIFO rule. */
+  private List<Allocation> allocate(OrderItem item) {
+    int remaining = item.getQuantity();
+    List<Allocation> allocations = new ArrayList<>();
+    List<Position> positions =
+        positionRepository
+            .findByProductIdAndIsActiveTrueAndCurrentStockGreaterThanOrderByCreatedAtAsc(
+                item.getProductId(), 0);
+    for (Position position : positions) {
+      if (remaining <= 0) break;
+      int taken = Math.min(remaining, position.getCurrentStock());
+      allocations.add(new Allocation(position, taken));
+      remaining -= taken;
+    }
+    return allocations;
+  }
+
+  private record Allocation(Position position, int quantity) {}
 }

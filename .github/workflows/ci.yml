@@ -69,15 +69,20 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: gradle
+          cache-dependency-path: |
+            backend/**/*.gradle*
+            backend/gradle/wrapper/gradle-wrapper.properties
 
       - name: Make gradlew executable
-        run: chmod +x ./gradlew
+        run: chmod +x backend/gradlew
 
       - name: Run Checkstyle
         run: ./gradlew checkstyleMain
+        working-directory: backend
 
       - name: Run SpotBugs
         run: ./gradlew spotbugsMain
+        working-directory: backend
 
   test-coverage:
     name: Test & Coverage
@@ -92,26 +97,51 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: gradle
+          cache-dependency-path: |
+            backend/**/*.gradle*
+            backend/gradle/wrapper/gradle-wrapper.properties
 
       - name: Make gradlew executable
-        run: chmod +x ./gradlew
+        run: chmod +x backend/gradlew
 
       - name: Run tests with coverage
         run: ./gradlew test jacocoTestReport jacocoTestCoverageVerification
+        working-directory: backend
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: coverage-report
-          path: build/reports/jacoco/test/html/
+          path: backend/build/reports/jacoco/test/html/
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
         if: always()
         with:
           name: test-results
-          path: build/reports/tests/test/
+          path: backend/build/reports/tests/test/
+
+  bridge:
+    name: Bridge (Go vet + tests)
+    needs: skip-drafts
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bridge
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: bridge/go.mod
+          cache-dependency-path: bridge/go.sum
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test -race ./...
 
   build:
     name: Build JAR
@@ -126,15 +156,19 @@ jobs:
           java-version: '21'
           distribution: 'temurin'
           cache: gradle
+          cache-dependency-path: |
+            backend/**/*.gradle*
+            backend/gradle/wrapper/gradle-wrapper.properties
 
       - name: Make gradlew executable
-        run: chmod +x ./gradlew
+        run: chmod +x backend/gradlew
 
       - name: Build JAR
         run: ./gradlew bootJar
+        working-directory: backend
 
       - name: Upload JAR artifact
         uses: actions/upload-artifact@v4
         with:
           name: wh-backend-jar
-          path: build/libs/*.jar
+          path: backend/build/libs/*.jar

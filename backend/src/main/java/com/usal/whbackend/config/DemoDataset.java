@@ -289,11 +289,23 @@ public final class DemoDataset {
             globalIdx < PRODUCT_POSITIONS
                 ? products.get(globalIdx % products.size()).getId()
                 : null;
-        positions.add(
-            position(posId, ln.getId(), ln.getIdZone(), name, globalIdx, created, productId));
+        Position position =
+            position(posId, ln.getId(), ln.getIdZone(), name, globalIdx, created, productId);
+        // Same shape the printed QR codes use: warehouse | zone - line - position.
+        position.setQrCode(
+            "WH|" + zoneCodeOf(zones, ln.getIdZone()) + "-L" + ln.getNumberLine() + "-" + name);
+        positions.add(position);
         globalIdx++;
       }
     }
+  }
+
+  private static String zoneCodeOf(List<Zone> zones, String zoneId) {
+    return zones.stream()
+        .filter(z -> z.getId().equals(zoneId))
+        .map(Zone::getZoneCode)
+        .findFirst()
+        .orElse(zoneId);
   }
 
   private Zone zone(String id, String code) {
@@ -348,8 +360,8 @@ public final class DemoDataset {
     vehicles.add(vehicle("veh-agv-02", "AGV-02", VehicleStatus.IDLE, 30.0, 8.0, 88, 5, 120L));
     vehicles.add(vehicle("veh-agv-03", "AGV-03", VehicleStatus.BUSY, 18.0, 15.0, 64, 1, 10L));
     vehicles.add(vehicle("veh-agv-04", "AGV-04", VehicleStatus.BUSY, 42.0, 22.0, 57, 1, 200L));
-    // OFFLINE and ERROR both null out operationSince in the live system (VehicleTelemetryConsumer
-    // and VehicleErrorConsumer clear it on any transition into either state) — neither has an
+    // OFFLINE and ERROR both null out operationSince in the live system (VehicleTelemetryService
+    // clears it on any transition into either state) — neither has an
     // ongoing operation window to report, so neither gets one here.
     vehicles.add(vehicle("veh-agv-05", "AGV-05", VehicleStatus.OFFLINE, 0.0, 0.0, 0, 720, null));
     vehicles.add(vehicle("veh-agv-06", "AGV-06", VehicleStatus.ERROR, 25.0, 10.0, 12, 90, null));

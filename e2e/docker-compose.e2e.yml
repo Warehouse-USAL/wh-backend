@@ -1,0 +1,70 @@
+# E2E overlay: an isolated RabbitMQ (with the MQTT plugin, like Infra's) plus either a
+# contract-conformant fake Infra (default) or Infra's real central (see docker-compose.infra-real.yml).
+# Use through e2e/run.sh. Never points at Infra's real broker.
+services:
+  # Named volumes instead of the ./data bind mounts: Redpanda/Mongo crash on Docker Desktop for Mac bind mounts,
+  # and an E2E run should not touch (or depend on) local data anyway. Same container paths => compose merges them.
+  redpanda:
+    volumes:
+      - e2e_redpanda:/var/lib/redpanda/data
+  mongodb:
+    volumes:
+      - e2e_mongodb:/data/db
+  minio:
+    volumes:
+      - e2e_minio:/data
+  victoriametrics:
+    volumes:
+      - e2e_vm:/victoria-metrics-data
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    # MQTT plugin enabled like on Infra's broker; admin_admin/admin is Infra's documented local dev user.
+    command: sh -c "rabbitmq-plugins enable --offline rabbitmq_mqtt >/dev/null && exec rabbitmq-server"
+    environment:
+      RABBITMQ_DEFAULT_USER: admin_admin
+      RABBITMQ_DEFAULT_PASS: admin
+    ports:
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks:
+      - wh-network
+    profiles: [infra, real]
+
+  bridge:
+    environment:
+      AMQP_URL: amqp://admin_admin:admin@rabbitmq:5672/
+      INFRA_API_KEY: ${INFRA_API_KEY:-e2e-api-key}
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  backend:
+    environment:
+      INFRA_API_KEY: ${INFRA_API_KEY:-e2e-api-key}
+      SEED_DEMO: "false"
+
+  fakeinfra:
+    build:
+      context: ./bridge
+      target: fakeinfra
+    environment:
+      AMQP_URL: amqp://admin_admin:admin@rabbitmq:5672/
+      FAKE_VEHICLE_ID: ${FAKE_VEHICLE_ID:-VHC-001}
+      FAKE_STEP_DELAY: 1s
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - wh-network
+    profiles: [infra]
+
+volumes:
+  e2e_redpanda:
+  e2e_mongodb:
+  e2e_minio:
+  e2e_vm:

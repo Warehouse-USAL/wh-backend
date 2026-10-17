@@ -2,13 +2,14 @@ package com.usal.whbackend.repository;
 
 import com.usal.whbackend.domain.Order;
 import com.usal.whbackend.domain.OrderStatus;
-import com.usal.whbackend.repository.kafka.OrderCancelMessage;
 import com.usal.whbackend.repository.kafka.OrderCompletedMessage;
-import com.usal.whbackend.repository.kafka.OrderDispatchMessage;
+import com.usal.whbackend.repository.kafka.OrderMessage;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.domain.Page;
@@ -26,6 +27,20 @@ import tools.jackson.databind.ObjectMapper;
 public class OrderRepository {
 
   private static final Logger log = LoggerFactory.getLogger(OrderRepository.class);
+
+  /**
+   * Publishes off the request thread (send() blocks while the broker is unreachable) on a dedicated
+   * thread rather than the common pool: pool threads carry the system classloader, and Kafka then
+   * cannot load its own config classes ({@code DefaultJwtRetriever}) from the Spring Boot fat jar.
+   * Being single-threaded also keeps a cancel behind the create it follows.
+   */
+  private static final Executor KAFKA_PUBLISHER =
+      Executors.newSingleThreadExecutor(
+          r -> {
+            Thread t = new Thread(r, "kafka-order-publisher");
+            t.setDaemon(true);
+            return t;
+          });
 
   private final OrderMongoRepository mongo;
   private final KafkaTemplate<String, String> kafka;
@@ -45,7 +60,7 @@ public class OrderRepository {
 
   public Order save(Order order) {
     Order saved = mongo.save(order);
-    publishDispatch(saved);
+    publishOrder(saved, "pending");
     return saved;
   }
 
@@ -57,7 +72,7 @@ public class OrderRepository {
     order.setCancelReason(reason);
     order.setStatus(OrderStatus.CANCELLED);
     Order saved = mongo.save(order);
-    publishCancel(saved, reason);
+    publishOrder(saved, "cancelled");
     return saved;
   }
 
@@ -95,36 +110,16 @@ public class OrderRepository {
     return mongo.findByRequestedByUserId(userId);
   }
 
-  private void publishDispatch(Order order) {
-    List<OrderDispatchMessage.Item> items =
-        order.getItems() == null
-            ? List.of()
-            : order.getItems().stream()
-                .map(
-                    i ->
-                        new OrderDispatchMessage.Item(
-                            i.getProductId(), i.getSku(), i.getQuantity()))
-                .toList();
-
-    OrderDispatchMessage.Address address = null;
-    if (order.getAddress() != null) {
-      address =
-          new OrderDispatchMessage.Address(
-              order.getAddress().getStreet(),
-              order.getAddress().getDepartment(),
-              order.getAddress().getFloor(),
-              order.getAddress().getPostalCode());
-    }
-
-    OrderDispatchMessage msg =
-        new OrderDispatchMessage(
-            "order.dispatch",
+  /** Publishes the order and its stops on the {@code orders} topic, keyed by order id. */
+  private void publishOrder(Order order, String status) {
+    OrderMessage msg =
+        new OrderMessage(
             order.getId(),
-            items,
+            status,
+            order.getStops(),
             order.getDestinationArea(),
-            address,
             Instant.now().toString());
-    sendAsync("order.dispatch", msg);
+    sendAsync("orders", order.getId(), msg);
   }
 
   /** Publishes the {@code order.completed} fact consumed by {@code wh-suggestions}. */
@@ -145,29 +140,32 @@ public class OrderRepository {
             order.getDestinationArea(),
             items,
             order.getCompletedAt() == null ? null : order.getCompletedAt().toString());
-    sendAsync("order.completed", msg);
+    sendAsync("order.completed", null, msg);
   }
 
-  private void publishCancel(Order order, String reason) {
-    OrderCancelMessage msg =
-        new OrderCancelMessage("order.cancel", order.getId(), reason, Instant.now().toString());
-    sendAsync("order.cancel", msg);
-  }
-
-  private void sendAsync(String topic, Object payload) {
+  private void sendAsync(String topic, String key, Object payload) {
     try {
       String json = objectMapper.writeValueAsString(payload);
       CompletableFuture.runAsync(
-          () ->
-              kafka
-                  .send(topic, json)
-                  .whenComplete(
-                      (result, ex) -> {
-                        if (ex != null) {
-                          log.error(
-                              "Failed to publish to Kafka topic {}: {}", topic, ex.getMessage());
-                        }
-                      }));
+              () ->
+                  (key == null ? kafka.send(topic, json) : kafka.send(topic, key, json))
+                      .whenComplete(
+                          (result, ex) -> {
+                            if (ex != null) {
+                              log.error(
+                                  "Failed to publish to Kafka topic {}: {}",
+                                  topic,
+                                  ex.getMessage());
+                            }
+                          }),
+              KAFKA_PUBLISHER)
+          // A throw from send() itself (e.g. the producer cannot be built) would otherwise vanish
+          // inside the discarded future.
+          .exceptionally(
+              ex -> {
+                log.error("Failed to publish to Kafka topic {}", topic, ex);
+                return null;
+              });
     } catch (JacksonException e) {
       throw new RuntimeException("Failed to serialize Kafka message for topic " + topic, e);
     }

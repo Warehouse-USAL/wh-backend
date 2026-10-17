@@ -7,7 +7,7 @@ import org.springframework.data.mongodb.core.mapping.Document;
 
 // Deliberately carries no secondary indexes. The fleet is three rovers (RFC section 1), so any
 // query is a three-document scan that beats an index lookup — while this is the most
-// write-heavy collection in the system, rewritten on every vehicle.telemetry message. Indexes
+// write-heavy collection in the system, rewritten on every telemetry reading. Indexes
 // here would add write cost on the hottest path to buy nothing. Revisit if the fleet grows by
 // orders of magnitude.
 @Document(collection = "vehicles")
@@ -22,7 +22,7 @@ public class Vehicle {
   private String currentOrderId;
   private Instant lastSeenAt;
 
-  // Set when this vehicle transitions OFFLINE -> IDLE/BUSY (see VehicleTelemetryConsumer), i.e.
+  // Set when this vehicle transitions OFFLINE -> IDLE/BUSY (see VehicleTelemetryService), i.e.
   // when it comes back online. Null until the first such transition is observed. Deliberately not
   // "time since registration": a vehicle that has been offline for a week and just reconnected has
   // zero hours of operation, not a week's worth.

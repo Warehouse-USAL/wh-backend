@@ -112,6 +112,7 @@ public class DataInitializer implements ApplicationRunner {
     posA1P1.setIdLine(lineA1.getId());
     posA1P1.setIdZone(zoneA.getId());
     posA1P1.setPositionName("P01");
+    posA1P1.setQrCode("WH|A-L1-P01");
     posA1P1.setMaximumCapacity(200);
     posA1P1.setSizeStockToSave(StockSize.MEDIO_PALLET);
     posA1P1.setActive(true);
@@ -124,6 +125,7 @@ public class DataInitializer implements ApplicationRunner {
     posA1P2.setIdLine(lineA1.getId());
     posA1P2.setIdZone(zoneA.getId());
     posA1P2.setPositionName("P02");
+    posA1P2.setQrCode("WH|A-L1-P02");
     posA1P2.setMaximumCapacity(200);
     posA1P2.setSizeStockToSave(StockSize.PALLET);
     posA1P2.setActive(true);
