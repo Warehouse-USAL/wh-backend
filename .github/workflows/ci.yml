@@ -56,9 +56,29 @@ jobs:
             esac
           fi
 
+  # Which components this PR touches (scripts/ci-changes.sh); the jobs below run only for those.
+  changes:
+    name: Detect changed components
+    needs: skip-drafts
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.changes.outputs.backend }}
+      bridge: ${{ steps.changes.outputs.bridge }}
+      console: ${{ steps.changes.outputs.console }}
+      platform: ${{ steps.changes.outputs.platform }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect changes
+        id: changes
+        run: scripts/ci-changes.sh
+
   code-quality:
     name: Code Quality (Checkstyle + SpotBugs)
-    needs: skip-drafts
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -86,10 +106,13 @@ jobs:
 
   test-coverage:
     name: Test & Coverage
-    needs: skip-drafts
+    needs: changes
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Java 25
         uses: actions/setup-java@v4
@@ -108,6 +131,15 @@ jobs:
         run: ./gradlew test jacocoTestReport jacocoTestCoverageVerification
         working-directory: backend
 
+      - name: Diff coverage (changed lines >= 90%)
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: >-
+          pipx run --spec diff-cover==10.6.0 diff-cover
+          backend/build/reports/jacoco/test/jacocoTestReport.xml
+          --src-roots backend/src/main/java
+          --compare-branch="origin/$BASE_REF" --fail-under=90
+
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
         if: always()
@@ -124,13 +156,16 @@ jobs:
 
   bridge:
     name: Bridge (Go vet + tests)
-    needs: skip-drafts
+    needs: changes
+    if: needs.changes.outputs.bridge == 'true'
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: bridge
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-go@v5
         with:
@@ -143,9 +178,120 @@ jobs:
       - name: Test
         run: go test -race ./...
 
+      - name: Coverage (./internal/... without fakeinfra >= 90%)
+        working-directory: .
+        run: scripts/go-coverage.sh bridge 90
+
+      - name: Diff coverage (changed lines >= 90%)
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          go run github.com/boumenot/gocover-cobertura@v1.5.0 <coverage.out >coverage.xml
+          cd .. && pipx run --spec diff-cover==10.6.0 diff-cover bridge/coverage.xml \
+            --compare-branch="origin/$BASE_REF" --fail-under=90
+
+  console:
+    name: Console (lint + typecheck + tests + build)
+    needs: changes
+    if: needs.changes.outputs.console == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: console
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Node version
+        id: node
+        run: echo "version=$(cat .nvmrc 2>/dev/null || echo 22)" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.node.outputs.version }}
+          cache: npm
+          cache-dependency-path: console/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # Coverage thresholds (90%) live in console/vite.config.ts.
+      - name: Test with coverage
+        run: npm test -- --coverage
+
+      - name: Build
+        run: npm run build
+
+      - name: Diff coverage (changed lines >= 90%)
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          if [ ! -f coverage/cobertura-coverage.xml ]; then
+            echo "::warning::console/coverage/cobertura-coverage.xml missing: enable Vitest's cobertura reporter"
+            exit 0
+          fi
+          cd .. && pipx run --spec diff-cover==10.6.0 diff-cover console/coverage/cobertura-coverage.xml \
+            --compare-branch="origin/$BASE_REF" --fail-under=90
+
+  # Compose files, collector configs, shell scripts and the CI scripts' own tests.
+  compose:
+    name: Platform (compose + collector + scripts)
+    needs: changes
+    if: needs.changes.outputs.platform == 'true'
+    runs-on: ubuntu-latest
+    env:
+      # Dummy values for the variables .env.example leaves out.
+      MONGO_ROOT_USER: ci
+      MONGO_ROOT_PASSWORD: ci
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: bridge/go.mod
+          cache-dependency-path: bridge/go.sum
+
+      - name: Compose config (dev, dev + prod)
+        run: |
+          docker compose --env-file .env.example --profile dev config -q
+          docker compose --env-file .env.example -f docker-compose.yml -f docker-compose.prod.yml config -q
+
+      - name: Collector config validate (dev, dev + prod)
+        run: |
+          IMAGE=$(docker compose --env-file .env.example config --format json | jq -r '.services["otel-collector"].image')
+          echo "collector image: $IMAGE"
+          docker run --rm -v "$PWD/config/otel:/etc/otel:ro" "$IMAGE" validate \
+            --config=/etc/otel/collector-config.yml
+          docker run --rm -v "$PWD/config/otel:/etc/otel:ro" "$IMAGE" validate \
+            --config=/etc/otel/collector-config.yml --config=/etc/otel/collector-config.prod.yml
+
+      - name: Shell scripts (syntax + shellcheck)
+        run: |
+          for f in scripts/*.sh config/restock-cron/*.sh e2e/*.sh; do
+            case $(head -1 "$f") in
+              *bash*) bash -n "$f" ;;
+              *) sh -n "$f" ;;
+            esac
+          done
+          shellcheck -S error scripts/*.sh config/restock-cron/*.sh e2e/*.sh
+          shellcheck scripts/ci-changes.sh scripts/ci-changes.test.sh scripts/go-coverage.sh scripts/go-coverage.test.sh
+
+      - name: CI script tests
+        run: |
+          sh scripts/ci-changes.test.sh
+          sh scripts/go-coverage.test.sh
+
   build:
     name: Build JAR
-    needs: [code-quality, test-coverage]
+    needs: [changes, code-quality, test-coverage]
+    if: needs.changes.outputs.backend == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -172,3 +318,22 @@ jobs:
         with:
           name: wh-backend-jar
           path: backend/build/libs/*.jar
+
+  # The only required status check: green when every job above passed or was skipped (paths
+  # untouched), red when any failed or was cancelled.
+  ci-ok:
+    name: ci-ok
+    if: always()
+    needs: [skip-drafts, validate-branch, changes, code-quality, test-coverage, bridge, console, compose, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: All jobs passed or were skipped
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "results: $RESULTS"
+          for r in $RESULTS; do
+            case $r in
+              failure|cancelled) echo "a required job ended in '$r'"; exit 1 ;;
+            esac
+          done
