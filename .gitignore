@@ -64,6 +64,7 @@ logs/
 
 # ─── Local data (bind-mounted Docker volumes) ─────────────────────────────────
 data/
+!console/src/data/
 
 # ─── Superpowers internal docs ────────────────────────────────────────────────
 docs/superpowers/

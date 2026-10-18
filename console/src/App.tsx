@@ -1,9 +1,25 @@
 import { useEffect, useState } from 'react'
-import { Route, Routes } from 'react-router'
+import { Navigate, Route, Routes } from 'react-router'
 import { useSession } from '@/api/auth'
 import { onUnauthorized } from '@/api/client'
+import Header from '@/layout/Header'
+import { NAV } from '@/layout/nav'
 import Shell from '@/layout/Shell'
 import Login from '@/pages/Login'
+
+// Stands in for a page until its task builds it; tasks 19-25 swap it out route by route.
+function Placeholder({ crumb, title }: { crumb: string; title: string }) {
+  return <Header crumb={crumb} title={title} />
+}
+
+function NotFound() {
+  return (
+    <>
+      <Header crumb="Console" title="Page not found" />
+      <p className="px-6 py-4 text-mu">There is nothing at this address.</p>
+    </>
+  )
+}
 
 // Login replaces the page without navigating, so the route survives an expired token.
 export default function App() {
@@ -19,7 +35,15 @@ export default function App() {
   }
   return (
     <Routes>
-      <Route path="*" element={<Shell onSignOut={signOut} />} />
+      <Route element={<Shell onSignOut={signOut} />}>
+        <Route path="/" element={<Navigate to="/overview" replace />} />
+        {NAV.flatMap(({ section, items }) =>
+          items.map(({ label, path }) => (
+            <Route key={path} path={path} element={<Placeholder crumb={section} title={label} />} />
+          )),
+        )}
+        <Route path="*" element={<NotFound />} />
+      </Route>
     </Routes>
   )
 }

@@ -1,0 +1,55 @@
+import { render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { describe, expect, it, vi } from 'vitest'
+import { LiveProvider } from '@/data/live'
+import Header from './Header'
+
+const renderHeader = (props: Partial<Parameters<typeof Header>[0]> = {}) =>
+  render(
+    <LiveProvider>
+      <Header crumb="Monitoring" title="Orders" {...props} />
+    </LiveProvider>,
+  )
+
+describe('Header', () => {
+  it('showsCrumbTitleChipsAndNoTabsByDefault', () => {
+    renderHeader({ chips: ['env staging'] })
+
+    expect(screen.getByRole('heading', { name: 'Orders' })).toBeInTheDocument()
+    expect(screen.getByText('Monitoring /')).toBeInTheDocument()
+    expect(screen.getByText('env staging')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Endpoints' })).toBeNull()
+  })
+
+  it('marksTheFirstTabThenTheControlledOne', async () => {
+    const onTab = vi.fn()
+    const { rerender } = renderHeader({ tabs: ['Endpoints', 'Live feed'], onTab })
+    expect(screen.getByRole('button', { name: 'Endpoints' })).toHaveAttribute('aria-current', 'true')
+
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Live feed' }))
+    expect(onTab).toHaveBeenCalledWith('Live feed')
+
+    rerender(
+      <LiveProvider>
+        <Header crumb="Monitoring" title="Orders" tabs={['Endpoints', 'Live feed']} tab="Live feed" />
+      </LiveProvider>,
+    )
+    expect(screen.getByRole('button', { name: 'Live feed' })).toHaveAttribute('aria-current', 'true')
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Endpoints' }))
+  })
+
+  it('togglesLiveAndChangesTheRange', async () => {
+    renderHeader()
+    const user = userEvent.setup()
+    const live = screen.getByRole('button', { name: 'Live updates' })
+    expect(live).toHaveAttribute('aria-pressed', 'true')
+
+    await user.click(live)
+    expect(live).toHaveAttribute('aria-pressed', 'false')
+
+    const range = screen.getByRole('combobox', { name: 'Time range' })
+    expect(range).toHaveValue('15m')
+    await user.selectOptions(range, '1h')
+    expect(range).toHaveValue('1h')
+  })
+})

@@ -1,17 +1,17 @@
-import { useSession } from '@/api/auth'
-import { Button } from '@/components/ui/button'
+import { Outlet } from 'react-router'
+import { LiveProvider } from '@/data/live'
+import Sidebar from './Sidebar'
 
-/** Placeholder frame for the signed-in console; the sidebar and header replace it. */
+/** Signed-in frame: sidebar on the left, the routed page (with its own Header) on the right. */
 export default function Shell({ onSignOut }: { onSignOut: () => void }) {
-  const { email } = useSession()
   return (
-    <header className="flex min-h-[60px] items-center gap-3 border-b border-bd bg-bg px-6">
-      <span className="size-[18px] rounded bg-tx" aria-hidden />
-      <span className="text-sm font-semibold">Warehouse console</span>
-      <span className="ml-auto text-mu">{email}</span>
-      <Button variant="outline" size="sm" onClick={onSignOut}>
-        Sign out
-      </Button>
-    </header>
+    <LiveProvider>
+      <div className="flex h-screen">
+        <Sidebar onSignOut={onSignOut} />
+        <main className="flex min-w-0 flex-1 flex-col overflow-auto bg-bg2">
+          <Outlet />
+        </main>
+      </div>
+    </LiveProvider>
   )
 }
