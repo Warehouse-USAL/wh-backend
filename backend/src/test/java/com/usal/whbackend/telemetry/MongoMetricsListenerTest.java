@@ -67,6 +67,26 @@ class MongoMetricsListenerTest {
   }
 
   @Test
+  void pendingCommandsAreCappedAndFinishingOnesFreeRoom() {
+    for (int id = 0; id < 10_000; id++) {
+      started(id, "find", "orders");
+    }
+    started(10_000, "find", "dropped");
+
+    succeeded(10_000, "find", 1);
+    verify(port, never()).recordMongoCommand(any());
+
+    succeeded(0, "find", 1);
+    verify(port).recordMongoCommand(any());
+
+    started(10_001, "find", "admitted");
+    succeeded(10_001, "find", 1);
+    ArgumentCaptor<MongoCommandSample> captor = ArgumentCaptor.forClass(MongoCommandSample.class);
+    verify(port, org.mockito.Mockito.times(2)).recordMongoCommand(captor.capture());
+    assertThat(captor.getValue().collection()).isEqualTo("admitted");
+  }
+
+  @Test
   void succeededCommandRecordsCollectionAndCommand() {
     started(1, "find", "orders");
     succeeded(1, "find", 5);

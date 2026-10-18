@@ -33,6 +33,9 @@ public class MongoMetricsListener implements CommandListener, ConnectionPoolList
 
   private static final Logger log = LoggerFactory.getLogger(MongoMetricsListener.class);
 
+  /** Bound on commands in flight, so a driver that never reports completion cannot leak memory. */
+  private static final int MAX_PENDING = 10_000;
+
   private static final Set<String> RECORDED =
       Set.of("find", "insert", "update", "delete", "aggregate", "count", "findAndModify");
 
@@ -56,7 +59,7 @@ public class MongoMetricsListener implements CommandListener, ConnectionPoolList
         return;
       }
       BsonValue target = event.getCommand().get(event.getCommandName());
-      if (target != null && target.isString()) {
+      if (target != null && target.isString() && collectionByRequest.size() < MAX_PENDING) {
         collectionByRequest.put(event.getRequestId(), target.asString().getValue());
       }
     } catch (RuntimeException e) {
