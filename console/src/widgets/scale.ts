@@ -3,7 +3,8 @@ export type Point = { t: number; v: number }
 export type Series = { label: string; color: string; points: Point[] }
 export type Tone = 'ok' | 'warn' | 'error'
 
-export const PALETTE = { blue: '#0070f3', amber: '#f5a623', red: '#e5484d', gray: '#a1a1a1' }
+/** CSS variables (index.css), so each series keeps its contrast in both themes. */
+export const PALETTE = { blue: 'var(--s-blue)', amber: 'var(--s-amber)', red: 'var(--s-red)', gray: 'var(--s-gray)' }
 
 /** Rounds `v` up to 1, 2 or 5 times a power of ten (axis maximum). */
 export function niceMax(v: number): number {

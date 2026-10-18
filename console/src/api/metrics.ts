@@ -43,7 +43,7 @@ const KNOWN: Record<string, string> = {
   p99: PALETTE.red,
 }
 
-const EXTENDED = [PALETTE.blue, PALETTE.amber, PALETTE.red, PALETTE.gray, '#45a557', '#8e4ec6', '#12a594', '#d6409f']
+const EXTENDED = [PALETTE.blue, PALETTE.amber, PALETTE.red, PALETTE.gray, 'var(--s-green)', 'var(--s-purple)', 'var(--s-teal)', 'var(--s-pink)']
 
 /** A label always gets the same colour, so a series keeps it across ticks and pages. */
 export function colorFor(label: string): string {

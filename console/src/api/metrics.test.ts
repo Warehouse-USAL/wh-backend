@@ -96,7 +96,7 @@ describe('colorFor', () => {
     expect([colorFor('ok'), colorFor('slow'), colorFor('error')]).toEqual([PALETTE.blue, PALETTE.amber, PALETTE.red])
     expect([colorFor('p50'), colorFor('p95'), colorFor('p99')]).toEqual([PALETTE.blue, PALETTE.amber, PALETTE.red])
     expect(colorFor('orders')).toBe(colorFor('orders'))
-    expect(colorFor('orders')).toMatch(/^#[0-9a-f]{6}$/)
+    expect(colorFor('orders')).toMatch(/^var\(--s-[a-z]+\)$/)
     expect(new Set(['orders', 'products', 'users', 'vehicles', 'zones'].map(colorFor)).size).toBeGreaterThan(2)
   })
 })

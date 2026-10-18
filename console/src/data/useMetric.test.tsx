@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError } from '@/api/client'
 import { type MetricQuery, clearMetricAnswers } from '@/api/metrics'
 import { jsonResponse } from '@/test/http'
+import { PALETTE } from '@/widgets/scale'
 import { LiveProvider, useLive } from './live'
 import { stepFor, useMetric, windowFor } from './useMetric'
 
@@ -67,7 +68,7 @@ describe('useMetric', () => {
     const { result } = renderHook(() => useBoth(hits), { wrapper })
 
     await waitFor(() => expect(result.current.metric.loading).toBe(false))
-    expect(result.current.metric.series).toEqual([{ label: '2xx', color: '#0070f3', points: [{ t: 1_000_000, v: 1 }] }])
+    expect(result.current.metric.series).toEqual([{ label: '2xx', color: PALETTE.blue, points: [{ t: 1_000_000, v: 1 }] }])
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(fetchMock.mock.calls[0][0]).toBe('/api/metrics/query')
 

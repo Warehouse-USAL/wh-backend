@@ -2,18 +2,36 @@
 @import "@fontsource-variable/geist";
 @import "@fontsource-variable/geist-mono";
 
-/* coss ui semantic tokens, mapped onto the console's Vercel/Geist light palette. */
+/*
+ * coss ui semantic tokens, mapped onto the console's Vercel/Geist palette.
+ * Light is the default. Dark applies for data-theme="dark", and for the "system" choice (no
+ * data-theme attribute, see lib/theme.ts) when the OS prefers dark. The dark set exists twice
+ * (attribute and media query) because plain CSS cannot share a rule between the two.
+ */
+@custom-variant dark {
+  &:where([data-theme="dark"], [data-theme="dark"] *) {
+    @slot;
+  }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-theme]), :root:not([data-theme]) *) {
+      @slot;
+    }
+  }
+}
+
 :root {
+  color-scheme: light dark;
   --bg: #fff;
   --bg2: #fafafa;
   --bd: #eaeaea;
   --bd2: #d9d9d9;
   --tx: #171717;
   --mu: #666;
-  --blue: #0070f3;
-  --ok: #0a8f4f;
-  --wn: #c77700;
-  --er: #e5484d;
+  /* Status colours are the mockup's, darkened just enough for 4.5:1 as text on --bg2. */
+  --blue: #0068de;
+  --ok: #087f45;
+  --wn: #a65f00;
+  --er: #d12d33;
 
   --background: var(--bg);
   --foreground: var(--tx);
@@ -41,6 +59,69 @@
   --warning: var(--wn);
   --warning-foreground: var(--wn);
   --radius: 0.5rem;
+
+  /* Chart series; PALETTE in widgets/scale.ts reads these. */
+  --s-blue: #0070f3;
+  --s-amber: #f5a623;
+  --s-red: #e5484d;
+  --s-gray: #a1a1a1;
+  --s-green: #45a557;
+  --s-purple: #8e4ec6;
+  --s-teal: #12a594;
+  --s-pink: #d6409f;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #111;
+  --bg2: #0a0a0a;
+  --bd: #2e2e2e;
+  --bd2: #3a3a3a;
+  --tx: #ededed;
+  --mu: #a1a1a1;
+  --blue: #3291ff;
+  --ok: #00c98d;
+  --wn: #f5a623;
+  --er: #ff6166;
+  --primary-foreground: #0a0a0a;
+  --secondary: #1f1f1f;
+  --muted: #1f1f1f;
+  --accent: #1f1f1f;
+  --s-blue: #3291ff;
+  --s-red: #ff6166;
+  --s-green: #4cc468;
+  --s-purple: #a975e6;
+  --s-teal: #2ec4b0;
+  --s-pink: #ec6fb9;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    --bg: #111;
+    --bg2: #0a0a0a;
+    --bd: #2e2e2e;
+    --bd2: #3a3a3a;
+    --tx: #ededed;
+    --mu: #a1a1a1;
+    --blue: #3291ff;
+    --ok: #00c98d;
+    --wn: #f5a623;
+    --er: #ff6166;
+    --primary-foreground: #0a0a0a;
+    --secondary: #1f1f1f;
+    --muted: #1f1f1f;
+    --accent: #1f1f1f;
+    --s-blue: #3291ff;
+    --s-red: #ff6166;
+    --s-green: #4cc468;
+    --s-purple: #a975e6;
+    --s-teal: #2ec4b0;
+    --s-pink: #ec6fb9;
+  }
 }
 
 @theme inline {

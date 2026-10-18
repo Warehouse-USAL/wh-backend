@@ -2,6 +2,7 @@ import { NavLink } from 'react-router'
 import { useSession } from '@/api/auth'
 import { Button } from '@/components/ui/button'
 import { NAV } from './nav'
+import ThemeToggle from './ThemeToggle'
 
 export default function Sidebar({ onSignOut }: { onSignOut: () => void }) {
   const { email } = useSession()
@@ -22,7 +23,7 @@ export default function Sidebar({ onSignOut }: { onSignOut: () => void }) {
             <NavLink
               key={path}
               to={path}
-              className="flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] text-tx hover:bg-bg2 aria-[current=page]:bg-secondary aria-[current=page]:font-medium"
+              className="flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] text-tx hover:bg-accent aria-[current=page]:bg-secondary aria-[current=page]:font-medium"
             >
               <Icon className="size-4 shrink-0 text-mu" strokeWidth={1.5} aria-hidden />
               {label}
@@ -32,6 +33,7 @@ export default function Sidebar({ onSignOut }: { onSignOut: () => void }) {
       ))}
     </nav>
       <div className="flex flex-col gap-2 border-t border-bd px-5 py-3">
+        <ThemeToggle />
         <span className="truncate text-xs text-mu">{email}</span>
         <Button variant="outline" size="sm" onClick={onSignOut}>
           Sign out

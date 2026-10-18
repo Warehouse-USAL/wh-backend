@@ -1,8 +1,9 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { setSession } from '@/api/client'
+import { setTheme } from '@/lib/theme'
 import Sidebar from './Sidebar'
 
 const renderAt = (path: string, onSignOut = vi.fn()) =>
@@ -13,7 +14,10 @@ const renderAt = (path: string, onSignOut = vi.fn()) =>
   )
 
 describe('Sidebar', () => {
-  beforeEach(() => setSession({ token: 't', email: 'root@x.io' }))
+  beforeEach(() => {
+    setSession({ token: 't', email: 'root@x.io' })
+    setTheme('system')
+  })
 
   it('sidebarMarksTheActiveRoute', () => {
     renderAt('/infra/mongodb')
@@ -22,6 +26,23 @@ describe('Sidebar', () => {
     expect(active).toHaveLength(1)
     expect(active[0]).toHaveTextContent('MongoDB')
     expect(screen.getByRole('link', { name: 'Users' })).not.toHaveAttribute('aria-current')
+  })
+
+  it('sidebarToggleSwitchesTheme', async () => {
+    renderAt('/overview')
+    const user = userEvent.setup()
+    const group = screen.getByRole('group', { name: 'Theme' })
+    expect(within(group).getByRole('button', { name: 'System' })).toHaveAttribute('aria-pressed', 'true')
+
+    await user.click(within(group).getByRole('button', { name: 'Dark' }))
+    expect(document.documentElement.dataset.theme).toBe('dark')
+    expect(within(group).getByRole('button', { name: 'Dark' })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(group).getByRole('button', { name: 'System' })).toHaveAttribute('aria-pressed', 'false')
+
+    await user.click(within(group).getByRole('button', { name: 'Light' }))
+    expect(document.documentElement.dataset.theme).toBe('light')
+    await user.click(within(group).getByRole('button', { name: 'System' }))
+    expect(document.documentElement).not.toHaveAttribute('data-theme')
   })
 
   it('showsSectionLabelsAndTheUserAndSignsOut', async () => {

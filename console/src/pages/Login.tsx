@@ -3,6 +3,7 @@ import { login } from '@/api/auth'
 import { ApiError } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import ThemeToggle from '@/layout/ThemeToggle'
 
 // The proxy answers these when the backend is down; their bodies are nginx pages, not API errors.
 const GATEWAY_ERRORS = new Set([502, 503, 504])
@@ -25,7 +26,8 @@ export default function Login({ notice }: { notice?: string }) {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center p-6">
+    <main className="relative flex min-h-screen items-center justify-center p-6">
+      <ThemeToggle className="absolute top-4 right-4" />
       <form onSubmit={submit} className="flex w-full max-w-sm flex-col gap-4 rounded-lg border border-bd bg-bg p-6">
         <div className="flex items-center gap-2 text-sm font-semibold">
           <span className="size-[18px] rounded bg-tx" aria-hidden />
