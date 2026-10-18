@@ -5,6 +5,8 @@ import com.usal.whbackend.service.storage.StorageService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import java.util.List;
+import java.util.Map;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.CacheControl;
 import org.springframework.http.MediaType;
@@ -44,6 +46,17 @@ public class FileController {
     String url = storageService.upload(file, IMAGES_PATH);
     String key = MinioStorageService.extractKey(url, REQUEST_BASE);
     return ResponseEntity.ok(new FileUploadResponse(url, key));
+  }
+
+  @Operation(
+      summary = "List stored files",
+      description =
+          "SUPERADMIN only. Sorted by path then filename; capped at the first 1000 objects.")
+  @PreAuthorize("hasRole('SUPERADMIN')")
+  @GetMapping
+  public ResponseEntity<Map<String, List<StoredFileResponse>>> list() {
+    return ResponseEntity.ok(
+        Map.of("files", storageService.list().stream().map(StoredFileResponse::from).toList()));
   }
 
   @Operation(

@@ -3,6 +3,7 @@ package com.usal.whbackend.config;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -46,6 +47,11 @@ public class SecurityConfig {
                         "/actuator/health/liveness",
                         "/actuator/info")
                     .permitAll()
+                    // The file listing is not public like downloads; the controller's
+                    // @PreAuthorize narrows it to SUPERADMIN. Authenticating here makes an
+                    // anonymous caller 401 (the advice would otherwise turn it into 403).
+                    .requestMatchers(HttpMethod.GET, "/api/v1/files")
+                    .authenticated()
                     .requestMatchers("/api/v1/files/**")
                     .permitAll()
                     // Called by the bridge, not by a user: InfraApiKeyFilter does the
