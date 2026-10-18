@@ -1,15 +1,18 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api, apiBlob, errorText } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import Header from '@/layout/Header'
-import { type Endpoint, type EntityConfig, type Scope, type ScopeOption, fieldOf, fillPath } from './entities'
+import { type Endpoint, type EntityConfig, type Extra, type Scope, type ScopeOption, fieldOf, fillPath } from './entities'
 import JsonModal from './JsonModal'
 import Modal from './Modal'
-import { loadSpec, requestTemplate } from './template'
+import { Input } from '@/components/ui/input'
+import { loadSpec, pickRequest, requestTemplate } from './template'
 import UploadModal from './UploadModal'
 
 const PAGE_SIZE = 25
+const SEARCH_DELAY_MS = 300
+const NO_SCHEMA = 'Schema unavailable, template empty.'
 
 type Row = Record<string, unknown>
 type Vars = Record<string, unknown>
@@ -26,7 +29,16 @@ interface Loaded {
   error?: string
 }
 type Dialog =
-  | { kind: 'json'; title: string; endpoint: Endpoint; initial: unknown; vars: Vars }
+  | {
+      kind: 'json'
+      title: string
+      endpoint: Endpoint
+      initial: unknown
+      vars: Vars
+      submitLabel: string
+      hint: string
+      inspect?: boolean
+    }
   | { kind: 'upload' }
   | { kind: 'delete'; row: Row }
 
@@ -53,9 +65,22 @@ function EntityTable({ entity, title, tabs, onTab }: TableProps) {
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [dialog, setDialog] = useState<Dialog | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [term, setTerm] = useState('')
+  const [search, setSearch] = useState('')
+  const editRequest = useRef(0)
+
+  // Typing settles before the list refetches, and a new search starts at the first page.
+  useEffect(() => {
+    const id = setTimeout(() => {
+      setSearch(term.trim())
+      setPage(0)
+    }, SEARCH_DELAY_MS)
+    return () => clearTimeout(id)
+  }, [term])
 
   const scopeVars: Vars = entity.scope ? { [entity.scope.param]: scope.value } : {}
-  const query = scope.ready ? `${fillPath(entity.listPath, scopeVars)}?page=${page}&size=${PAGE_SIZE}` : null
+  const filter = entity.search && search ? `&${entity.search}=${encodeURIComponent(search)}` : ''
+  const query = scope.ready ? `${fillPath(entity.listPath, scopeVars)}?page=${page}&size=${PAGE_SIZE}${filter}` : null
 
   useEffect(() => {
     if (!query) return
@@ -89,15 +114,46 @@ function EntityTable({ entity, title, tabs, onTab }: TableProps) {
     }
   }
 
-  const openTemplate = (title: string, endpoint: Endpoint, vars: Vars) =>
-    act(async () => setDialog({ kind: 'json', title, endpoint, initial: requestTemplate(await loadSpec(), endpoint), vars }))
+  const openNew = (endpoint: Endpoint) =>
+    act(async () => {
+      const spec = await loadSpec()
+      const initial = spec ? requestTemplate(spec, endpoint) : {}
+      const hint = spec ? 'Prefilled with the structure of the request. Fill in the values and press Create.' : NO_SCHEMA
+      setDialog({ kind: 'json', title: `New ${entity.noun}`, endpoint, initial, vars: scopeVars, submitLabel: 'Create', hint })
+    })
 
+  const openExtra = (extra: Extra, row: Row) =>
+    act(async () => {
+      const spec = await loadSpec()
+      const prefill = extra.prefill?.(row) ?? {}
+      const initial = spec ? { ...(requestTemplate(spec, extra.endpoint) as Row), ...pickRequest(spec, extra.endpoint, prefill) } : {}
+      const hint = spec ? 'Prefilled with the structure of the request.' : NO_SCHEMA
+      setDialog({
+        kind: 'json',
+        title: `${extra.label}: ${idOf(row)}`,
+        endpoint: extra.endpoint,
+        initial,
+        vars: rowVars(row),
+        submitLabel: extra.inspect ? 'Run' : 'Send',
+        hint,
+        inspect: extra.inspect,
+      })
+    })
+
+  // Only the latest Edit click opens, however the fetches race.
   const openEdit = (endpoint: Endpoint, row: Row) =>
     act(async () => {
+      const request = ++editRequest.current
       const { get } = entity
       const body = get ? ((await api(fillPath(get.path, rowVars(row)))) as Row) : row
-      const initial = get?.key ? body[get.key] : body
-      setDialog({ kind: 'json', title: `${entity.listKey} / ${idOf(row)}`, endpoint, initial, vars: rowVars(row) })
+      const doc = (get?.key ? body[get.key] : body) as Row
+      const spec = await loadSpec()
+      if (request !== editRequest.current) return
+      const initial = spec ? pickRequest(spec, endpoint, entity.toRequest?.(doc) ?? doc) : doc
+      const hint = spec
+        ? 'Only fields this endpoint accepts are shown; unknown fields are ignored by the API.'
+        : 'Schema unavailable, showing the whole document.'
+      setDialog({ kind: 'json', title: `${entity.listKey} / ${idOf(row)}`, endpoint, initial, vars: rowVars(row), submitLabel: 'Save', hint })
     })
 
   const download = (path: string, row: Row) =>
@@ -107,7 +163,8 @@ function EntityTable({ entity, title, tabs, onTab }: TableProps) {
       link.href = url
       link.download = idOf(row)
       link.click()
-      URL.revokeObjectURL(url)
+      // Revoking in the same task can cancel the download in some browsers.
+      setTimeout(() => URL.revokeObjectURL(url), 0)
     })
 
   const write = async (endpoint: Endpoint, vars: Vars, body?: BodyInit) => {
@@ -119,7 +176,7 @@ function EntityTable({ entity, title, tabs, onTab }: TableProps) {
   const newButton = create && scope.ready && (
     <Button
       size="sm"
-      onClick={() => (entity.upload ? setDialog({ kind: 'upload' }) : openTemplate(`New ${entity.noun}`, create, scopeVars))}
+      onClick={() => (entity.upload ? setDialog({ kind: 'upload' }) : openNew(create))}
     >
       New {entity.noun}
     </Button>
@@ -127,11 +184,12 @@ function EntityTable({ entity, title, tabs, onTab }: TableProps) {
   const rowActions = (row: Row) => {
     const id = idOf(row)
     const { edit, download: file } = entity
+    if (entity.actionable?.(row) === false) return null
     return (
       <>
         {edit && <RowAction label="Edit" id={id} onClick={() => openEdit(edit, row)} />}
         {entity.extras.map((x) => (
-          <RowAction key={x.label} label={x.label} id={id} onClick={() => openTemplate(`${x.label}: ${id}`, x.endpoint, rowVars(row))} />
+          <RowAction key={x.label} label={x.label} id={id} onClick={() => openExtra(x, row)} />
         ))}
         {file && <RowAction label="Download" id={id} onClick={() => download(file, row)} />}
         {remove && <RowAction label="Delete" id={id} danger onClick={() => setDialog({ kind: 'delete', row })} />}
@@ -153,7 +211,7 @@ function EntityTable({ entity, title, tabs, onTab }: TableProps) {
 
   return (
     <>
-      <Header crumb="Domains" title={title} tabs={tabs} tab={entity.title} onTab={onTab} chips={[entity.source]} actions={newButton} />
+      <Header crumb="Domains" title={title} tabs={tabs} tab={entity.title} onTab={onTab} chips={[entity.source]} actions={newButton} timeControls={false} />
       <div className="flex flex-col gap-4 px-6 pt-5 pb-8">
         {actionError && (
           <p role="alert" className="text-er">
@@ -171,6 +229,17 @@ function EntityTable({ entity, title, tabs, onTab }: TableProps) {
                   scope.choose(value)
                   setPage(0)
                 }}
+              />
+            )}
+            {entity.search && (
+              <Input
+                type="search"
+                name="search"
+                aria-label="Search"
+                placeholder="Search"
+                value={term}
+                onChange={(e) => setTerm(e.target.value)}
+                className="max-w-[260px]"
               />
             )}
             <span className="flex-1" />
@@ -195,7 +264,7 @@ function EntityTable({ entity, title, tabs, onTab }: TableProps) {
                 <TableRow key={idOf(row)}>
                   {entity.columns.map((c) => (
                     <TableCell key={c.field} className={c.field === entity.idField ? 'px-3 py-2 font-mono text-xs' : 'px-3 py-2'}>
-                      <Cell value={fieldOf(row, c.field)} badge={c.badge} />
+                      <Cell value={fieldOf(row, c.field)} badge={c.badge} format={c.format} />
                     </TableCell>
                   ))}
                   <TableCell className="px-3 py-1 text-right">{rowActions(row)}</TableCell>
@@ -228,14 +297,22 @@ function EntityTable({ entity, title, tabs, onTab }: TableProps) {
           title={dialog.title}
           initial={dialog.initial}
           endpointLabel={`${dialog.endpoint.method} ${dialog.endpoint.path}`}
-          onSubmit={(body) => write(dialog.endpoint, dialog.vars, JSON.stringify(body))}
+          submitLabel={dialog.submitLabel}
+          hint={dialog.hint}
+          inspect={dialog.inspect}
+          onSubmit={(body) => {
+            const sent = JSON.stringify(body)
+            if (dialog.inspect) return api(fillPath(dialog.endpoint.path, dialog.vars), { method: dialog.endpoint.method, body: sent })
+            return write(dialog.endpoint, dialog.vars, sent)
+          }}
           onClose={() => setDialog(null)}
         />
       )}
       {dialog?.kind === 'upload' && create && (
         <UploadModal
-          onSubmit={(file) => {
+          onSubmit={(path, file) => {
             const form = new FormData()
+            form.append('path', path)
             form.append('file', file)
             return write(create, {}, form)
           }}
@@ -310,9 +387,9 @@ function RowAction({ label, id, danger, onClick }: { label: string; id: string; 
   )
 }
 
-function Cell({ value, badge }: { value: unknown; badge?: boolean }) {
+function Cell({ value, badge, format }: { value: unknown; badge?: boolean; format?(value: unknown): string }) {
   if (value === null || value === undefined) return <span className="text-mu">—</span>
-  const text = typeof value === 'object' ? JSON.stringify(value) : typeof value === 'boolean' ? (value ? 'yes' : 'no') : String(value)
+  const text = format ? format(value) : typeof value === 'object' ? JSON.stringify(value) : typeof value === 'boolean' ? (value ? 'yes' : 'no') : String(value)
   if (!badge) return text
   return <span className="rounded-full border border-bd bg-bg2 px-2 font-mono text-[11px] text-mu">{text}</span>
 }

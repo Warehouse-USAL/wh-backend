@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest'
-import { mockFetch, jsonResponse } from '@/test/http'
+import { describe, expect, it, vi } from 'vitest'
+import { getSession, onUnauthorized, setSession } from '@/api/client'
+import { jsonResponse, mockFetch } from '@/test/http'
 import spec from './__fixtures__/api-docs.json'
-import { buildTemplate, loadSpec, type OpenApiDoc, requestTemplate } from './template'
+import { buildTemplate, loadSpec, type OpenApiDoc, pickRequest, requestTemplate } from './template'
 
 const doc = (schemas: OpenApiDoc['components']['schemas'], paths: OpenApiDoc['paths'] = {}): OpenApiDoc => ({
   paths,
@@ -103,14 +104,46 @@ describe('requestTemplate', () => {
 })
 
 describe('loadSpec', () => {
-  it('fetchesTheDocumentOnceAndRetriesAfterAFailure', async () => {
-    const fetchMock = mockFetch(jsonResponse(503, { error: { code: 'DOWN', message: 'no docs' } }), jsonResponse(200, spec))
+  // Order matters: a found document stays cached for the rest of this file.
+  it('isNullWhenNeitherPathServesTheDocumentAndRetriesLater', async () => {
+    const fetchMock = vi.fn<typeof fetch>()
+    fetchMock
+      .mockResolvedValueOnce(new Response('<html>', { status: 200 }))
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    vi.stubGlobal('fetch', fetchMock)
 
-    await expect(loadSpec()).rejects.toMatchObject({ code: 'DOWN' })
+    await expect(loadSpec()).resolves.toBeNull()
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(404, {})).mockResolvedValueOnce(jsonResponse(200, { paths: {} }))
+    await expect(loadSpec()).resolves.toBeNull()
+    expect(fetchMock).toHaveBeenCalledTimes(4)
+  })
+
+  it('specFetchSkipsTheSessionSoA401NeverSignsOut', async () => {
+    setSession({ token: 'tok', email: 'root@x.io' })
+    const expired = vi.fn()
+    const unsubscribe = onUnauthorized(expired)
+    const fetchMock = mockFetch(new Response(null, { status: 401 }), jsonResponse(200, spec))
+
     await expect(loadSpec()).resolves.toMatchObject({ openapi: '3.1.0' })
     await expect(loadSpec()).resolves.toMatchObject({ openapi: '3.1.0' })
 
-    expect(fetchMock).toHaveBeenCalledTimes(2)
-    expect(String(fetchMock.mock.calls[0][0])).toBe('/api/v3/api-docs')
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(['/api/v3/api-docs', '/api/api-docs'])
+    expect(new Headers(fetchMock.mock.calls[0][1]?.headers).has('Authorization')).toBe(false)
+    expect(getSession()).toEqual({ token: 'tok', email: 'root@x.io' })
+    expect(expired).not.toHaveBeenCalled()
+    unsubscribe()
+  })
+})
+
+describe('pickRequest', () => {
+  it('keepsOnlyTheRequestFieldsTheDocumentHas', () => {
+    const doc = { id: 'z-B', zone_code: 'B', max_allowed_lines: 10, is_active: null, created_at: 'x' }
+
+    expect(pickRequest(spec as OpenApiDoc, { method: 'PATCH', path: '/warehouse/zones/{id}' }, doc)).toEqual({
+      zone_code: 'B',
+      max_allowed_lines: 10,
+    })
+    expect(pickRequest(spec as OpenApiDoc, { method: 'DELETE', path: '/warehouse/zones/{id}' }, doc)).toEqual({})
   })
 })

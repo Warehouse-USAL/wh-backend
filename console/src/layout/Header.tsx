@@ -18,11 +18,12 @@ interface HeaderProps {
   tab?: string
   onTab?: (tab: string) => void
   chips?: string[]
-  /** Pages that do not poll (Domains) show their own actions instead of the range and Live controls. */
   actions?: ReactNode
+  /** Range and Live; off on pages that do not poll (Domains tables refetch after writes only). */
+  timeControls?: boolean
 }
 
-export default function Header({ crumb, title, tabs, tab, onTab, chips, actions }: HeaderProps) {
+export default function Header({ crumb, title, tabs, tab, onTab, chips, actions, timeControls = true }: HeaderProps) {
   const activeTab = tab ?? tabs?.[0]
   return (
     <header className="border-b border-bd bg-bg px-6">
@@ -35,7 +36,8 @@ export default function Header({ crumb, title, tabs, tab, onTab, chips, actions 
           </span>
         ))}
         <div className="flex-1" />
-        {actions ?? <TimeControls />}
+        {actions}
+        {timeControls && <TimeControls />}
       </div>
       {tabs && (
         <div role="tablist" className="flex gap-[22px]">

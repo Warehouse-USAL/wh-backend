@@ -12,8 +12,8 @@ interface ModalProps {
   submitLabel: string
   destructive?: boolean
   canSubmit?: boolean
-  /** Throw to keep the modal open with the error under the body. */
-  onSubmit(): Promise<void>
+  /** Throw to keep the modal open with the error under the body; on success the caller closes it or not. */
+  onSubmit(): Promise<unknown>
   onClose(): void
   children: ReactNode
 }
@@ -30,6 +30,7 @@ export default function Modal({ title, tag, endpointLabel, submitLabel, destruct
       await onSubmit()
     } catch (e) {
       setError(errorText(e))
+    } finally {
       setPending(false)
     }
   }

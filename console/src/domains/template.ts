@@ -1,4 +1,3 @@
-import { api } from '@/api/client'
 import type { Endpoint } from './entities'
 
 export interface Schema {
@@ -81,13 +80,37 @@ function typeOf(schema: Schema): string | undefined {
   return type ?? (schema.properties || schema.additionalProperties ? 'object' : undefined)
 }
 
-let specRequest: Promise<OpenApiDoc> | null = null
+/** The fields of `doc` that the endpoint's request schema names; empty ones are left out (absent means unchanged). */
+export function pickRequest(spec: OpenApiDoc, endpoint: Endpoint, doc: Record<string, unknown>): Record<string, unknown> {
+  const template = requestTemplate(spec, endpoint)
+  const keys = template !== null && typeof template === 'object' && !Array.isArray(template) ? Object.keys(template) : []
+  return Object.fromEntries(keys.filter((k) => doc[k] !== undefined && doc[k] !== null).map((k) => [k, doc[k]]))
+}
 
-/** springdoc's document, fetched once per session; a failed fetch is retried next time. */
-export function loadSpec(): Promise<OpenApiDoc> {
-  specRequest ??= (api('/v3/api-docs') as Promise<OpenApiDoc>).catch((error: unknown) => {
-    specRequest = null
-    throw error
+// springdoc's default path, then the one application.yml.example sets. The backend answers 401 for an
+// unmapped route, so these go out without the session: a miss must never look like an expired token.
+const SPEC_PATHS = ['/api/v3/api-docs', '/api/api-docs']
+
+async function fetchSpec(): Promise<OpenApiDoc | null> {
+  for (const path of SPEC_PATHS) {
+    try {
+      const response = await fetch(path, { headers: { Accept: 'application/json' } })
+      const doc = response.ok ? ((await response.json()) as Partial<OpenApiDoc>) : null
+      if (doc?.paths && doc.components) return doc as OpenApiDoc
+    } catch {
+      // Unreachable or not JSON: try the next path.
+    }
+  }
+  return null
+}
+
+let specRequest: Promise<OpenApiDoc | null> | null = null
+
+/** springdoc's document, fetched once per session; `null` (retried next time) when neither path serves it. */
+export function loadSpec(): Promise<OpenApiDoc | null> {
+  specRequest ??= fetchSpec().then((doc) => {
+    if (!doc) specRequest = null
+    return doc
   })
   return specRequest
 }

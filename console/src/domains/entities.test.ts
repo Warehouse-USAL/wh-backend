@@ -13,6 +13,7 @@ import users from './__fixtures__/users.json'
 import vehicles from './__fixtures__/vehicles.json'
 import zones from './__fixtures__/zones.json'
 import { DOMAIN_PAGES, ENTITIES, type EntityConfig, fieldOf, fillPath } from './entities'
+import { type OpenApiDoc, pickRequest } from './template'
 
 // Real responses recorded from the demo-seeded backend (GET with page=0&size=2, lists cut to two rows).
 const RECORDED: Record<string, Record<string, unknown>> = {
@@ -40,6 +41,8 @@ describe('ENTITIES', () => {
     expect(entity('users').extras.map((x) => x.label)).toEqual(['Reset password'])
     expect(entity('orders').edit).toEqual({ method: 'PATCH', path: '/internal/orders/{id}/status' })
     expect(entity('orders').extras.map((x) => x.label)).toEqual(['Cancel', 'Assign vehicle'])
+    expect(entity('positions').extras).toMatchObject([{ label: 'Validate fit', inspect: true, endpoint: { method: 'POST', path: '/warehouse/positions/validate-fit' } }])
+    expect(entity('products').search).toBe('search')
     expect(entity('files')).toMatchObject({
       create: { method: 'POST', path: '/api/v1/files/upload' },
       remove: { method: 'DELETE', path: '/api/v1/files/{path}/{filename}' },
@@ -71,6 +74,38 @@ describe('ENTITIES', () => {
     expect(Object.keys(DOMAIN_PAGES)).toEqual(domainPaths)
     expect(DOMAIN_PAGES['/domains/warehouse'].map((e) => e.title)).toEqual(['Zones', 'Lines', 'Positions'])
     expect(DOMAIN_PAGES['/domains/restock'].map((e) => e.title)).toEqual(['Restock orders', 'Receptions'])
+  })
+})
+
+describe('edit prefill', () => {
+  const editBody = (key: string) => {
+    const e = entity(key)
+    const doc = (RECORDED[key][e.listKey] as Record<string, unknown>[])[0]
+    if (!e.edit) throw new Error(`${key} has no edit`)
+    return pickRequest(spec as OpenApiDoc, e.edit, e.toRequest?.(doc) ?? doc)
+  }
+
+  it('mapsRenamedFieldsAndKeepsOnlyWhatTheEditEndpointAccepts', () => {
+    expect(editBody('vehicles')).toEqual({
+      status: 'idle', position_x: 12.5, position_y: 4, battery: 96, last_seen_at: vehicles.vehicles[0].last_seen_at,
+    })
+    expect(editBody('orders')).toEqual({ status: 'completed', completed_at: '2024-10-18T15:42:00Z' })
+    expect(editBody('users')).toEqual({ name: 'System Admin', role: 'SUPERADMIN', active: true })
+    const product = editBody('products')
+    expect(product).toMatchObject({ is_active: true, minimum_stock: 50, max_quantity_per_order: 20, name: products.products[0].name })
+    expect(Object.keys(product)).not.toEqual(expect.arrayContaining(['id', 'sku', 'stock', 'active']))
+    expect(editBody('receptions')).toEqual({ assignments: receptions.receptions[0].assignments })
+  })
+})
+
+describe('files', () => {
+  it('formatsSizesAndOnlyActsOnSingleSegmentKeys', () => {
+    const files = entity('files')
+    const size = files.columns.find((c) => c.field === 'size')
+    expect([69, 2048, 3 * 1024 * 1024].map((n) => size?.format?.(n))).toEqual(['69 B', '2.0 KB', '3.0 MB'])
+    expect(files.actionable?.({ path: 'images', filename: 'a.png' })).toBe(true)
+    expect(files.actionable?.({ path: '', filename: 'root.png' })).toBe(false)
+    expect(files.actionable?.({ path: 'a/b', filename: 'c.png' })).toBe(false)
   })
 })
 

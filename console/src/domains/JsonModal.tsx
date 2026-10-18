@@ -5,17 +5,29 @@ interface JsonModalProps {
   title: string
   initial: unknown
   endpointLabel: string
-  onSubmit(body: unknown): Promise<void>
+  submitLabel?: string
+  /** The line under the editor, as in the mockup. */
+  hint?: string
+  /** Resolves with the response; a write's caller closes the modal, an inspection shows it here. */
+  onSubmit(body: unknown): Promise<unknown>
   onClose(): void
+  inspect?: boolean
 }
 
 /** A bare JSON editor: the body is parsed locally and sent as typed; the API's error shows inline. */
-export default function JsonModal({ title, initial, endpointLabel, onSubmit, onClose }: JsonModalProps) {
+export default function JsonModal({ title, initial, endpointLabel, submitLabel = 'Save', hint, onSubmit, onClose, inspect }: JsonModalProps) {
   const [text, setText] = useState(() => JSON.stringify(initial, null, 2))
+  const [result, setResult] = useState<{ value: unknown } | null>(null)
   const lines = text.split('\n').length
 
+  async function submit() {
+    setResult(null)
+    const response = await onSubmit(parse(text))
+    if (inspect) setResult({ value: response })
+  }
+
   return (
-    <Modal title={title} tag="JSON" endpointLabel={endpointLabel} submitLabel="Save" onSubmit={() => onSubmit(parse(text))} onClose={onClose}>
+    <Modal title={title} tag="JSON" endpointLabel={endpointLabel} submitLabel={submitLabel} onSubmit={submit} onClose={onClose}>
       {/* The textarea grows to fit, so the gutter and the text scroll together. */}
       <div className="flex max-h-[55vh] min-h-[260px] overflow-auto rounded-md border border-bd bg-bg2 font-mono text-xs leading-[1.6]">
         <div data-testid="gutter" aria-hidden className="border-r border-bd py-2.5 pr-2 pl-3 text-right text-mu select-none">
@@ -34,6 +46,15 @@ export default function JsonModal({ title, initial, endpointLabel, onSubmit, onC
           className="flex-1 resize-none overflow-y-hidden bg-transparent px-3 py-2.5 outline-none"
         />
       </div>
+      {hint && <p className="rounded-lg border border-dashed border-bd2 px-3.5 py-2 text-xs text-mu">{hint}</p>}
+      {result && (
+        <section aria-label="Result" className="flex flex-col gap-1">
+          <span className="text-xs text-mu">Result</span>
+          <pre className="max-h-48 overflow-auto rounded-md border border-bd bg-bg2 px-3 py-2.5 font-mono text-xs leading-[1.6]">
+            {JSON.stringify(result.value, null, 2)}
+          </pre>
+        </section>
+      )}
     </Modal>
   )
 }

@@ -8,6 +8,18 @@ export interface Column {
   /** Dotted path into the row, e.g. `stock.available`. */
   field: string
   badge?: boolean
+  format?(value: unknown): string
+}
+
+type Row = Record<string, unknown>
+
+export interface Extra {
+  label: string
+  endpoint: Endpoint
+  /** A read-only check: the modal shows the response instead of closing. */
+  inspect?: boolean
+  /** Request fields taken from the row, laid over the schema template. */
+  prefill?(row: Row): Row
 }
 
 export interface ScopeOption {
@@ -38,7 +50,13 @@ export interface EntityConfig {
   create?: Endpoint
   edit?: Endpoint
   remove?: Endpoint
-  extras: { label: string; endpoint: Endpoint }[]
+  extras: Extra[]
+  /** The list endpoint's free-text query parameter, when it has one. */
+  search?: string
+  /** Renames document fields to the request's names before Edit keeps only the fields the request accepts. */
+  toRequest?(doc: Row): Row
+  /** False when the row's endpoints cannot address it (Files keys outside one safe folder). */
+  actionable?(row: Row): boolean
   /** Create is a multipart upload instead of a JSON body. */
   upload?: boolean
   download?: string
@@ -77,7 +95,15 @@ async function lineOptions(): Promise<ScopeOption[]> {
   return perZone.flat()
 }
 
+// FileController is mapped under /api/v1 itself, so through the console's /api prefix it is /api/api/v1/files.
 const FILE_PATH = '/api/v1/files/{path}/{filename}'
+const SEGMENT = /^[A-Za-z0-9._-]+$/
+
+function bytes(value: unknown): string {
+  const n = Number(value)
+  if (n < 1024) return `${n} B`
+  return n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`
+}
 
 export const ENTITIES: EntityConfig[] = [
   {
@@ -94,6 +120,13 @@ export const ENTITIES: EntityConfig[] = [
     listPath: '/products', listKey: 'products', idField: 'id',
     columns: [col('Id', 'id'), col('Name', 'name'), col('SKU', 'sku'), col('Category', 'category'), col('Stock', 'stock.available'), col('Active', 'active')],
     get: { path: '/products/{id}', key: 'product' },
+    search: 'search',
+    toRequest: (doc) => ({
+      ...doc,
+      is_active: doc.active,
+      minimum_stock: fieldOf(doc, 'stock.min'),
+      max_quantity_per_order: fieldOf(doc, 'order_constraints.max_quantity_per_order'),
+    }),
     create: post('/products'),
     edit: patch('/products/{id}'),
     remove: del('/products/{id}'),
@@ -104,6 +137,7 @@ export const ENTITIES: EntityConfig[] = [
     listPath: '/orders', listKey: 'orders', idField: 'id',
     columns: [col('Id', 'id'), col('Status', 'status', true), col('Destination', 'destination_area'), col('Vehicle', 'assigned_vehicle_id'), col('Priority', 'priority'), col('Created', 'timestamps.created_at')],
     get: { path: '/orders/{id}', key: 'order' },
+    toRequest: (doc) => ({ ...doc, completed_at: fieldOf(doc, 'timestamps.completed_at') }),
     create: post('/orders'),
     edit: patch('/internal/orders/{id}/status'),
     extras: [
@@ -116,6 +150,7 @@ export const ENTITIES: EntityConfig[] = [
     listPath: '/vehicles', listKey: 'vehicles', idField: 'id',
     columns: [col('Id', 'id'), col('Name', 'name'), col('Status', 'status', true), col('Battery', 'battery'), col('Order', 'current_order_id'), col('Last seen', 'last_seen_at')],
     get: { path: '/vehicles/{id}' },
+    toRequest: (doc) => ({ ...doc, position_x: fieldOf(doc, 'position.x'), position_y: fieldOf(doc, 'position.y') }),
     create: post('/vehicles'),
     edit: patch('/internal/vehicles/{id}'),
     extras: [],
@@ -148,7 +183,14 @@ export const ENTITIES: EntityConfig[] = [
     create: post('/warehouse/lines/{lineId}/positions'),
     edit: patch('/warehouse/positions/{id}'),
     remove: del('/warehouse/positions/{id}'),
-    extras: [],
+    extras: [
+      {
+        label: 'Validate fit',
+        endpoint: post('/warehouse/positions/validate-fit'),
+        inspect: true,
+        prefill: (row) => ({ product_id: row.product_id, size: row.size_stock_to_save }),
+      },
+    ],
   },
   {
     key: 'restock_orders', title: 'Restock orders', noun: 'restock order', source: 'collection restock_orders',
@@ -169,10 +211,11 @@ export const ENTITIES: EntityConfig[] = [
   {
     key: 'files', title: 'Files', noun: 'file', source: 'MinIO bucket',
     listPath: '/api/v1/files', listKey: 'files', idField: 'filename',
-    columns: [col('Filename', 'filename'), col('Path', 'path'), col('Size (bytes)', 'size')],
+    columns: [col('Path', 'path'), col('Filename', 'filename'), { header: 'Size', field: 'size', format: bytes }],
     create: post('/api/v1/files/upload'),
     remove: del(FILE_PATH),
     extras: [],
+    actionable: (row) => SEGMENT.test(String(row.path)) && SEGMENT.test(String(row.filename)),
     upload: true,
     download: FILE_PATH,
   },
@@ -196,6 +239,6 @@ export function fillPath(path: string, values: Record<string, unknown>): string 
   return path.replace(/\{(\w+)\}/g, (_, name: string) => encodeURIComponent(String(values[name])))
 }
 
-export function fieldOf(row: Record<string, unknown>, field: string): unknown {
+export function fieldOf(row: Row, field: string): unknown {
   return field.split('.').reduce<unknown>((value, key) => (value as Record<string, unknown> | null)?.[key], row)
 }
