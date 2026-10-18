@@ -13,8 +13,12 @@ import java.util.Set;
  *     configuration (see config/otel/collector-config.yml), and guessing it yields queries that
  *     return empty results with no error. This value is verified against a running stack. For a
  *     {@link MetricType#HISTOGRAM} it is the base name, e.g. {@code http_server_duration}; the
- *     translator appends {@code _bucket} or {@code _count}.
+ *     translator appends {@code _count} for rate and increase.
  * @param dimensions the only labels that may appear in {@code filters} or {@code group_by}
+ * @param bucketSeriesName the cumulative {@code le} series a {@link MetricType#HISTOGRAM}'s
+ *     quantiles rate. Defaults to {@code <seriesName>_bucket}, the OTel convention; held explicitly
+ *     only for scraped histograms stored otherwise, such as MinIO's unsuffixed {@code
+ *     minio_s3_requests_ttfb_seconds_distribution}. Unused by other types.
  */
 public record MetricDescriptor(
     String name,
@@ -24,13 +28,37 @@ public record MetricDescriptor(
     MetricType type,
     List<String> dimensions,
     List<Aggregation> permittedAggregations,
-    Set<UserRole> requiredRoles) {
+    Set<UserRole> requiredRoles,
+    String bucketSeriesName) {
 
   public MetricDescriptor {
+    bucketSeriesName = bucketSeriesName == null ? seriesName + "_bucket" : bucketSeriesName;
     dimensions = List.copyOf(dimensions);
     permittedAggregations = List.copyOf(permittedAggregations);
     requiredRoles = Set.copyOf(requiredRoles);
     validateAggregationsMatchType(name, type, permittedAggregations);
+  }
+
+  /** A descriptor whose histogram buckets, if any, follow the OTel {@code _bucket} convention. */
+  public MetricDescriptor(
+      String name,
+      String seriesName,
+      String displayName,
+      String unit,
+      MetricType type,
+      List<String> dimensions,
+      List<Aggregation> permittedAggregations,
+      Set<UserRole> requiredRoles) {
+    this(
+        name,
+        seriesName,
+        displayName,
+        unit,
+        type,
+        dimensions,
+        permittedAggregations,
+        requiredRoles,
+        null);
   }
 
   /**

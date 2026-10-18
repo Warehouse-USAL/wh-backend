@@ -86,7 +86,148 @@ public class MetricRegistry {
           counter("bridge.messages", "Bridge messages", List.of("flow", "result")),
           histogram("bridge.callback.duration", "Bridge callback duration", List.of("flow")),
           gauge("bridge.consumer.lag", "Bridge consumer lag", "1", List.of("flow")),
-          gauge("job.run", "Cron job run", "1", List.of("job", "result", "field")));
+          gauge("job.run", "Cron job run", "1", List.of("job", "result", "field")),
+          // Scraped series (docs/CONSOLE.md, "Scraped series"): the targets name them, so each
+          // seriesName is the verified stored name rather than derived from the dotted one, and
+          // the dimensions are only the labels that series carries. job, instance, MinIO's server
+          // and the collector's per-restart service_instance_id are incidental and not offered.
+          gauge(
+              "minio.bucket.size",
+              "minio_cluster_usage_total_bytes",
+              "MinIO usage",
+              "By",
+              List.of()),
+          gauge(
+              "minio.objects", "minio_cluster_usage_object_total", "MinIO objects", "1", List.of()),
+          counter(
+              "minio.requests",
+              "minio_s3_requests_total",
+              "MinIO S3 requests",
+              "1",
+              List.of("api")),
+          counter(
+              "minio.errors",
+              "minio_s3_requests_errors_total",
+              "MinIO S3 errors",
+              "1",
+              List.of("api")),
+          // Stored as cumulative le buckets under the bare name, with no _count to rate, so it
+          // offers quantiles only; minio.requests counts the same requests.
+          new MetricDescriptor(
+              "minio.latency",
+              "minio_s3_requests_ttfb_seconds_distribution",
+              "MinIO S3 time to first byte",
+              "s",
+              MetricType.HISTOGRAM,
+              List.of("api"),
+              List.of(Aggregation.P50, Aggregation.P95, Aggregation.P99),
+              SUPERADMIN_ONLY,
+              "minio_s3_requests_ttfb_seconds_distribution"),
+          counter(
+              "minio.traffic.received",
+              "minio_s3_traffic_received_bytes",
+              "MinIO S3 traffic received",
+              "By",
+              List.of()),
+          counter(
+              "minio.traffic.sent",
+              "minio_s3_traffic_sent_bytes",
+              "MinIO S3 traffic sent",
+              "By",
+              List.of()),
+          counter(
+              "collector.received",
+              "otelcol_receiver_accepted_metric_points",
+              "Collector points received",
+              "1",
+              List.of("receiver", "transport")),
+          counter(
+              "collector.refused",
+              "otelcol_receiver_refused_metric_points",
+              "Collector points refused",
+              "1",
+              List.of("receiver", "transport")),
+          counter(
+              "collector.exported",
+              "otelcol_exporter_sent_metric_points",
+              "Collector points exported",
+              "1",
+              List.of("exporter")),
+          counter(
+              "collector.export.failed",
+              "otelcol_exporter_send_failed_metric_points",
+              "Collector points failed to export",
+              "1",
+              List.of("exporter")),
+          histogram(
+              "collector.export.duration",
+              "otelcol_exporter_http_duration",
+              "Collector export duration",
+              "ms",
+              List.of("net_peer_name", "http_status_code")),
+          gauge(
+              "collector.queue.size",
+              "otelcol_exporter_queue_size",
+              "Collector export queue size",
+              "1",
+              List.of("exporter", "data_type")),
+          counter(
+              "vm.rows.ingested",
+              "vm_rows_inserted_total",
+              "VictoriaMetrics rows ingested",
+              "1",
+              List.of("type")),
+          counter(
+              "vm.rows.rejected",
+              "vm_rows_ignored_total",
+              "VictoriaMetrics rows rejected",
+              "1",
+              List.of("reason")),
+          // Filter type="storage/hour_metric_ids" for the active series count.
+          gauge(
+              "vm.series.active",
+              "vm_cache_entries",
+              "VictoriaMetrics cache entries",
+              "1",
+              List.of("type")),
+          gauge(
+              "vm.disk.used",
+              "vm_data_size_bytes",
+              "VictoriaMetrics data size",
+              "By",
+              List.of("type")),
+          gauge(
+              "vm.disk.free",
+              "vm_free_disk_space_bytes",
+              "VictoriaMetrics free disk",
+              "By",
+              List.of("path")),
+          // A summary: quantiles arrive precomputed, one gauge per quantile label value.
+          gauge(
+              "vm.query.duration",
+              "vm_request_duration_seconds",
+              "VictoriaMetrics request duration",
+              "s",
+              List.of("path", "quantile")),
+          counter(
+              "edge.requests",
+              "caddy_http_requests_total",
+              "Edge requests",
+              "1",
+              List.of("server", "handler", "host")),
+          // Rate by code gives the status classes and the 401 and 403 rates.
+          histogram(
+              "edge.duration",
+              "caddy_http_request_duration_seconds",
+              "Edge request duration",
+              "s",
+              List.of("server", "handler", "host", "code", "method")),
+          counter(
+              "edge.errors",
+              "caddy_http_request_errors_total",
+              "Edge handler errors",
+              "1",
+              List.of("server", "handler", "host")));
 
   private final List<ComputedMetricDescriptor> computed =
       List.of(
@@ -129,11 +270,16 @@ public class MetricRegistry {
 
   private static MetricDescriptor histogram(
       String name, String displayName, List<String> dimensions) {
+    return histogram(name, series(name), displayName, "ms", dimensions);
+  }
+
+  private static MetricDescriptor histogram(
+      String name, String seriesName, String displayName, String unit, List<String> dimensions) {
     return new MetricDescriptor(
         name,
-        series(name),
+        seriesName,
         displayName,
-        "ms",
+        unit,
         MetricType.HISTOGRAM,
         dimensions,
         List.of(
@@ -152,9 +298,14 @@ public class MetricRegistry {
 
   private static MetricDescriptor counter(
       String name, String displayName, String unit, List<String> dimensions) {
+    return counter(name, series(name), displayName, unit, dimensions);
+  }
+
+  private static MetricDescriptor counter(
+      String name, String seriesName, String displayName, String unit, List<String> dimensions) {
     return new MetricDescriptor(
         name,
-        series(name),
+        seriesName,
         displayName,
         unit,
         MetricType.COUNTER,
@@ -165,9 +316,14 @@ public class MetricRegistry {
 
   private static MetricDescriptor gauge(
       String name, String displayName, String unit, List<String> dimensions) {
+    return gauge(name, series(name), displayName, unit, dimensions);
+  }
+
+  private static MetricDescriptor gauge(
+      String name, String seriesName, String displayName, String unit, List<String> dimensions) {
     return new MetricDescriptor(
         name,
-        series(name),
+        seriesName,
         displayName,
         unit,
         MetricType.GAUGE,

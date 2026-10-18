@@ -28,12 +28,13 @@ import org.springframework.web.server.ResponseStatusException;
  * down to exactly the requested {@code group_by} labels. The outer operator is always applied, so
  * incidental labels the exporter adds (such as {@code job}) never leak into the response.
  *
- * <p>A histogram reads one of its derived series instead: quantiles rate the {@code _bucket}
- * counters and keep {@code le} for {@code histogram_quantile}, rate and increase read {@code
+ * <p>A histogram reads one of its derived series instead: quantiles rate the bucket counters
+ * ({@link MetricDescriptor#bucketSeriesName()}, {@code <series>_bucket} unless the descriptor says
+ * otherwise) and keep {@code le} for {@code histogram_quantile}, rate and increase read {@code
  * _count}:
  *
  * <pre>{@code
- * histogram_quantile(<q>, sum by (le, <group_by>) (rate(<series>_bucket{<filters>}[<step>])))
+ * histogram_quantile(<q>, sum by (le, <group_by>) (rate(<buckets>{<filters>}[<step>])))
  * sum by (<group_by>) (<rate|increase>(<series>_count{<filters>}[<step>]))
  * }</pre>
  */
@@ -71,8 +72,9 @@ public class MetricsQueryTranslator {
   private String renderHistogram(
       MetricsQueryRequest request, MetricDescriptor descriptor, Aggregation aggregation) {
     Optional<Double> quantile = aggregation.quantile();
-    String suffix = quantile.isPresent() ? "_bucket" : "_count";
-    String selector = renderSelector(descriptor.seriesName() + suffix, request.filters());
+    String series =
+        quantile.isPresent() ? descriptor.bucketSeriesName() : descriptor.seriesName() + "_count";
+    String selector = renderSelector(series, request.filters());
     String inner =
         "%s(%s[%s])".formatted(aggregation.overTimeFunction(), selector, request.step().trim());
 
