@@ -27,11 +27,13 @@ class JwtHandshakeInterceptorTest {
   @Mock ServerHttpResponse response;
 
   JwtHandshakeInterceptor interceptor;
+  WsActivity activity = mock(WsActivity.class);
 
   @BeforeEach
   void setUp() {
     interceptor =
-        new JwtHandshakeInterceptor(jwtService, Set.of("ADMIN_SYSTEM", "ADMIN_WAREHOUSE"));
+        new JwtHandshakeInterceptor(
+            jwtService, Set.of("ADMIN_SYSTEM", "ADMIN_WAREHOUSE"), WsActivity.ORDERS, activity);
   }
 
   @Test
@@ -53,6 +55,7 @@ class JwtHandshakeInterceptorTest {
     Map<String, Object> attrs = new HashMap<>();
     assertFalse(interceptor.beforeHandshake(request, response, handler, attrs));
     verify(response).setStatusCode(HttpStatus.FORBIDDEN);
+    verify(activity).rejected(eq(WsActivity.ORDERS), argThat(d -> !d.contains("token=")));
   }
 
   @Test
@@ -62,6 +65,15 @@ class JwtHandshakeInterceptorTest {
     Map<String, Object> attrs = new HashMap<>();
     assertFalse(interceptor.beforeHandshake(request, response, handler, attrs));
     verify(response).setStatusCode(HttpStatus.FORBIDDEN);
+  }
+
+  @Test
+  void beforeHandshake_disallowedRole_isRecordedAsRejected() throws Exception {
+    when(request.getURI()).thenReturn(URI.create("/ws/v1/vehicles?token=sales-token"));
+    when(jwtService.isTokenValid("sales-token")).thenReturn(true);
+    when(jwtService.extractRole("sales-token")).thenReturn("ADMIN_SALES");
+    interceptor.beforeHandshake(request, response, handler, new HashMap<>());
+    verify(activity).rejected(eq(WsActivity.ORDERS), argThat(d -> !d.contains("sales-token")));
   }
 
   @Test

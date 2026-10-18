@@ -74,6 +74,7 @@ public class GlobalExceptionHandler {
           Map.entry("ORDER_NOT_ASSIGNABLE", "La orden no puede ser asignada en su estado actual."),
           Map.entry(
               "VEHICLE_ALREADY_BUSY", "El vehículo ya está asignado a otra orden en progreso."),
+          Map.entry("UNKNOWN_FEED", "El feed de WebSocket solicitado no existe."),
           Map.entry(
               "UNKNOWN_METRIC", "La métrica solicitada no existe. Consultar GET /metrics/catalog."),
           Map.entry(

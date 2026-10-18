@@ -21,6 +21,7 @@ public class VehicleWebSocketHandler extends TextWebSocketHandler implements Veh
 
   private static final Logger log = LoggerFactory.getLogger(VehicleWebSocketHandler.class);
   private final Map<String, WebSocketSession> sessions = new ConcurrentHashMap<>();
+  private final WsActivity wsActivity;
   private final ObjectMapper objectMapper =
       new ObjectMapper()
           .registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule())
@@ -28,25 +29,37 @@ public class VehicleWebSocketHandler extends TextWebSocketHandler implements Veh
           .setPropertyNamingStrategy(
               com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE);
 
+  public VehicleWebSocketHandler(WsActivity wsActivity) {
+    this.wsActivity = wsActivity;
+  }
+
   @Override
   public void afterConnectionEstablished(WebSocketSession session) {
     sessions.put(session.getId(), new ConcurrentWebSocketSessionDecorator(session, 1000, 65536));
+    wsActivity.connected(WsActivity.VEHICLES, "session opened");
   }
 
   @Override
   public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
-    sessions.remove(session.getId());
+    dropSession(session);
   }
 
   @Override
   public void handleTransportError(WebSocketSession session, Throwable exception) {
-    sessions.remove(session.getId());
+    dropSession(session);
+  }
+
+  private void dropSession(WebSocketSession session) {
+    if (sessions.remove(session.getId()) != null) {
+      wsActivity.closed(WsActivity.VEHICLES, "session closed");
+    }
   }
 
   @Override
   public void broadcastVehicleUpdate(Vehicle vehicle) {
     broadcast(
-        serialize(Map.of("event", "vehicle.updated", "payload", VehicleResponse.from(vehicle))));
+        serialize(Map.of("event", "vehicle.updated", "payload", VehicleResponse.from(vehicle))),
+        "vehicle.updated " + vehicle.getId() + " status " + vehicle.getStatus());
   }
 
   @Override
@@ -58,14 +71,17 @@ public class VehicleWebSocketHandler extends TextWebSocketHandler implements Veh
             "error_code", errorCode,
             "message", message,
             "last_seen_at", lastSeenAt);
-    broadcast(serialize(Map.of("event", "vehicle.error", "payload", payload)));
+    broadcast(
+        serialize(Map.of("event", "vehicle.error", "payload", payload)),
+        "vehicle.error " + vehicleId + " " + errorCode);
   }
 
-  private void broadcast(String json) {
+  private void broadcast(String json, String summary) {
     for (WebSocketSession session : sessions.values()) {
       if (session.isOpen()) {
         try {
           session.sendMessage(new TextMessage(json));
+          wsActivity.pushed(WsActivity.VEHICLES, summary);
         } catch (IOException e) {
           log.warn(
               "Failed to send vehicle event to session {}: {}", session.getId(), e.getMessage());

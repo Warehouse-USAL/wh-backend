@@ -3,7 +3,7 @@
     <!-- Spring constructor injection stores service references, not mutable data -->
     <Match>
         <Bug pattern="EI_EXPOSE_REP2"/>
-        <Class name="~.*(Controller|Config|Repository|Service|Consumer)"/>
+        <Class name="~.*(Controller|Config|Repository|Service|Consumer|WebSocketHandler|HandshakeInterceptor)"/>
     </Match>
     <!-- Product, Order, and OrderItem are mutable MongoDB domain classes; embedded value objects
          (Price, ProductImage, Spec) are handled by Spring Data MongoDB reflective field-setting. -->

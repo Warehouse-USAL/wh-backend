@@ -21,6 +21,7 @@ public class UserOrderWebSocketHandler extends TextWebSocketHandler implements O
 
   private static final Logger log = LoggerFactory.getLogger(UserOrderWebSocketHandler.class);
   private final Map<String, WebSocketSession> sessions = new ConcurrentHashMap<>();
+  private final WsActivity wsActivity;
   private final ObjectMapper objectMapper =
       new ObjectMapper()
           .registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule())
@@ -28,12 +29,17 @@ public class UserOrderWebSocketHandler extends TextWebSocketHandler implements O
           .setPropertyNamingStrategy(
               com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE);
 
+  public UserOrderWebSocketHandler(WsActivity wsActivity) {
+    this.wsActivity = wsActivity;
+  }
+
   @Override
   public void afterConnectionEstablished(WebSocketSession session) {
     String jwtUserId = (String) session.getAttributes().get("userId");
     String pathUserId = extractUserIdFromPath(session);
 
     if (pathUserId == null || !pathUserId.equals(jwtUserId)) {
+      wsActivity.rejected(WsActivity.USER_ORDERS, "session rejected: user mismatch");
       try {
         session.close(CloseStatus.NOT_ACCEPTABLE);
       } catch (IOException e) {
@@ -42,16 +48,23 @@ public class UserOrderWebSocketHandler extends TextWebSocketHandler implements O
       return;
     }
     sessions.put(session.getId(), new ConcurrentWebSocketSessionDecorator(session, 1000, 65536));
+    wsActivity.connected(WsActivity.USER_ORDERS, "session opened");
   }
 
   @Override
   public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
-    sessions.remove(session.getId());
+    dropSession(session);
   }
 
   @Override
   public void handleTransportError(WebSocketSession session, Throwable exception) {
-    sessions.remove(session.getId());
+    dropSession(session);
+  }
+
+  private void dropSession(WebSocketSession session) {
+    if (sessions.remove(session.getId()) != null) {
+      wsActivity.closed(WsActivity.USER_ORDERS, "session closed");
+    }
   }
 
   @Override
@@ -63,6 +76,9 @@ public class UserOrderWebSocketHandler extends TextWebSocketHandler implements O
         if (sessionUserId != null && sessionUserId.equals(order.getRequestedByUserId())) {
           try {
             session.sendMessage(new TextMessage(json));
+            wsActivity.pushed(
+                WsActivity.USER_ORDERS,
+                "order.updated " + order.getId() + " status " + order.getStatus());
           } catch (IOException e) {
             log.warn(
                 "Failed to send order event to session {}: {}", session.getId(), e.getMessage());

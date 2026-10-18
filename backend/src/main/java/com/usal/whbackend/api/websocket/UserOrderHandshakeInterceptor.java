@@ -13,9 +13,11 @@ import org.springframework.web.socket.server.HandshakeInterceptor;
 public class UserOrderHandshakeInterceptor implements HandshakeInterceptor {
 
   private final JwtService jwtService;
+  private final WsActivity wsActivity;
 
-  public UserOrderHandshakeInterceptor(JwtService jwtService) {
+  public UserOrderHandshakeInterceptor(JwtService jwtService, WsActivity wsActivity) {
     this.jwtService = jwtService;
+    this.wsActivity = wsActivity;
   }
 
   @Override
@@ -26,12 +28,14 @@ public class UserOrderHandshakeInterceptor implements HandshakeInterceptor {
       Map<String, Object> attributes) {
     String token = extractToken(request);
     if (token == null || !jwtService.isTokenValid(token)) {
+      wsActivity.rejected(WsActivity.USER_ORDERS, "handshake rejected: missing or invalid token");
       response.setStatusCode(HttpStatus.FORBIDDEN);
       return false;
     }
     String tokenUserId = jwtService.extractUserId(token);
     String pathUserId = extractUserIdFromPath(request.getURI().getPath());
     if (!tokenUserId.equals(pathUserId)) {
+      wsActivity.rejected(WsActivity.USER_ORDERS, "handshake rejected: user mismatch");
       response.setStatusCode(HttpStatus.FORBIDDEN);
       return false;
     }
