@@ -1,0 +1,79 @@
+import { render, screen, within } from '@testing-library/react'
+import { MemoryRouter } from 'react-router'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import fixture from '@/api/__fixtures__/logs-query.json'
+import App from '@/App'
+import { setSession } from '@/api/client'
+import { clearMetricAnswers } from '@/api/metrics'
+import { type OpenApiDoc, loadSpec } from '@/domains/template'
+import { jsonResponse } from '@/test/http'
+import spec from './__fixtures__/api-docs.json'
+
+vi.mock('@/domains/template', () => ({ loadSpec: vi.fn() }))
+
+type Body = { request_id?: string; text?: string; service?: string }
+
+/** Logs answer by filter (the latest-order probe, then one request's trail); metrics answer nothing. */
+function stubApi(answer: (b: Body) => Response) {
+  const bodies: Body[] = []
+  vi.stubGlobal(
+    'fetch',
+    vi.fn<typeof fetch>(async (input, init) => {
+      if (String(input).endsWith('/metrics/query')) return jsonResponse(200, { metric: 'm', unit: '', step: '15s', series: [] })
+      const body = JSON.parse(String(init?.body)) as Body
+      bodies.push(body)
+      return answer(body)
+    }),
+  )
+  return bodies
+}
+
+const renderAt = (path: string) =>
+  render(
+    <MemoryRouter initialEntries={[path]}>
+      <App />
+    </MemoryRouter>,
+  )
+
+describe('RequestTrail', () => {
+  beforeEach(() => {
+    clearMetricAnswers()
+    setSession({ token: 'tok', email: 'root@x.io' })
+    vi.mocked(loadSpec).mockResolvedValue(spec as unknown as OpenApiDoc)
+  })
+
+  it('ordersPageHasTheEventTrail', async () => {
+    const bodies = stubApi((b) => jsonResponse(200, b.request_id ? { lines: fixture.lines.slice(0, 2), total: 2 } : { lines: [fixture.lines[0]], total: 1 }))
+    renderAt('/monitoring/orders')
+
+    const trail = await screen.findByRole('region', { name: 'Event trail' })
+    const rows = await within(trail).findByText('order published to infra')
+    expect(bodies[0]).toMatchObject({ service: 'bridge', text: 'order published to infra', limit: 1 })
+    expect(bodies[1]).toMatchObject({ request_id: 't23order1' })
+    // Oldest first, tagged by service.
+    expect(within(trail).getAllByText('bridge')).toHaveLength(2)
+    expect(trail).toHaveTextContent(/rabbitmq publish failed, retrying.*order published to infra/)
+    expect(rows).toBeInTheDocument()
+    expect(within(trail).getByRole('link', { name: 'Open in Logs' })).toHaveAttribute('href', '/infra/logs?req=t23order1')
+  })
+
+  it('otherDomainPagesHaveNoTrail', async () => {
+    const bodies = stubApi(() => jsonResponse(200, fixture))
+    renderAt('/monitoring/products')
+    await screen.findByRole('region', { name: 'GET /products' })
+    expect(screen.queryByRole('region', { name: 'Event trail' })).toBeNull()
+    expect(bodies).toHaveLength(0)
+  })
+
+  it('saysSoWhenNoOrderRequestIsLogged', async () => {
+    stubApi(() => jsonResponse(200, { lines: [], total: 0 }))
+    renderAt('/monitoring/orders')
+    expect(await screen.findByText('No order request in the last 24 hours')).toBeInTheDocument()
+  })
+
+  it('showsTheErrorWhenTheStoreIsUnavailable', async () => {
+    stubApi(() => jsonResponse(502, { error: { code: 'LOG_STORE_UNAVAILABLE', message: 'The log store is unavailable' } }))
+    renderAt('/monitoring/orders')
+    expect(await screen.findByText('LOG_STORE_UNAVAILABLE: The log store is unavailable')).toBeInTheDocument()
+  })
+})

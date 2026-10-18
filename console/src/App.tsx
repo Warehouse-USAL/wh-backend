@@ -8,8 +8,10 @@ import Header from '@/layout/Header'
 import { NAV } from '@/layout/nav'
 import Shell from '@/layout/Shell'
 import MonitoringPage from '@/monitoring/MonitoringPage'
+import RequestTrail from '@/monitoring/RequestTrail'
 import { DOMAINS, type Domain } from '@/monitoring/routes'
 import Login from '@/pages/Login'
+import Logs from '@/pages/Logs'
 
 // A Monitoring nav item whose label names an API domain gets that domain's page.
 const isDomain = (label: string): label is Domain => (DOMAINS as readonly string[]).includes(label)
@@ -53,7 +55,9 @@ export default function App() {
                 path in DOMAIN_PAGES ? (
                   <EntityPage title={label} entities={DOMAIN_PAGES[path]} />
                 ) : section === 'Monitoring' && isDomain(label) ? (
-                  <MonitoringPage key={path} domain={label} />
+                  <MonitoringPage key={path} domain={label} extra={label === 'Orders' ? <RequestTrail /> : undefined} />
+                ) : path === '/infra/logs' ? (
+                  <Logs />
                 ) : (
                   <Placeholder crumb={section} title={label} />
                 )

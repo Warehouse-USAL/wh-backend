@@ -63,6 +63,15 @@ describe('App', () => {
     expect(screen.getByRole('button', { name: 'New vehicle' })).toBeInTheDocument()
   })
 
+  it('rendersTheLogsPageWithTheRequestIdFromTheUrl', async () => {
+    setSession({ token: 't', email: 'root@x.io' })
+    const fetchMock = mockFetch(jsonResponse(200, { lines: [], total: 0 }))
+    renderApp('/infra/logs?req=abc')
+
+    expect(await screen.findByText('No log lines match')).toBeInTheDocument()
+    expect(JSON.parse(fetchMock.mock.calls[0][1]?.body as string)).toMatchObject({ request_id: 'abc' })
+  })
+
   it('rendersMonitoringPagesForTheNavDomainsAndKeepsWebSocketsAPlaceholder', async () => {
     setSession({ token: 't', email: 'root@x.io' })
     vi.stubGlobal('fetch', vi.fn<typeof fetch>(async () => new Response(null, { status: 404 })))

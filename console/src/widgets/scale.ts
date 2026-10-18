@@ -52,6 +52,12 @@ export function formatTime(t: number, seconds: boolean): string {
   return seconds ? `${hm}:${pad(d.getSeconds())}` : hm
 }
 
+/** `HH:MM:SS.mmm` for an ISO instant; a dash when the store sent none. */
+export function formatClock(iso: string | null): string {
+  const t = iso ? Date.parse(iso) : NaN
+  return Number.isNaN(t) ? '-' : `${formatTime(t, true)}.${String(t % 1000).padStart(3, '0')}`
+}
+
 /** Up to five evenly spaced x-axis labels; seconds appear when the span is under ten minutes. */
 export function timeLabels(times: number[]): string[] {
   if (!times.length) return []
