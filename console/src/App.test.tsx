@@ -1,7 +1,7 @@
 import { act, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import { api, getSession, setSession } from './api/client'
 import { jsonResponse, mockFetch } from './test/http'
@@ -61,6 +61,19 @@ describe('App', () => {
     expect(screen.getByText('Domains /')).toBeInTheDocument()
     expect(await screen.findByRole('cell', { name: 'veh-agv-01' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'New vehicle' })).toBeInTheDocument()
+  })
+
+  it('rendersMonitoringPagesForTheNavDomainsAndKeepsWebSocketsAPlaceholder', async () => {
+    setSession({ token: 't', email: 'root@x.io' })
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>(async () => new Response(null, { status: 404 })))
+    renderApp('/monitoring/orders')
+
+    expect(screen.getByRole('heading', { name: 'Orders' })).toBeInTheDocument()
+    expect(await screen.findByText('API description unavailable')).toBeInTheDocument()
+
+    await userEvent.setup().click(screen.getByRole('link', { name: 'WebSockets' }))
+    expect(screen.getByRole('heading', { name: 'WebSockets' })).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).toBeNull()
   })
 
   it('showsNotFoundInsideTheShellForUnknownPaths', () => {

@@ -15,6 +15,9 @@ export interface Schema {
 }
 
 interface Operation {
+  tags?: string[]
+  summary?: string
+  security?: Record<string, string[]>[]
   requestBody?: { content?: Record<string, { schema?: Schema }> }
 }
 

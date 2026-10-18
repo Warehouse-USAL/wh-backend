@@ -7,7 +7,12 @@ import EntityPage from '@/domains/EntityPage'
 import Header from '@/layout/Header'
 import { NAV } from '@/layout/nav'
 import Shell from '@/layout/Shell'
+import MonitoringPage from '@/monitoring/MonitoringPage'
+import { DOMAINS, type Domain } from '@/monitoring/routes'
 import Login from '@/pages/Login'
+
+// A Monitoring nav item whose label names an API domain gets that domain's page.
+const isDomain = (label: string): label is Domain => (DOMAINS as readonly string[]).includes(label)
 
 // Stands in for a page until its task builds it; tasks 19-25 swap it out route by route.
 function Placeholder({ crumb, title }: { crumb: string; title: string }) {
@@ -47,6 +52,8 @@ export default function App() {
               element={
                 path in DOMAIN_PAGES ? (
                   <EntityPage title={label} entities={DOMAIN_PAGES[path]} />
+                ) : section === 'Monitoring' && isDomain(label) ? (
+                  <MonitoringPage key={path} domain={label} />
                 ) : (
                   <Placeholder crumb={section} title={label} />
                 )

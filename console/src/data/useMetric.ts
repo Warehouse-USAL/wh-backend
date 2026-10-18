@@ -5,7 +5,7 @@ import type { Series } from '@/widgets/scale'
 import { type Range, useLive } from './live'
 
 const STEP: Record<Range, string> = { '5m': '10s', '15m': '15s', '1h': '1m', '6h': '5m', '24h': '15m' }
-const RANGE_MS: Record<Range, number> = { '5m': 300_000, '15m': 900_000, '1h': 3_600_000, '6h': 21_600_000, '24h': 86_400_000 }
+export const RANGE_MS: Record<Range, number> = { '5m': 300_000, '15m': 900_000, '1h': 3_600_000, '6h': 21_600_000, '24h': 86_400_000 }
 
 /**
  * 20-100 buckets per range, well under the backend's 11000 points and above its 10 s minimum.
