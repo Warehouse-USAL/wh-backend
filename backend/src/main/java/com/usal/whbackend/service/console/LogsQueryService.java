@@ -37,6 +37,22 @@ public class LogsQueryService {
   }
 
   public List<LogLine> query(LogsQuery query) {
+    LogsQuery valid = validate(query);
+    return repository.search(
+        valid.service(),
+        valid.level(),
+        valid.requestId(),
+        valid.text(),
+        valid.from(),
+        valid.to(),
+        valid.limit());
+  }
+
+  /**
+   * Applies the rules of {@link #query} without touching the store: blank filters become null, the
+   * range and limit get their defaults and caps. Throws the same 400s as {@link #query}.
+   */
+  public LogsQuery validate(LogsQuery query) {
     String service = blankToNull(query.service());
     String level = blankToNull(query.level());
     String requestId = blankToNull(query.requestId());
@@ -68,7 +84,7 @@ public class LogsQueryService {
         query.limit() == null || query.limit() <= 0
             ? DEFAULT_LIMIT
             : Math.min(query.limit(), MAX_LIMIT);
-    return repository.search(service, level, requestId, text, from, to, limit);
+    return new LogsQuery(service, level, requestId, text, from, to, limit);
   }
 
   /** The store takes RFC 3339 timestamps, which only cover years 0000 to 9999. */

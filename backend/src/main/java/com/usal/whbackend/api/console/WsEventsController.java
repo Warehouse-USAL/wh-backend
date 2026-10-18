@@ -30,13 +30,6 @@ import org.springframework.web.server.ResponseStatusException;
 @PreAuthorize("hasRole('SUPERADMIN')")
 public class WsEventsController {
 
-  private static final Map<String, String> FEEDS =
-      Map.of(
-          "orders", WsActivity.ORDERS,
-          "user-orders", WsActivity.USER_ORDERS,
-          "vehicles", WsActivity.VEHICLES,
-          "stock-alerts", WsActivity.STOCK_ALERTS);
-
   private final WsEventBuffer buffer;
 
   public WsEventsController(WsEventBuffer buffer) {
@@ -49,7 +42,7 @@ public class WsEventsController {
           "Newest first, at most 200. Feed is one of orders, user-orders, vehicles, stock-alerts.")
   @GetMapping("/{feed}")
   public ResponseEntity<Map<String, Object>> events(@PathVariable String feed) {
-    String key = FEEDS.get(feed);
+    String key = WsActivity.FEEDS_BY_SLUG.get(feed);
     if (key == null) {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "UNKNOWN_FEED");
     }

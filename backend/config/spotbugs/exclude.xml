@@ -34,4 +34,18 @@
         <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
         <Class name="~com\.usal\.whbackend\.repository\.kafka\.VehicleUpdateExecutor\$Result"/>
     </Match>
+    <!-- WsActivity is a Spring component like the ones matched above: it stores the injected
+         WsEventBuffer singleton, which SpotBugs sees as mutable since the buffer gained listener
+         registration for the console stream. -->
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+        <Class name="com.usal.whbackend.api.websocket.WsActivity"/>
+    </Match>
+    <!-- console.stream.* is bound by Spring into the nested Stream object, which therefore has to be
+         the live, mutable instance the getter returns. -->
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP"/>
+        <Class name="com.usal.whbackend.service.console.ConsoleProperties"/>
+        <Method name="getStream"/>
+    </Match>
 </FindBugsFilter>

@@ -22,6 +22,17 @@ public class WsActivity {
   public static final String VEHICLES = "/ws/v1/vehicles";
   public static final String STOCK_ALERTS = "/ws/v1/stock/alerts";
 
+  /**
+   * Feeds contain slashes, so console URLs and stream subscriptions name them by a short slug:
+   * {@code orders}, {@code user-orders}, {@code vehicles}, {@code stock-alerts}.
+   */
+  public static final Map<String, String> FEEDS_BY_SLUG =
+      Map.of(
+          "orders", ORDERS,
+          "user-orders", USER_ORDERS,
+          "vehicles", VEHICLES,
+          "stock-alerts", STOCK_ALERTS);
+
   private static final int MAX_DETAIL = 120;
 
   private final WsEventBuffer buffer;

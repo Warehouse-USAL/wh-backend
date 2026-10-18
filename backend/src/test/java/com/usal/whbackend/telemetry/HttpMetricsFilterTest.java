@@ -133,4 +133,24 @@ class HttpMetricsFilterTest {
     assertThat(samples.get(0).status()).isEqualTo(500);
     assertThat(samples.get(0).method()).isEqualTo("POST");
   }
+
+  @Test
+  void theConsoleStreamIsNotRecorded() throws Exception {
+    MockHttpServletRequest request = new MockHttpServletRequest("POST", "/console/stream");
+    MockFilterChain chain =
+        new MockFilterChain() {
+          @Override
+          public void doFilter(
+              jakarta.servlet.ServletRequest req, jakarta.servlet.ServletResponse res) {
+            req.setAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE, "/console/stream");
+            ((MockHttpServletResponse) res).setStatus(200);
+          }
+        };
+
+    filter.doFilter(request, new MockHttpServletResponse(), chain);
+
+    // A stream lasts as long as its token; its duration would only poison the latency histogram.
+    assertThat(samples).isEmpty();
+    assertThat(filter.activeRequests()).isZero();
+  }
 }

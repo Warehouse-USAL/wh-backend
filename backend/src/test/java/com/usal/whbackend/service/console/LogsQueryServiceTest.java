@@ -177,4 +177,24 @@ class LogsQueryServiceTest {
     verify(repository)
         .search(any(), any(), any(), any(), eq(TO.minus(Duration.ofHours(1))), eq(TO), eq(1));
   }
+
+  @Test
+  void validateNormalisesWithoutQueryingTheStore() {
+    LogsQuery valid = service.validate(new LogsQuery(" ", "error", null, "x", null, null, 900));
+
+    assertThat(valid.service()).isNull();
+    assertThat(valid.level()).isEqualTo("error");
+    assertThat(valid.text()).isEqualTo("x");
+    assertThat(valid.limit()).isEqualTo(500);
+    assertThat(Duration.between(valid.from(), valid.to())).isEqualTo(Duration.ofHours(1));
+    org.mockito.Mockito.verifyNoInteractions(repository);
+  }
+
+  @Test
+  void validateRejectsLikeQuery() {
+    assertThatThrownBy(
+            () -> service.validate(new LogsQuery(null, null, null, "a|b", null, null, null)))
+        .isInstanceOf(ResponseStatusException.class)
+        .hasMessageContaining("INVALID_FILTER_VALUE");
+  }
 }

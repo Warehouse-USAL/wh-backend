@@ -22,7 +22,8 @@ import org.springframework.web.servlet.HandlerMapping;
  * the in-flight count read by the {@code http.server.active} gauge.
  *
  * <p>{@link OncePerRequestFilter} skips async re-dispatches, so an async endpoint's duration covers
- * only the initial dispatch.
+ * only the initial dispatch. The console's push stream ({@value #STREAM_ROUTE}) is not recorded at
+ * all: it stays open as long as its token, which says nothing about request latency.
  */
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class HttpMetricsFilter extends OncePerRequestFilter {
@@ -32,6 +33,9 @@ public class HttpMetricsFilter extends OncePerRequestFilter {
   static final String OTHER = "OTHER";
 
   private static final String CATCH_ALL = "/**";
+
+  /** Long-lived Server-Sent Events route, excluded from {@code http.server.duration}. */
+  static final String STREAM_ROUTE = "/console/stream";
 
   private static final Set<String> METHODS =
       Set.of("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS");
@@ -58,6 +62,9 @@ public class HttpMetricsFilter extends OncePerRequestFilter {
       Object pattern = request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE);
       String route =
           pattern == null || CATCH_ALL.equals(pattern.toString()) ? UNMATCHED : pattern.toString();
+      if (STREAM_ROUTE.equals(route)) {
+        return;
+      }
       String requested = request.getMethod();
       String method = requested != null && METHODS.contains(requested) ? requested : OTHER;
       // A throwing chain has not set the status yet; the container will answer 500.

@@ -104,6 +104,11 @@ public class GlobalExceptionHandler {
           Map.entry("TOO_MANY_FILTERS", "La consulta declara demasiados filtros."),
           Map.entry("INVALID_FILTER_VALUE", "El valor de uno de los filtros no es válido."),
           Map.entry(
+              "INVALID_SUBSCRIPTION",
+              "Una de las suscripciones del stream no es válida (id, kind o parámetros)."),
+          Map.entry(
+              "STREAM_LIMIT", "Hay demasiados streams abiertos; cierre uno e intente de nuevo."),
+          Map.entry(
               "NO_AGGREGATES",
               "Una consulta agrupada debe declarar al menos un agregado en 'aggregates'."),
           Map.entry(

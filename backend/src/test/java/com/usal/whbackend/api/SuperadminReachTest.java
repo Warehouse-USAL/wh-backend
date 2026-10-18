@@ -25,6 +25,7 @@ import com.usal.whbackend.service.ZoneService;
 import com.usal.whbackend.service.console.LogsQueryService;
 import com.usal.whbackend.service.console.ServiceStatusService;
 import com.usal.whbackend.service.console.WsEventBuffer;
+import com.usal.whbackend.service.console.stream.ConsoleStreamService;
 import com.usal.whbackend.service.metrics.MetricsQueryService;
 import com.usal.whbackend.service.metrics.restock.RestockSuggestionService;
 import com.usal.whbackend.service.query.EntityQueryService;
@@ -98,6 +99,11 @@ class SuperadminReachTest {
   private static final String RECEPTION =
       "{\"product_id\":\"p\",\"quantity_received\":1,\"delivery_unit\":\"CAJA\","
           + "\"supplier\":\"s\"}";
+  /*
+   * The stream service is mocked, so a valid body answers 200 at once with no stream behind it:
+   * the long-lived endpoint is reached without the test waiting on it.
+   */
+  private static final String STREAM = "{\"subscriptions\":[{\"id\":\"s\",\"kind\":\"status\"}]}";
   private static final String METRICS =
       "{\"metric\":\"m\",\"from\":\"2026-01-01T00:00:00Z\",\"to\":\"2026-01-02T00:00:00Z\","
           + "\"step\":\"1m\",\"agg\":\"avg\"}";
@@ -167,6 +173,7 @@ class SuperadminReachTest {
     {"GET", "/console/status", null},
     {"POST", "/console/logs/query", JSON},
     {"GET", "/console/ws-events/orders", null},
+    {"POST", "/console/stream", STREAM},
     {"POST", "/metrics/query", METRICS},
     {"GET", "/metrics/catalog", null},
     {"POST", "/metrics/restock-suggestions", RESTOCK},
@@ -184,6 +191,7 @@ class SuperadminReachTest {
     {"GET", "/console/status", null},
     {"POST", "/console/logs/query", JSON},
     {"GET", "/console/ws-events/orders", null},
+    {"POST", "/console/stream", STREAM},
     {"GET", "/api/v1/files", null},
   };
 
@@ -208,6 +216,7 @@ class SuperadminReachTest {
   @MockitoBean ServiceStatusService serviceStatusService;
   @MockitoBean LogsQueryService logsQueryService;
   @MockitoBean WsEventBuffer wsEventBuffer;
+  @MockitoBean ConsoleStreamService consoleStreamService;
   @MockitoBean MetricsQueryService metricsQueryService;
   @MockitoBean RestockSuggestionService restockSuggestionService;
   @MockitoBean EntityQueryService entityQueryService;
