@@ -5,6 +5,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -48,6 +49,49 @@ func TestProbeFailsWhenNothingListens(
 	listener.Close()
 	if err := health.Probe(addr); err == nil {
 		t.Fatal("expected an error")
+	}
+}
+
+func TestProbeFailsWhenTheServerIsUnhealthy(
+	t *testing.T,
+) {
+	server := httptest.NewServer(http.HandlerFunc(func(
+		w http.ResponseWriter,
+		_ *http.Request,
+	) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(server.Close)
+	err := health.Probe(server.Listener.Addr().String())
+	if err == nil || !strings.Contains(err.Error(), "status 503") {
+		t.Fatalf("Probe returned %v, want status 503", err)
+	}
+}
+
+func TestProbeTargetsLoopbackForAPortOnlyAddress(
+	t *testing.T,
+) {
+	server := httptest.NewServer(health.Handler())
+	t.Cleanup(server.Close)
+	_, port, err := net.SplitHostPort(server.Listener.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = health.Probe(":" + port); err != nil {
+		t.Fatalf("Probe(:%s) returned %v", port, err)
+	}
+}
+
+func TestHealthFailsWhenTheAddressIsTaken(
+	t *testing.T,
+) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { listener.Close() })
+	if err = health.Health(context.Background(), listener.Addr().String()); err == nil {
+		t.Fatal("expected the listen error")
 	}
 }
 

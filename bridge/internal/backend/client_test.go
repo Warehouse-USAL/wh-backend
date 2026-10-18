@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -141,6 +142,25 @@ func TestSendNetworkErrorIsTransient(
 	err := client.Send(context.Background(), sample)
 	if err == nil || errors.Is(err, backend.ErrRejected) {
 		t.Fatalf("got %v, want a transient error", err)
+	}
+}
+
+func TestSendFailsToBuildARequestForAnInvalidBaseURL(
+	t *testing.T,
+) {
+	client := backend.New("http://bad host", "secret", time.Second)
+	err := client.Send(context.Background(), sample)
+	if err == nil || !strings.Contains(err.Error(), "build request") || errors.Is(err, backend.ErrRejected) {
+		t.Fatalf("got %v, want a build request error", err)
+	}
+}
+
+func TestRejectedErrorDescribesTheAnswer(
+	t *testing.T,
+) {
+	err := &backend.RejectedError{Status: http.StatusNotFound, Body: "VEHICLE_NOT_FOUND"}
+	if got := err.Error(); got != "backend rejected the request: status 404: VEHICLE_NOT_FOUND" {
+		t.Fatalf("Error() = %q", got)
 	}
 }
 
