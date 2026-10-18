@@ -5,12 +5,15 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/backend"
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/classify"
+	"github.com/Warehouse-USAL/wh-backend/bridge/internal/requestid"
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/retry"
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/vehicles"
 )
@@ -166,13 +169,21 @@ func start(
 		rec:    &fakeRecorder{},
 		done:   make(chan error, 1),
 	}
+	h.run(t, h.client, requestid.New())
+	return h
+}
+
+func (h *harness) run(
+	t *testing.T,
+	client backend.Client,
+	ids *requestid.Store,
+) {
 	ctx, cancel := context.WithCancel(context.Background())
 	h.cancel = cancel
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	pipeline := vehicles.New(h.source, h.client, fastPolicy, logger, h.rec)
+	pipeline := vehicles.New(h.source, client, fastPolicy, logger, h.rec, ids)
 	go func() { h.done <- pipeline.Run(ctx) }()
 	t.Cleanup(cancel)
-	return h
 }
 
 func (h *harness) deliver(
@@ -385,5 +396,62 @@ func TestCancellationWithAMessageInFlightRecordsAnError(
 	}
 	if len(callbacks) != len(messages)-1 {
 		t.Fatalf("%d callbacks for %d attempts", len(callbacks), len(messages)-1)
+	}
+}
+
+// callbackHeaders runs body through the pipeline against a real HTTP client
+// and returns the X-Request-Id header the backend received, if any.
+func callbackHeaders(
+	t *testing.T,
+	ids *requestid.Store,
+	body string,
+) []string {
+	var mu sync.Mutex
+	var got []string
+	server := httptest.NewServer(http.HandlerFunc(func(
+		w http.ResponseWriter,
+		r *http.Request,
+	) {
+		mu.Lock()
+		defer mu.Unlock()
+		got = append(got, r.Header.Values("X-Request-Id")...)
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(server.Close)
+	h := &harness{source: &fakeSource{deliveries: make(chan vehicles.Delivery)}, rec: &fakeRecorder{}, done: make(chan error, 1)}
+	h.run(t, backend.New(server.URL, "secret", time.Second), ids)
+	d := newDelivery(body)
+	h.deliver(t, d)
+	h.waitSettled(t, d)
+	mu.Lock()
+	defer mu.Unlock()
+	return got
+}
+
+func TestCallbackCarriesRememberedID(
+	t *testing.T,
+) {
+	ids := requestid.New()
+	ids.Remember("ORD-1", "req-1")
+	if got := callbackHeaders(t, ids, statusMsg); len(got) != 1 || got[0] != "req-1" {
+		t.Fatalf("X-Request-Id %v, want [req-1]", got)
+	}
+}
+
+func TestCallbackWithoutRememberedIDOmitsHeader(
+	t *testing.T,
+) {
+	if got := callbackHeaders(t, requestid.New(), statusMsg); len(got) != 0 {
+		t.Fatalf("X-Request-Id %v, want none", got)
+	}
+}
+
+func TestTelemetryCallbackNeverCarriesAnID(
+	t *testing.T,
+) {
+	ids := requestid.New()
+	ids.Remember("VHC-001", "req-1")
+	if got := callbackHeaders(t, ids, telemetryMsg); len(got) != 0 {
+		t.Fatalf("X-Request-Id %v, want none", got)
 	}
 }

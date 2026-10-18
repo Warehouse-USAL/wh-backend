@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/backend"
+	"github.com/Warehouse-USAL/wh-backend/bridge/internal/requestid"
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/retry"
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/telemetry"
 )
@@ -27,12 +28,16 @@ type Pipeline interface {
 // vehicles_in (telemetry, and anything unclassifiable): ok once accepted,
 // retry per transient failure, dropped when unclassifiable or rejected, and
 // error when stopped with the message in flight. Each POST is timed.
+//
+// An order status is sent with the request id ids remembers for its order,
+// if any; telemetry carries none.
 func New(
 	source Source,
 	client backend.Client,
 	policy retry.Policy,
 	logger *slog.Logger,
 	rec telemetry.Recorder,
+	ids *requestid.Store,
 ) Pipeline {
 	policy.OnRetry = func(
 		err error,
@@ -40,5 +45,5 @@ func New(
 	) {
 		logger.Warn("backend unavailable, retrying", "error", err, "retry_in", delay)
 	}
-	return &runner{source: source, client: client, policy: policy, logger: logger, rec: rec}
+	return &runner{source: source, client: client, policy: policy, logger: logger, rec: rec, ids: ids}
 }

@@ -8,6 +8,7 @@ import (
 
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/backend"
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/classify"
+	"github.com/Warehouse-USAL/wh-backend/bridge/internal/requestid"
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/retry"
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/telemetry"
 )
@@ -23,6 +24,7 @@ type runner struct {
 	policy retry.Policy
 	logger *slog.Logger
 	rec    telemetry.Recorder
+	ids    *requestid.Store
 }
 
 func (r *runner) Run(
@@ -63,12 +65,22 @@ func (r *runner) handle(
 		r.ack(delivery)
 		return
 	}
-	err = retry.Retry(ctx, r.policy, func(
+	requestID := r.requestIDOf(req)
+	err = retry.Retry(requestid.With(ctx, requestID), r.policy, func(
 		ctx context.Context,
 	) error {
 		return r.send(ctx, req)
 	})
-	r.settle(delivery, req, err)
+	r.settle(delivery, req, requestID, err)
+}
+
+func (r *runner) requestIDOf(
+	req classify.Request,
+) string {
+	if req.OrderID == "" {
+		return ""
+	}
+	return r.ids.Lookup(req.OrderID)
 }
 
 func (r *runner) send(
@@ -90,21 +102,22 @@ func (r *runner) send(
 func (r *runner) settle(
 	delivery Delivery,
 	req classify.Request,
+	requestID string,
 	err error,
 ) {
 	if err == nil {
-		r.logger.Info("delivered to backend", "kind", req.Kind, "path", req.Path)
+		r.logger.Info("delivered to backend", "kind", req.Kind, "path", req.Path, "request_id", requestID)
 		r.rec.Message(flowOf(req), "ok")
 		r.ack(delivery)
 		return
 	}
 	if errors.Is(err, backend.ErrRejected) {
-		r.logger.Warn("backend rejected message, dropping", "kind", req.Kind, "path", req.Path, "error", err, "payload", string(req.Body))
+		r.logger.Warn("backend rejected message, dropping", "kind", req.Kind, "path", req.Path, "request_id", requestID, "error", err, "payload", string(req.Body))
 		r.rec.Message(flowOf(req), "dropped")
 		r.ack(delivery)
 		return
 	}
-	r.logger.Info("stopping with a message in flight, requeueing", "kind", req.Kind, "path", req.Path)
+	r.logger.Info("stopping with a message in flight, requeueing", "kind", req.Kind, "path", req.Path, "request_id", requestID)
 	r.rec.Message(flowOf(req), "error")
 	if requeueErr := delivery.Requeue(); requeueErr != nil {
 		r.logger.Error("requeue failed", "error", requeueErr)

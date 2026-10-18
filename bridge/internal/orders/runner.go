@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 
+	"github.com/Warehouse-USAL/wh-backend/bridge/internal/requestid"
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/retry"
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/telemetry"
 )
@@ -16,6 +17,7 @@ type runner struct {
 	policy    retry.Policy
 	logger    *slog.Logger
 	rec       telemetry.Recorder
+	ids       *requestid.Store
 }
 
 func (r *runner) Run(
@@ -38,12 +40,17 @@ func (r *runner) step(
 	if err != nil {
 		return err
 	}
-	if !hasOrderID(record.Value()) {
-		r.logger.Error("skipping record without a valid order_id", "payload", string(record.Value()))
+	requestID := record.RequestID()
+	orderID := orderIDOf(record.Value())
+	if orderID == "" {
+		r.logger.Error("skipping record without a valid order_id", "payload", string(record.Value()), "request_id", requestID)
 		r.rec.Message(flow, "dropped")
 		return r.consumer.Commit(ctx, record)
 	}
-	err = retry.Retry(ctx, r.policy, func(
+	if requestID != "" {
+		r.ids.Remember(orderID, requestID)
+	}
+	err = retry.Retry(requestid.With(ctx, requestID), r.policy, func(
 		ctx context.Context,
 	) error {
 		return r.publisher.Publish(ctx, record.Value())
@@ -52,19 +59,19 @@ func (r *runner) step(
 		r.rec.Message(flow, "error")
 		return err
 	}
-	r.logger.Info("order published to infra", "payload", string(record.Value()))
+	r.logger.Info("order published to infra", "payload", string(record.Value()), "request_id", requestID)
 	r.rec.Message(flow, "ok")
 	return r.consumer.Commit(ctx, record)
 }
 
-func hasOrderID(
+func orderIDOf(
 	payload []byte,
-) bool {
+) string {
 	var order struct {
 		OrderID string `json:"order_id"`
 	}
 	if json.Unmarshal(payload, &order) != nil {
-		return false
+		return ""
 	}
-	return order.OrderID != ""
+	return order.OrderID
 }

@@ -52,7 +52,9 @@ func orderStatus(
 	for _, name := range orderStatusFields {
 		copyField(kept, fields, name)
 	}
-	return build("/infra/orders/"+url.PathEscape(orderID)+"/status", KindOrderStatus, kept)
+	req, err := build("/infra/orders/"+url.PathEscape(orderID)+"/status", KindOrderStatus, kept)
+	req.OrderID = orderID
+	return req, err
 }
 
 func vehicleTelemetry(

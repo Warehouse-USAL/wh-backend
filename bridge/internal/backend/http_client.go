@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/classify"
+	"github.com/Warehouse-USAL/wh-backend/bridge/internal/requestid"
 )
 
 const maxErrorBody = 512
@@ -28,6 +29,9 @@ func (c *httpClient) Send(
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("X-Api-Key", c.apiKey)
+	if id := requestid.From(ctx); id != "" {
+		httpReq.Header.Set("X-Request-Id", id)
+	}
 	resp, err := c.http.Do(httpReq)
 	if err != nil {
 		return fmt.Errorf("post %s: %w", req.Path, err)

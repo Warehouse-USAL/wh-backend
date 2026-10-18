@@ -18,6 +18,7 @@ import (
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/kafka"
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/orders"
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/rabbit"
+	"github.com/Warehouse-USAL/wh-backend/bridge/internal/requestid"
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/retry"
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/supervise"
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/telemetry"
@@ -100,13 +101,16 @@ func serve(
 	}
 	defer consumer.Close()
 	policy := retry.Policy{Min: cfg.RetryMin, Max: cfg.RetryMax}
-	toInfra := orders.New(consumer, rabbit.NewPublisher(cfg.AMQPURL, exchange, ordersRoutingKey), policy, logger, rec)
+	// Shared by both pipelines: orders remember their request id, callbacks look it up.
+	ids := requestid.New()
+	toInfra := orders.New(consumer, rabbit.NewPublisher(cfg.AMQPURL, exchange, ordersRoutingKey), policy, logger, rec, ids)
 	fromInfra := vehicles.New(
 		rabbit.NewConsumer(cfg.AMQPURL, rabbit.Binding{Exchange: exchange, Queue: cfg.AMQPQueue, RoutingKey: vehiclesKey}, policy, logger),
 		backend.New(cfg.BackendURL, cfg.InfraAPIKey, cfg.HTTPTimeout),
 		policy,
 		logger,
 		rec,
+		ids,
 	)
 	tasks := []func(context.Context) error{toInfra.Run, fromInfra.Run, func(
 		ctx context.Context,

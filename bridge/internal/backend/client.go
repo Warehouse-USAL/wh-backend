@@ -11,7 +11,8 @@ import (
 
 // Client delivers translated Infra messages to the backend over HTTP.
 type Client interface {
-	// Send posts req to the backend.
+	// Send posts req to the backend, with the request id carried by ctx (see
+	// requestid.With) as X-Request-Id when there is one.
 	//
 	// It returns nil on a 2xx answer, an error matching ErrRejected when the
 	// backend refuses the request for good (4xx except 408 and 429), and any

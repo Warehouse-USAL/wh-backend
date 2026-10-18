@@ -11,6 +11,7 @@ import (
 
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/backend"
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/classify"
+	"github.com/Warehouse-USAL/wh-backend/bridge/internal/requestid"
 )
 
 type recorded struct {
@@ -18,6 +19,7 @@ type recorded struct {
 	path   string
 	key    string
 	ctype  string
+	reqID  string
 	body   string
 }
 
@@ -36,6 +38,7 @@ func (f *fakeBackend) ServeHTTP(
 		path:   r.URL.EscapedPath(),
 		key:    r.Header.Get("X-Api-Key"),
 		ctype:  r.Header.Get("Content-Type"),
+		reqID:  r.Header.Get("X-Request-Id"),
 		body:   string(body),
 	})
 	w.WriteHeader(f.status)
@@ -155,5 +158,17 @@ func TestSendTimeoutIsTransient(
 	err := client.Send(context.Background(), sample)
 	if err == nil || errors.Is(err, backend.ErrRejected) {
 		t.Fatalf("got %v, want a transient error", err)
+	}
+}
+
+func TestSendForwardsTheContextRequestID(
+	t *testing.T,
+) {
+	client, fake := newClient(t, http.StatusOK)
+	if err := client.Send(requestid.With(context.Background(), "req-1"), sample); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := fake.requests[0].reqID; got != "req-1" {
+		t.Fatalf("X-Request-Id = %q, want req-1", got)
 	}
 }

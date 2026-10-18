@@ -8,7 +8,11 @@ import (
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
+
+	"github.com/Warehouse-USAL/wh-backend/bridge/internal/requestid"
 )
+
+const requestIDHeader = "x-request-id"
 
 var (
 	errNacked      = errors.New("broker nacked the message")
@@ -87,6 +91,7 @@ func (p *publisher) send(
 			ContentType:  "application/json",
 			DeliveryMode: amqp.Persistent,
 			Timestamp:    time.Now(),
+			Headers:      headers(ctx),
 			Body:         body,
 		},
 	)
@@ -110,4 +115,15 @@ func (p *publisher) checkReturned() error {
 	default:
 		return nil
 	}
+}
+
+// headers carries the request id on the context, if any, to Infra.
+func headers(
+	ctx context.Context,
+) amqp.Table {
+	id := requestid.From(ctx)
+	if id == "" {
+		return nil
+	}
+	return amqp.Table{requestIDHeader: id}
 }
