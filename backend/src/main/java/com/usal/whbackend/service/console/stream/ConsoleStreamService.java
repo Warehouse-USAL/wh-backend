@@ -49,8 +49,9 @@ import tools.jackson.databind.json.JsonMapper;
  * server shuts down ({@code server-shutdown}, before the web server's graceful shutdown waits on
  * open requests), or when its client cannot keep up ({@code limit}). A client that stops reading
  * for {@code console.stream.send-timeout} is dropped; one that disconnects is noticed by the
- * container or by the next write (at worst one heartbeat later). Either way every source it held is
- * released at once.
+ * container or by the first write that fails (heartbeats guarantee one every 15 s; a half-open
+ * connection only fails once the kernel gives up retransmitting). Either way every source it held
+ * is released at once.
  */
 @Service
 public class ConsoleStreamService implements SmartLifecycle {

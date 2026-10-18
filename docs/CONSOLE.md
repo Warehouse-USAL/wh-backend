@@ -181,8 +181,12 @@ event buffer (no timer). Logs follow a cursor: every interval the search is re-r
 streaming client). Metrics are the one internal pull (VictoriaMetrics cannot push): one query per
 unique subscription every 5 s, about 12 a minute however many streams share it. Each stream has a
 bounded queue; a waiting `replace` frame is overwritten by the newer one, and overflowing `append`
-frames end the stream with `limit`. A client that accepts nothing for `send-timeout` is dropped. A
-disconnected client is noticed at the latest on the next heartbeat.
+frames end the stream with `limit`. A client that accepts nothing for `send-timeout` is dropped.
+A client that closes the connection is noticed on the next write that fails (measured 46 s through
+Docker Desktop's port forwarder, i.e. after two to three heartbeats). A client whose network
+vanishes without closing (half-open TCP) is only noticed when the kernel stops retransmitting (about
+15 minutes on Linux; measured 961 s), when its send buffer fills and `send-timeout` fires, or at
+token expiry; until then it holds one of its user's five streams.
 
 | Key (`console.stream.`) | Default | |
 |---|---|---|
