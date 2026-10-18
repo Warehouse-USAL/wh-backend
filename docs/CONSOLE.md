@@ -298,8 +298,24 @@ source start and stop with the number of active sources.
 
 Proxies must not buffer the response:
 
-- The console's nginx: `proxy_buffering off` for `/api/console/stream` (Task 23e; the backend's
-  `X-Accel-Buffering: no` already asks nginx for it).
+- The console's nginx (`console/nginx.conf`) has its own `location = /api/console/stream`:
+  `proxy_buffering off`, `proxy_cache off`, `gzip off`, HTTP/1.1 with an empty `Connection`
+  header, chunked transfer and `proxy_read_timeout 3600s` (the backend's `X-Accel-Buffering: no`
+  asks for the same). It adds no headers of its own, so the server's CSP and security headers still
+  apply.
+
+The console's client (`console/src/data/stream/`): one stream for the whole app, opened with
+`fetch` and read as a `ReadableStream` (the JWT stays in the header). Widgets subscribe through
+hooks (`useMetric`, `useLogs`, `useStatus`, `useWsEvents`), ref-counted by canonical params, so
+equal params from several widgets are one subscription. A change to the set is debounced (250 ms)
+and applied by reopening the stream with the full set: every source is shared and cached server
+side, so the reopen costs one request and the snapshots come from memory. Reconnects use
+exponential backoff with jitter (1 s doubling, capped at 30 s; reset by a successful open) and
+always re-send the full set; a watchdog reopens the stream after 45 s without a byte (frame or
+ping). `401` and `end{token-expired}` end the session and show the login; `400`/`403` stop and show
+the error; `429 STREAM_LIMIT`, `5xx`, network errors and other `end` reasons retry. Live off closes
+the stream and keeps the data (a subscription added while paused gets one snapshot, then the stream
+closes again); Live on reopens it. The header shows the state and the time of the last frame.
 - Caddy streams `text/event-stream` as it arrives by default. For the owner of the Caddyfile, the
   explicit safe setting on the route that reaches the backend is:
 
