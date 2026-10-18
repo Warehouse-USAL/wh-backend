@@ -11,7 +11,9 @@ import java.util.Set;
  * @param seriesName the name VictoriaMetrics actually stores, e.g. {@code wh_vehicle_battery}. Held
  *     explicitly rather than derived: the OTLP-to-Prometheus mapping depends on collector
  *     configuration (see config/otel/collector-config.yml), and guessing it yields queries that
- *     return empty results with no error. This value is verified against a running stack.
+ *     return empty results with no error. This value is verified against a running stack. For a
+ *     {@link MetricType#HISTOGRAM} it is the base name, e.g. {@code http_server_duration}; the
+ *     translator appends {@code _bucket} or {@code _count}.
  * @param dimensions the only labels that may appear in {@code filters} or {@code group_by}
  */
 public record MetricDescriptor(
@@ -44,7 +46,10 @@ public record MetricDescriptor(
       boolean valid =
           switch (type) {
             case COUNTER -> aggregation.isCounterDelta();
-            case GAUGE, HISTOGRAM -> !aggregation.isCounterDelta();
+            case GAUGE -> !aggregation.isCounterDelta() && aggregation.quantile().isEmpty();
+            // Rate and increase read the _count series; any *_over_time of a histogram is
+            // as meaningless as on a counter, since its buckets and count are counters.
+            case HISTOGRAM -> aggregation.isCounterDelta() || aggregation.quantile().isPresent();
           };
       if (!valid) {
         throw new IllegalArgumentException(
