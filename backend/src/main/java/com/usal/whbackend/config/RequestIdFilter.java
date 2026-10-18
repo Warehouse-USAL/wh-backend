@@ -30,15 +30,17 @@ public class RequestIdFilter extends OncePerRequestFilter {
   /** Bounded and free of separators, so a caller cannot forge or break log lines. */
   private static final Pattern SAFE_ID = Pattern.compile("[A-Za-z0-9_-]{1,64}");
 
+  /** Whether {@code id} may be logged or forwarded as a request id. */
+  public static boolean isSafe(String id) {
+    return id != null && SAFE_ID.matcher(id).matches();
+  }
+
   @Override
   protected void doFilterInternal(
       HttpServletRequest request, HttpServletResponse response, FilterChain chain)
       throws ServletException, IOException {
     String inbound = request.getHeader(HEADER);
-    String id =
-        inbound != null && SAFE_ID.matcher(inbound).matches()
-            ? inbound
-            : UUID.randomUUID().toString();
+    String id = isSafe(inbound) ? inbound : UUID.randomUUID().toString();
     MDC.put(MDC_KEY, id);
     response.setHeader(HEADER, id);
     try {

@@ -1,7 +1,7 @@
 package com.usal.whbackend.repository;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -11,6 +11,7 @@ import com.usal.whbackend.telemetry.TelemetryPort;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
+import org.apache.kafka.clients.producer.ProducerRecord;
 import org.junit.jupiter.api.Test;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.kafka.core.KafkaTemplate;
@@ -56,7 +57,7 @@ class OrderRepositoryKafkaMetricsTest {
     CompletableFuture<SendResult<String, String>> ok = CompletableFuture.completedFuture(null);
     CompletableFuture<SendResult<String, String>> failed =
         CompletableFuture.failedFuture(new IllegalStateException("broker down"));
-    when(kafka.send(anyString(), anyString(), anyString())).thenReturn(ok, failed);
+    when(kafka.send(any(ProducerRecord.class))).thenReturn(ok, failed);
     Order first = order("ord-1");
     Order second = order("ord-2");
     when(mongo.save(first)).thenReturn(first);
@@ -71,7 +72,7 @@ class OrderRepositoryKafkaMetricsTest {
 
   @Test
   void aSendThatThrowsIsCountedAsAnErrorOnItsTopic() throws InterruptedException {
-    when(kafka.send(anyString(), anyString())).thenThrow(new IllegalStateException("no producer"));
+    when(kafka.send(any(ProducerRecord.class))).thenThrow(new IllegalStateException("no producer"));
 
     repository.publishCompleted(order("ord-3"));
 
