@@ -19,7 +19,9 @@ import WebSockets from '@/pages/WebSockets'
 // A Monitoring nav item whose label names an API domain gets that domain's page.
 const isDomain = (label: string): label is Domain => (DOMAINS as readonly string[]).includes(label)
 
-// Dev tools embed through the console nginx's frame-safe proxies (Task 17).
+// Dev tools embed through the console nginx's frame-safe proxies (Task 17). The dev profile is
+// http only: the CSP allows `frame-src http://*:8091 http://*:8092`, so an https console would need
+// that CSP changed (see Task 29).
 const DEV_PORTS: Record<string, number> = { '/dev/mongo-express': 8091, '/dev/redpanda-console': 8092 }
 
 // Stands in for a page until its task builds it; tasks 19-25 swap it out route by route.

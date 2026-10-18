@@ -4,19 +4,23 @@ import { type WsEvent, type WsFeed, useWsEvents } from '@/data/streamHooks'
 import { stepFor, useMetric } from '@/data/useMetric'
 import Header from '@/layout/Header'
 import BarsWidget from '@/widgets/BarsWidget'
-import Card, { Empty } from '@/widgets/Card'
+import Card from '@/widgets/Card'
 import Group from '@/widgets/Group'
-import { PALETTE, type Series, formatClock, toneFor } from '@/widgets/scale'
+import { PALETTE, type Series, formatClock, formatCount } from '@/widgets/scale'
 import StreamWidget from '@/widgets/StreamWidget'
 import TileWidget from '@/widgets/TileWidget'
 import { Panel, Skeleton } from './Overview'
 
-/** The four feeds: `path` is the `feed` tag of the `ws.*` metrics, `slug` names the event buffer. */
-const FEEDS: { path: string; slug: WsFeed; desc: string }[] = [
-  { path: '/ws/v1/orders', slug: 'orders', desc: 'all order events' },
-  { path: '/ws/v1/orders/{userId}', slug: 'user-orders', desc: 'order events for one user' },
-  { path: '/ws/v1/vehicles', slug: 'vehicles', desc: 'vehicle state and telemetry' },
-  { path: '/ws/v1/stock/alerts', slug: 'stock-alerts', desc: 'low-stock alerts' },
+/**
+ * The four feeds: `path` is the `feed` tag of the `ws.*` metrics, `slug` names the event buffer,
+ * `rejects` says why the backend refuses a handshake on it (`ws.messages{result=rejected}`):
+ * JwtHandshakeInterceptor guards three feeds, UserOrderHandshakeInterceptor the per-user one.
+ */
+const FEEDS: { path: string; slug: WsFeed; desc: string; rejects: string }[] = [
+  { path: '/ws/v1/orders', slug: 'orders', desc: 'all order events', rejects: 'bad or missing token / role not allowed' },
+  { path: '/ws/v1/orders/{userId}', slug: 'user-orders', desc: 'order events for one user', rejects: 'bad or missing token / user mismatch' },
+  { path: '/ws/v1/vehicles', slug: 'vehicles', desc: 'vehicle state and telemetry', rejects: 'bad or missing token / role not allowed' },
+  { path: '/ws/v1/stock/alerts', slug: 'stock-alerts', desc: 'low-stock alerts', rejects: 'bad or missing token / role not allowed' },
 ]
 
 /** Monitoring / WebSockets: one group per feed, its sessions and messages, then its event buffer. */
@@ -39,25 +43,21 @@ const pick = (series: Series[], label: string, as: { label: string; color: strin
 const total = (series: Series[], label: string) =>
   series.filter((s) => s.label === label).flatMap((s) => s.points).reduce((n, p) => n + p.v, 0)
 
-function FeedGroup({ path, slug, desc }: (typeof FEEDS)[number]) {
+function FeedGroup({ path, slug, desc, rejects }: (typeof FEEDS)[number]) {
   const { range } = useLive()
   const sessionsQuery: MetricQuery = { metric: 'ws.sessions', agg: 'last', filters: { feed: path } }
   const messagesQuery: MetricQuery = { metric: 'ws.messages', agg: 'increase', filters: { feed: path }, groupBy: ['result'] }
   const sessions = useMetric(sessionsQuery)
-  // Pushes, disconnects and the health tile share one query (by result).
+  // Pushes, disconnects and rejected handshakes share one query (by result).
   const messages = useMetric(messagesQuery)
   const per = `per ${stepFor(range)}`
 
   const clients = sessions.series.map((s) => ({ ...s, label: 'connected clients', color: PALETTE.blue }))
   const pushed = pick(messages.series, 'pushed', { label: 'pushed', color: PALETTE.blue })
-  const disconnects = [
-    ...pick(messages.series, 'closed', { label: 'closed', color: PALETTE.gray }),
-    ...pick(messages.series, 'rejected', { label: 'rejected', color: PALETTE.red }),
-  ]
-  // Every session ends closed or is rejected at the handshake; health is the share not rejected.
+  // `closed` is the only result that ends an open session; a rejected handshake never connected.
+  const closed = pick(messages.series, 'closed', { label: 'closed', color: PALETTE.gray })
+  // Over the whole range; no rejected series means the counter did not move.
   const rejected = total(messages.series, 'rejected')
-  const ended = rejected + total(messages.series, 'closed')
-  const healthy = ended > 0 ? (1 - rejected / ended) * 100 : undefined
 
   return (
     <Group title={<span className="font-mono">{path}</span>} tag={desc}>
@@ -68,16 +68,15 @@ function FeedGroup({ path, slug, desc }: (typeof FEEDS)[number]) {
         <BarsWidget title="Messages pushed" sub={per} series={pushed} times={messages.times} className="col-span-3" />
       </Panel>
       <Panel state={messages} title="Disconnects" className="col-span-3">
-        <BarsWidget title="Disconnects" sub="by reason" series={disconnects} times={messages.times} className="col-span-3" />
+        <BarsWidget title="Disconnects" sub="sessions closed" series={closed} times={messages.times} className="col-span-3" />
       </Panel>
-      <Panel state={messages} title="Healthy sessions" className="col-span-3">
-        {healthy === undefined ? (
-          <Card title="Healthy sessions" className="col-span-3">
-            <Empty />
-          </Card>
-        ) : (
-          <TileWidget value={`${+healthy.toFixed(2)}%`} tone={toneFor(healthy)} label="Healthy sessions" className="col-span-3" />
-        )}
+      <Panel state={messages} title="Rejected handshakes" className="col-span-3">
+        <TileWidget
+          value={formatCount(rejected)}
+          tone={rejected > 0 ? 'error' : 'ok'}
+          label={`Rejected handshakes, ${rejects}`}
+          className="col-span-3"
+        />
       </Panel>
       <EventBuffer feed={slug} />
     </Group>

@@ -133,7 +133,8 @@ describe('Overview', () => {
   it('restockCronTileSaysWhenNoRunFellInTheRange', () => {
     renderPage()
 
-    expect(screen.getByText('NO RUN')).toBeInTheDocument()
+    // Not a failure, not a confirmed success: amber, never green.
+    expect(screen.getByText('NO RUN')).toHaveClass('text-wn')
     expect(screen.getByText('restock-cron, no run in the past 15m')).toBeInTheDocument()
   })
 

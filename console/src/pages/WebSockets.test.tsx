@@ -49,7 +49,7 @@ describe('WebSockets', () => {
 
     const titles = screen.getAllByRole('region').map((r) => within(r).getAllByRole('heading')[0].textContent)
     expect(titles).toEqual(FEEDS)
-    for (const t of ['Clients', 'Messages pushed', 'Disconnects', 'Healthy sessions', 'Event buffer']) {
+    for (const t of ['Clients', 'Messages pushed', 'Disconnects', /^Rejected handshakes/, 'Event buffer']) {
       expect(within(feedGroup('/ws/v1/orders')).getByText(t)).toBeInTheDocument()
     }
     expect(vi.mocked(useWsEvents).mock.calls.map(([f]) => f)).toEqual(expect.arrayContaining(['orders', 'user-orders', 'vehicles', 'stock-alerts']))
@@ -71,18 +71,31 @@ describe('WebSockets', () => {
     }
   })
 
-  it('healthTileTonesFollowTheRejectedShare', () => {
+  it('rejectedHandshakesTileCountsRejectionsOverTheRange', () => {
     stubMetrics((q) => {
       if (q.metric !== 'ws.messages') return state([series('sessions', [2])])
-      // Health is the share of finished sessions (closed or rejected) that were not rejected; pushes do not count.
-      const [closed, rejected] = q.filters?.feed === '/ws/v1/orders' ? [90, 1] : q.filters?.feed === '/ws/v1/vehicles' ? [96, 4] : [3, 1]
-      return state([series('pushed', [5000, 4600]), series('closed', [1, closed - 1]), series('rejected', [rejected])])
+      if (q.filters?.feed === '/ws/v1/orders/{userId}') return state([series('pushed', [50]), series('closed', [2]), series('rejected', [2, 1])])
+      return state([series('pushed', [50]), series('closed', [3])])
     })
     render(<WebSockets />)
 
-    expect(within(feedGroup('/ws/v1/orders')).getByText('98.9%')).toHaveClass('text-ok')
-    expect(within(feedGroup('/ws/v1/vehicles')).getByText('96%')).toHaveClass('text-wn')
-    expect(within(feedGroup('/ws/v1/stock/alerts')).getByText('75%')).toHaveClass('text-er')
+    const users = within(feedGroup('/ws/v1/orders/{userId}'))
+    expect(users.getByText('3')).toHaveClass('text-er')
+    expect(users.getByText('Rejected handshakes, bad or missing token / user mismatch')).toBeInTheDocument()
+    const vehicles = within(feedGroup('/ws/v1/vehicles'))
+    expect(vehicles.getByText('0')).toHaveClass('text-ok')
+    expect(vehicles.getByText('Rejected handshakes, bad or missing token / role not allowed')).toBeInTheDocument()
+  })
+
+  it('disconnectsShowOnlyClosedSessionsNeverRejectedHandshakes', () => {
+    stubMetrics((q) => (q.metric === 'ws.messages' ? state([series('closed', [3]), series('rejected', [7])]) : state([])))
+    render(<WebSockets />)
+
+    const disconnects = within(feedGroup('/ws/v1/orders')).getByText('sessions closed').parentElement?.parentElement
+    expect(disconnects).toHaveTextContent('closed')
+    expect(disconnects).not.toHaveTextContent('rejected')
+    // The 7 rejections are counted on their own tile instead.
+    expect(within(feedGroup('/ws/v1/orders')).getByText('7')).toHaveClass('text-er')
   })
 
   it('emptyAndErrorStates', () => {
@@ -91,7 +104,8 @@ describe('WebSockets', () => {
 
     const orders = feedGroup('/ws/v1/orders')
     expect(within(orders).getByText('Metrics store unavailable')).toBeInTheDocument()
-    expect(within(orders).getAllByText('No data in this range').length).toBeGreaterThanOrEqual(3)
+    expect(within(orders).getAllByText('No data in this range')).toHaveLength(2)
+    expect(within(orders).getByText('0')).toHaveClass('text-ok')
     expect(within(orders).getByText('No events yet')).toBeInTheDocument()
   })
 

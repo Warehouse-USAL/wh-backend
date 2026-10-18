@@ -4,7 +4,11 @@ import { Skeleton } from './Overview'
 
 type Props = {
   name: string
-  /** The console nginx's frame-safe proxy for this tool (8091 mongo-express, 8092 redpanda-console). */
+  /**
+   * The console nginx's frame-safe proxy for this tool (8091 mongo-express, 8092 redpanda-console).
+   * http only, like the dev profile: the CSP's `frame-src http://*:8091 http://*:8092` would block
+   * these frames under an https console until that CSP changes (see Task 29).
+   */
   port: number
 }
 

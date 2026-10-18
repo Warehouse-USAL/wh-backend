@@ -90,6 +90,8 @@ function ServiceTile({ service }: { service: ServiceStatus }) {
 
 function MeasuredTile({ service, detail }: { service: ServiceStatus; detail: Detail }) {
   const state = useMetric(detail.query)
+  // Ungrouped, every detail query is one series: `last` collapses series to their max (bridge lag
+  // over flows), rate and p95 to the sum or the quantile over all of them.
   const v = latest(state.series[0])
   return <StatusTile service={service} measured={!state.error && v !== undefined ? detail.format(v) : undefined} />
 }
@@ -107,7 +109,8 @@ function RestockTile() {
   const last = runs.series
     .flatMap((s) => s.points.map((p) => ({ t: p.t, result: s.label })))
     .reduce<{ t: number; result: string } | undefined>((a, b) => (a && a.t >= b.t ? a : b), undefined)
-  if (!last) return <TileWidget value="NO RUN" tone="ok" label={`restock-cron, no run in the past ${range}`} className="col-span-3" />
+  // No run in range is not a failure (the cron runs daily), but not a confirmed success either.
+  if (!last) return <TileWidget value="NO RUN" tone="warn" label={`restock-cron, no run in the past ${range}`} className="col-span-3" />
   const ok = last.result === 'ok'
   return (
     <TileWidget
