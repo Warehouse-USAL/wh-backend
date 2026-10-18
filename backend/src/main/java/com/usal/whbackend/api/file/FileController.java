@@ -3,6 +3,7 @@ package com.usal.whbackend.api.file;
 import com.usal.whbackend.service.storage.MinioStorageService;
 import com.usal.whbackend.service.storage.StorageService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import java.util.List;
@@ -39,11 +40,18 @@ public class FileController {
   @Operation(
       summary = "Upload an image",
       description =
-          "Returns the URL and key. Requires ADMIN_WAREHOUSE, ADMIN_SALES or SUPERADMIN role.")
+          "Stores the file as <path>/<uuid>.<ext> and returns the URL and key. The optional"
+              + " `path` part is one segment of letters, digits, '_' or '-' (default `images`)."
+              + " Requires ADMIN_WAREHOUSE, ADMIN_SALES or SUPERADMIN role.")
   @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_WAREHOUSE', 'ADMIN_SALES')")
   @PostMapping("/upload")
-  public ResponseEntity<FileUploadResponse> upload(@RequestParam("file") MultipartFile file) {
-    String url = storageService.upload(file, IMAGES_PATH);
+  public ResponseEntity<FileUploadResponse> upload(
+      @RequestParam("file") MultipartFile file,
+      @Parameter(description = "Folder for the file; defaults to images")
+          @RequestParam(value = "path", required = false)
+          String path) {
+    String folder = path == null ? IMAGES_PATH : MinioStorageService.uploadPath(path);
+    String url = storageService.upload(file, folder);
     String key = MinioStorageService.extractKey(url, REQUEST_BASE);
     return ResponseEntity.ok(new FileUploadResponse(url, key));
   }
