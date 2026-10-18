@@ -8,13 +8,19 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Supplier;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.AdminClientConfig;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.health.contributor.HealthContributor;
 import org.springframework.boot.health.contributor.HealthIndicator;
@@ -46,11 +52,14 @@ public class ServiceStatusService {
   private static final Duration DEADLINE = Duration.ofMillis(2200);
   private static final Profiles DEV_PROFILES = Profiles.of("dev", "docker");
 
+  private static final Logger log = LoggerFactory.getLogger(ServiceStatusService.class);
+
   private final ConsoleProperties properties;
   private final HealthContributorRegistry healthRegistry;
   private final Environment environment;
   private final String kafkaBootstrap;
   private final RestClient client;
+  private final Map<String, AtomicBoolean> inFlight = new ConcurrentHashMap<>();
   private final ExecutorService executor =
       Executors.newFixedThreadPool(
           8,
@@ -82,24 +91,24 @@ public class ServiceStatusService {
 
   /** Probes every service at once; always returns all eight rows, in a fixed order. */
   public List<ServiceStatus> statuses() {
-    List<CompletableFuture<ServiceStatus>> futures = new ArrayList<>();
-    futures.add(probe("backend", this::backend));
-    futures.add(probe("bridge", () -> http("bridge", properties.getBridgeUrl(), "/healthz")));
-    futures.add(probe("mongodb", () -> indicator("mongodb", "mongo")));
-    futures.add(probe("redpanda", this::kafka));
-    futures.add(
-        probe("minio", () -> http("minio", properties.getMinioUrl(), "/minio/health/live")));
-    futures.add(
-        probe(
+    long deadline = System.nanoTime() + DEADLINE.toNanos();
+    List<Probe> probes = new ArrayList<>();
+    probes.add(start("backend", this::backend));
+    probes.add(start("bridge", () -> http("bridge", properties.getBridgeUrl(), "/healthz")));
+    probes.add(start("mongodb", () -> indicator("mongodb", "mongo")));
+    probes.add(start("redpanda", this::kafka));
+    probes.add(start("minio", () -> http("minio", properties.getMinioUrl(), "/minio/health/live")));
+    probes.add(
+        start(
             "victoriametrics",
             () -> http("victoriametrics", properties.getVictoriametricsUrl(), "/health")));
-    futures.add(
-        probe(
+    probes.add(
+        start(
             "victorialogs",
             () -> http("victorialogs", properties.getVictorialogsUrl(), "/health")));
-    futures.add(
-        probe("otel-collector", () -> http("otel-collector", properties.getCollectorUrl(), "")));
-    return futures.stream().map(CompletableFuture::join).toList();
+    probes.add(
+        start("otel-collector", () -> http("otel-collector", properties.getCollectorUrl(), "")));
+    return probes.stream().map(probe -> probe.await(deadline)).toList();
   }
 
   @PreDestroy
@@ -107,20 +116,53 @@ public class ServiceStatusService {
     executor.shutdownNow();
   }
 
-  private CompletableFuture<ServiceStatus> probe(String name, Supplier<ServiceStatus> check) {
-    return CompletableFuture.supplyAsync(
+  /**
+   * Submits a probe unless the previous one for the same service is still running, which bounds the
+   * pool to one thread per service even when a probe (such as an in-process health check) hangs.
+   */
+  private Probe start(String name, Supplier<ServiceStatus> check) {
+    AtomicBoolean busy = inFlight.computeIfAbsent(name, key -> new AtomicBoolean());
+    if (!busy.compareAndSet(false, true)) {
+      return new Probe(name, null, busy, new AtomicBoolean());
+    }
+    AtomicBoolean started = new AtomicBoolean();
+    Future<ServiceStatus> future =
+        executor.submit(
             () -> {
+              started.set(true);
               try {
                 return check.get();
               } catch (RuntimeException e) {
+                log.debug("Status probe {} failed: {}", name, e.getClass().getSimpleName());
                 return new ServiceStatus(name, DOWN, "probe failed", null);
+              } finally {
+                busy.set(false);
               }
-            },
-            executor)
-        .completeOnTimeout(
-            new ServiceStatus(name, DOWN, "timeout", null),
-            DEADLINE.toMillis(),
-            TimeUnit.MILLISECONDS);
+            });
+    return new Probe(name, future, busy, started);
+  }
+
+  private record Probe(
+      String name, Future<ServiceStatus> future, AtomicBoolean busy, AtomicBoolean started) {
+
+    ServiceStatus await(long deadlineNanos) {
+      ServiceStatus timeout = new ServiceStatus(name, DOWN, "timeout", null);
+      if (future == null) {
+        return timeout;
+      }
+      try {
+        return future.get(Math.max(0, deadlineNanos - System.nanoTime()), TimeUnit.NANOSECONDS);
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+        return timeout;
+      } catch (ExecutionException | TimeoutException e) {
+        future.cancel(true);
+        if (!started.get()) {
+          busy.set(false);
+        }
+        return timeout;
+      }
+    }
   }
 
   private ServiceStatus backend() {
@@ -135,8 +177,14 @@ public class ServiceStatusService {
       return new ServiceStatus(name, UNKNOWN, "no health indicator", null);
     }
     try {
-      boolean up = Status.UP.equals(health.health().getStatus());
-      return new ServiceStatus(name, up ? UP : DOWN, up ? null : "health check reports down", null);
+      Status status = health.health().getStatus();
+      if (Status.UP.equals(status)) {
+        return new ServiceStatus(name, UP, null, null);
+      }
+      if (Status.UNKNOWN.equals(status)) {
+        return new ServiceStatus(name, UNKNOWN, "health check unknown", null);
+      }
+      return new ServiceStatus(name, DOWN, "health check reports down", null);
     } catch (RuntimeException e) {
       return new ServiceStatus(name, DOWN, "health check failed", null);
     }
@@ -147,12 +195,13 @@ public class ServiceStatusService {
       return notConfigured("redpanda");
     }
     int timeoutMs = (int) KAFKA_TIMEOUT.toMillis();
-    try (Admin admin =
+    Admin admin =
         Admin.create(
             Map.of(
                 AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaBootstrap,
                 AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, timeoutMs,
-                AdminClientConfig.DEFAULT_API_TIMEOUT_MS_CONFIG, timeoutMs))) {
+                AdminClientConfig.DEFAULT_API_TIMEOUT_MS_CONFIG, timeoutMs));
+    try {
       admin.describeCluster().nodes().get(KAFKA_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
       return new ServiceStatus("redpanda", UP, null, null);
     } catch (InterruptedException e) {
@@ -160,6 +209,8 @@ public class ServiceStatusService {
       return new ServiceStatus("redpanda", DOWN, "interrupted", null);
     } catch (Exception e) {
       return new ServiceStatus("redpanda", DOWN, "unreachable", null);
+    } finally {
+      admin.close(Duration.ofMillis(500));
     }
   }
 

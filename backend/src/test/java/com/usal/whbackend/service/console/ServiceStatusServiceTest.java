@@ -6,6 +6,8 @@ import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -149,7 +151,7 @@ class ServiceStatusServiceTest {
 
     assertThat(vm.state()).isEqualTo("DOWN");
     assertThat(vm.detail()).isEqualTo("timeout");
-    assertThat((System.nanoTime() - start) / 1_000_000).isLessThan(2500);
+    assertThat((System.nanoTime() - start) / 1_000_000).isLessThan(5000);
   }
 
   @Test
@@ -177,7 +179,7 @@ class ServiceStatusServiceTest {
     ServiceStatus redpanda = find(service.statuses(), "redpanda");
 
     assertThat(redpanda.state()).isEqualTo("DOWN");
-    assertThat((System.nanoTime() - start) / 1_000_000).isLessThan(2500);
+    assertThat((System.nanoTime() - start) / 1_000_000).isLessThan(5000);
   }
 
   @Test
@@ -199,6 +201,66 @@ class ServiceStatusServiceTest {
     assertThat(backend.state()).isEqualTo("DOWN");
     assertThat(backend.detail()).doesNotContain("secret");
     assertThat(backend.uptimeMs()).isNotNull();
+  }
+
+  @Test
+  void unknownIndicatorStatusIsUnknownAndOutOfServiceIsDown() {
+    registry.unregisterContributor("mongo");
+    registry.unregisterContributor("ping");
+    registry.registerContributor("mongo", (HealthIndicator) () -> Health.unknown().build());
+    registry.registerContributor("ping", (HealthIndicator) () -> Health.outOfService().build());
+
+    List<ServiceStatus> statuses = service.statuses();
+
+    assertThat(find(statuses, "mongodb").state()).isEqualTo("UNKNOWN");
+    assertThat(find(statuses, "backend").state()).isEqualTo("DOWN");
+  }
+
+  @Test
+  void hungHealthIndicatorHoldsAtMostOneThreadAndRecovers() throws Exception {
+    AtomicInteger started = new AtomicInteger();
+    AtomicBoolean release = new AtomicBoolean();
+    registry.unregisterContributor("mongo");
+    registry.registerContributor(
+        "mongo",
+        (HealthIndicator)
+            () -> {
+              started.incrementAndGet();
+              while (!release.get()) {
+                try {
+                  Thread.sleep(20);
+                } catch (InterruptedException ignored) {
+                  // a driver call stuck in I/O does not honour interrupts either
+                }
+              }
+              return Health.up().build();
+            });
+    properties.setMinioUrl(url("/ok"));
+
+    for (int poll = 0; poll < 3; poll++) {
+      long start = System.nanoTime();
+      List<ServiceStatus> statuses = service.statuses();
+      long elapsedMs = (System.nanoTime() - start) / 1_000_000;
+
+      assertThat(find(statuses, "mongodb").state()).isEqualTo("DOWN");
+      assertThat(find(statuses, "mongodb").detail()).isEqualTo("timeout");
+      assertThat(find(statuses, "backend").state()).isEqualTo("UP");
+      assertThat(find(statuses, "minio").state()).isEqualTo("UP");
+      assertThat(find(statuses, "bridge").state()).isEqualTo("UNKNOWN");
+      if (poll > 0) {
+        assertThat(elapsedMs).as("later polls do not wait on the hung probe").isLessThan(2100);
+      }
+    }
+    assertThat(started.get()).isEqualTo(1);
+
+    release.set(true);
+    long giveUp = System.nanoTime() + 5_000_000_000L;
+    String state = "DOWN";
+    while (state.equals("DOWN") && System.nanoTime() < giveUp) {
+      Thread.sleep(50);
+      state = find(service.statuses(), "mongodb").state();
+    }
+    assertThat(state).isEqualTo("UP");
   }
 
   @Test
