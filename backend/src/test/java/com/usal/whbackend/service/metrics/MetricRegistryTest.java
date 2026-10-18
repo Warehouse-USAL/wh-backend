@@ -32,36 +32,45 @@ class MetricRegistryTest {
     assertThat(registry.computedVisibleTo(Set.of(UserRole.OPERATOR))).isEmpty();
   }
 
-  private static final Map<String, List<String>> NEW_METRICS =
+  private record Expected(MetricType type, List<String> dimensions) {}
+
+  private static final Map<String, Expected> NEW_METRICS =
       Map.ofEntries(
-          Map.entry("http.server.duration", List.of("route", "method", "status_class")),
-          Map.entry("mongo.command.duration", List.of("collection", "command", "outcome")),
-          Map.entry("kafka.messages", List.of("topic", "direction", "result")),
-          Map.entry("ws.sessions", List.of("feed")),
-          Map.entry("ws.messages", List.of("feed", "result")),
-          Map.entry("jvm.heap.used", List.of()),
-          Map.entry("jvm.threads", List.of()),
-          Map.entry("jvm.gc.time", List.of("gc")),
-          Map.entry("tomcat.threads", List.of("state")),
-          Map.entry("tomcat.connections", List.of("state")),
-          Map.entry("http.server.active", List.of()),
-          Map.entry("mongo.pool.connections", List.of("state")),
-          Map.entry("mongo.pool.checkout", List.of()),
-          Map.entry("bridge.messages", List.of("flow", "result")),
-          Map.entry("bridge.callback.duration", List.of("flow")),
-          Map.entry("bridge.consumer.lag", List.of("flow")),
-          Map.entry("job.run", List.of("job", "result", "field")));
+          Map.entry(
+              "http.server.duration",
+              new Expected(MetricType.HISTOGRAM, List.of("route", "method", "status_class"))),
+          Map.entry(
+              "mongo.command.duration",
+              new Expected(MetricType.HISTOGRAM, List.of("collection", "command", "outcome"))),
+          Map.entry(
+              "kafka.messages",
+              new Expected(MetricType.COUNTER, List.of("topic", "direction", "result"))),
+          Map.entry("ws.sessions", new Expected(MetricType.GAUGE, List.of("feed"))),
+          Map.entry("ws.messages", new Expected(MetricType.COUNTER, List.of("feed", "result"))),
+          Map.entry("jvm.heap.used", new Expected(MetricType.GAUGE, List.of())),
+          Map.entry("jvm.threads", new Expected(MetricType.GAUGE, List.of())),
+          Map.entry("jvm.gc.time", new Expected(MetricType.COUNTER, List.of("gc"))),
+          Map.entry("tomcat.threads", new Expected(MetricType.GAUGE, List.of("state"))),
+          Map.entry("tomcat.connections", new Expected(MetricType.GAUGE, List.of("state"))),
+          Map.entry("http.server.active", new Expected(MetricType.GAUGE, List.of())),
+          Map.entry("mongo.pool.connections", new Expected(MetricType.GAUGE, List.of("state"))),
+          Map.entry("mongo.pool.checkout", new Expected(MetricType.HISTOGRAM, List.of())),
+          Map.entry("bridge.messages", new Expected(MetricType.COUNTER, List.of("flow", "result"))),
+          Map.entry(
+              "bridge.callback.duration", new Expected(MetricType.HISTOGRAM, List.of("flow"))),
+          Map.entry("bridge.consumer.lag", new Expected(MetricType.GAUGE, List.of("flow"))),
+          Map.entry("job.run", new Expected(MetricType.GAUGE, List.of("job", "result", "field"))));
 
   @Test
   void everyNewMetricIsInTheCatalogue() {
     NEW_METRICS.forEach(
-        (name, dims) -> {
+        (name, expected) -> {
           MetricDescriptor d = registry.findByName(name).orElseThrow();
-          assertThat(d.dimensions()).as(name).isEqualTo(dims);
+          assertThat(d.dimensions()).as(name).isEqualTo(expected.dimensions());
+          assertThat(d.type()).as(name).isEqualTo(expected.type());
+          assertThat(d.requiredRoles()).as(name).isEqualTo(Set.of(UserRole.SUPERADMIN));
           assertThat(d.seriesName()).isEqualTo(name.replace('.', '_'));
         });
-    assertThat(registry.findByName("http.server.duration").orElseThrow().type())
-        .isEqualTo(MetricType.HISTOGRAM);
     assertThat(registry.findByName("kafka.messages").orElseThrow().permittedAggregations())
         .containsExactly(Aggregation.RATE, Aggregation.INCREASE);
     assertThat(registry.findByName("jvm.threads").orElseThrow().permittedAggregations())
@@ -84,5 +93,23 @@ class MetricRegistryTest {
     assertThat(registry.visibleTo(Set.of(UserRole.ADMIN_SYSTEM)))
         .extracting(MetricDescriptor::name)
         .containsExactly("wh.vehicle.battery", "wh.vehicle.state", "wh.vehicle.transitions");
+    assertThat(registry.findByName("wh.vehicle.battery").orElseThrow())
+        .satisfies(
+            d -> {
+              assertThat(d.type()).isEqualTo(MetricType.GAUGE);
+              assertThat(d.dimensions()).containsExactly("vehicle_id");
+            });
+    assertThat(registry.findByName("wh.vehicle.state").orElseThrow())
+        .satisfies(
+            d -> {
+              assertThat(d.type()).isEqualTo(MetricType.GAUGE);
+              assertThat(d.dimensions()).containsExactly("vehicle_id", "state");
+            });
+    assertThat(registry.findByName("wh.vehicle.transitions").orElseThrow())
+        .satisfies(
+            d -> {
+              assertThat(d.type()).isEqualTo(MetricType.COUNTER);
+              assertThat(d.dimensions()).containsExactly("vehicle_id", "from", "to", "category");
+            });
   }
 }
