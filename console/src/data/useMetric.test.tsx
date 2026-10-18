@@ -3,6 +3,7 @@ import { StrictMode, type ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { ApiError, setSession } from '@/api/client'
 import type { MetricQuery } from '@/api/metrics'
+import { PALETTE } from '@/widgets/scale'
 import { StreamWrapper, byKind, fakeStream } from '@/test/stream'
 import { useLive } from './live'
 import { stepFor, timesOf, useMetric, windowFor } from './useMetric'
@@ -76,7 +77,7 @@ describe('useMetric', () => {
 
     act(() => stream.last().send(metric, frame(1), 'snapshot'))
     await waitFor(() => expect(result.current.metric.loading).toBe(false))
-    expect(result.current.metric.series).toEqual([{ label: '2xx', color: '#0070f3', points: [{ t: 1_000_000, v: 1 }] }])
+    expect(result.current.metric.series).toEqual([{ label: '2xx', color: PALETTE.blue, points: [{ t: 1_000_000, v: 1 }] }])
     expect(result.current.metric.times).toHaveLength(60)
 
     act(() => stream.last().send(metric, frame(2)))

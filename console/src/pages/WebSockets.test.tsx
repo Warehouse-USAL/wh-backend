@@ -38,7 +38,7 @@ const catalogNames = new Set(catalog.metrics.map((m) => m.name))
 describe('WebSockets', () => {
   beforeEach(() => {
     events = {}
-    vi.mocked(useLive).mockReturnValue({ live: true, range: '15m', tick: 0, toggle: vi.fn(), setRange: vi.fn() })
+    vi.mocked(useLive).mockReturnValue({ live: true, range: '15m', toggle: vi.fn(), setRange: vi.fn() })
     vi.mocked(useWsEvents).mockImplementation((feed) => ({ data: events[feed] ?? [], loading: false }))
     stubMetrics()
   })

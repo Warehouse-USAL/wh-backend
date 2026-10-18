@@ -67,11 +67,13 @@ describe('App', () => {
 
   it('rendersTheLogsPageWithTheRequestIdFromTheUrl', async () => {
     setSession({ token: 't', email: 'root@x.io' })
-    const stream = fakeStream({ answer: () => ({ data: { lines: [], total: 0 } }) })
+    const stream = fakeStream({
+      answer: (sub) => ({ data: sub.kind === 'status' ? { services: [], dev: false } : { lines: [], total: 0 } }),
+    })
     renderApp('/infra/logs?req=abc')
 
     expect(await screen.findByText('No log lines match')).toBeInTheDocument()
-    expect(stream.last().subscriptions).toEqual([expect.objectContaining({ kind: 'logs', request_id: 'abc' })])
+    expect(stream.last().subscriptions).toContainEqual(expect.objectContaining({ kind: 'logs', request_id: 'abc' }))
   })
 
   it('rendersMonitoringPagesForTheNavDomainsAndKeepsWebSocketsAPlaceholder', async () => {
