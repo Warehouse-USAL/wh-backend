@@ -28,7 +28,9 @@ type offsetAdmin interface {
 // as the orders_out consumer lag on rec, every 10 seconds until ctx ends.
 //
 // It uses its own admin connection to brokers. Failed rounds are logged at
-// debug and skipped. It returns nil once ctx ends.
+// debug and skipped. It returns nil once ctx ends, and also right away when
+// the admin client cannot be built, after logging the error: a missing lag
+// metric must never stop the bridge.
 func ReportLag(
 	ctx context.Context,
 	brokers []string,
@@ -39,7 +41,8 @@ func ReportLag(
 ) error {
 	client, err := kgo.NewClient(kgo.SeedBrokers(brokers...))
 	if err != nil {
-		return fmt.Errorf("create kafka admin client: %w", err)
+		logger.Error("consumer lag reporting disabled", "error", fmt.Errorf("create kafka admin client: %w", err))
+		return nil
 	}
 	defer client.Close()
 	return lagReporter(ctx, kadm.NewClient(client), group, topic, rec, lagInterval, logger)

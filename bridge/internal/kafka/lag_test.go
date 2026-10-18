@@ -1,10 +1,12 @@
 package kafka
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -19,6 +21,7 @@ type fakeAdmin struct {
 	ends    map[int32]int64
 	commits map[int32]int64
 	err     error
+	start   error
 	fetch   error
 }
 
@@ -36,7 +39,7 @@ func (a *fakeAdmin) ListStartOffsets(
 	_ context.Context,
 	_ ...string,
 ) (kadm.ListedOffsets, error) {
-	return listed(a.starts), nil
+	return listed(a.starts), a.start
 }
 
 func (a *fakeAdmin) ListEndOffsets(
@@ -131,6 +134,11 @@ func TestConsumerLagSumsEndMinusCommittedOverPartitions(
 			want:  2,
 		},
 		{
+			name:  "commit past the end offset is clamped to zero",
+			admin: &fakeAdmin{ends: map[int32]int64{0: 3, 1: 5}, commits: map[int32]int64{0: 9, 1: 2}},
+			want:  3,
+		},
+		{
 			name:  "empty topic",
 			admin: &fakeAdmin{},
 			want:  0,
@@ -146,6 +154,7 @@ func TestConsumerLagFailsWhenOffsetsCannotBeRead(
 ) {
 	for _, admin := range []*fakeAdmin{
 		{err: errors.New("broker down")},
+		{start: errors.New("leader unavailable")},
 		{fetch: errors.New("coordinator unavailable")},
 	} {
 		if _, err := consumerLag(context.Background(), admin, "wh-bridge", lagTopic); err == nil {
@@ -154,14 +163,20 @@ func TestConsumerLagFailsWhenOffsetsCannotBeRead(
 	}
 }
 
-func TestReportLagRejectsInvalidBrokers(
+func TestReportLagLogsAndReturnsNilWhenTheClientCannotBeBuilt(
 	t *testing.T,
 ) {
 	rec := &lagRecorder{seen: make(chan struct{})}
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
-	if err := ReportLag(ctx, []string{"localhost:notaport"}, "wh-bridge", lagTopic, rec, quiet); err == nil {
-		t.Fatal("expected an error for an invalid seed broker")
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+	if err := ReportLag(context.Background(), []string{"localhost:notaport"}, "wh-bridge", lagTopic, rec, logger); err != nil {
+		t.Fatalf("ReportLag returned %v, want nil so the bridge keeps running", err)
+	}
+	if !strings.Contains(logs.String(), "level=ERROR") || !strings.Contains(logs.String(), "create kafka admin client") {
+		t.Fatalf("logged %q, want the client error", logs.String())
+	}
+	if flows, _ := rec.state(); len(flows) != 0 {
+		t.Fatalf("reported %v without a client", flows)
 	}
 }
 
