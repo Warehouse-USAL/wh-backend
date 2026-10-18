@@ -81,6 +81,7 @@ func (c *scriptedClient) Send(
 	_ context.Context,
 	req classify.Request,
 ) error {
+	time.Sleep(50 * time.Microsecond)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.sent = append(c.sent, req)
@@ -123,7 +124,7 @@ func (r *fakeRecorder) Callback(
 ) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if d >= 0 {
+	if d > 0 {
 		r.callbacks = append(r.callbacks, flow)
 	}
 }

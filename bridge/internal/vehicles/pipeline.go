@@ -3,7 +3,6 @@ package vehicles
 import (
 	"context"
 	"log/slog"
-	"time"
 
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/backend"
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/requestid"
@@ -39,11 +38,5 @@ func New(
 	rec telemetry.Recorder,
 	ids *requestid.Store,
 ) Pipeline {
-	policy.OnRetry = func(
-		err error,
-		delay time.Duration,
-	) {
-		logger.Warn("backend unavailable, retrying", "error", err, "retry_in", delay)
-	}
 	return &runner{source: source, client: client, policy: policy, logger: logger, rec: rec, ids: ids}
 }

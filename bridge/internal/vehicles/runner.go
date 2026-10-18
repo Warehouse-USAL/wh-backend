@@ -66,7 +66,9 @@ func (r *runner) handle(
 		return
 	}
 	requestID := r.requestIDOf(req)
-	err = retry.Retry(requestid.With(ctx, requestID), r.policy, func(
+	policy := r.policy
+	policy.OnRetry = r.retrying(flowOf(req))
+	err = retry.Retry(requestid.With(ctx, requestID), policy, func(
 		ctx context.Context,
 	) error {
 		return r.send(ctx, req)
@@ -93,10 +95,19 @@ func (r *runner) send(
 	if errors.Is(err, backend.ErrRejected) {
 		return retry.Permanent(err)
 	}
-	if err != nil {
-		r.rec.Message(flowOf(req), "retry")
-	}
 	return err
+}
+
+func (r *runner) retrying(
+	flow string,
+) func(error, time.Duration) {
+	return func(
+		err error,
+		delay time.Duration,
+	) {
+		r.logger.Warn("backend unavailable, retrying", "error", err, "retry_in", delay)
+		r.rec.Message(flow, "retry")
+	}
 }
 
 func (r *runner) settle(
