@@ -30,6 +30,8 @@ public class MetricRegistry {
       Set.of(
           UserRole.SUPERADMIN, UserRole.ADMIN_SYSTEM, UserRole.ADMIN_WAREHOUSE, UserRole.DASHBOARD);
 
+  private static final Set<UserRole> SUPERADMIN_ONLY = Set.of(UserRole.SUPERADMIN);
+
   private final List<MetricDescriptor> descriptors =
       List.of(
           new MetricDescriptor(
@@ -61,7 +63,30 @@ public class MetricRegistry {
               MetricType.COUNTER,
               List.of("vehicle_id", "from", "to", "category"),
               List.of(Aggregation.INCREASE, Aggregation.RATE),
-              READERS));
+              READERS),
+          histogram(
+              "http.server.duration",
+              "HTTP request duration",
+              List.of("route", "method", "status_class")),
+          histogram(
+              "mongo.command.duration",
+              "Mongo command duration",
+              List.of("collection", "command", "outcome")),
+          counter("kafka.messages", "Kafka messages", List.of("topic", "direction", "result")),
+          gauge("ws.sessions", "WebSocket sessions", "1", List.of("feed")),
+          counter("ws.messages", "WebSocket messages", List.of("feed", "result")),
+          gauge("jvm.heap.used", "JVM heap used", "By", List.of()),
+          gauge("jvm.threads", "JVM threads", "1", List.of()),
+          counter("jvm.gc.time", "JVM GC time", "ms", List.of("gc")),
+          gauge("tomcat.threads", "Tomcat threads", "1", List.of("state")),
+          gauge("tomcat.connections", "Tomcat connections", "1", List.of("state")),
+          gauge("http.server.active", "HTTP requests in flight", "1", List.of()),
+          gauge("mongo.pool.connections", "Mongo pool connections", "1", List.of("state")),
+          histogram("mongo.pool.checkout", "Mongo pool checkout time", List.of()),
+          counter("bridge.messages", "Bridge messages", List.of("flow", "result")),
+          histogram("bridge.callback.duration", "Bridge callback duration", List.of("flow")),
+          gauge("bridge.consumer.lag", "Bridge consumer lag", "1", List.of("flow")),
+          gauge("job.run", "Cron job run", "1", List.of("job", "result", "field")));
 
   private final List<ComputedMetricDescriptor> computed =
       List.of(
@@ -101,6 +126,60 @@ public class MetricRegistry {
                   new ComputedMetricDescriptor.Field(
                       "category", "string", null, null, "Limita a una categoría del catálogo")),
               READERS));
+
+  private static MetricDescriptor histogram(
+      String name, String displayName, List<String> dimensions) {
+    return new MetricDescriptor(
+        name,
+        series(name),
+        displayName,
+        "ms",
+        MetricType.HISTOGRAM,
+        dimensions,
+        List.of(
+            Aggregation.P50,
+            Aggregation.P95,
+            Aggregation.P99,
+            Aggregation.RATE,
+            Aggregation.INCREASE),
+        SUPERADMIN_ONLY);
+  }
+
+  private static MetricDescriptor counter(
+      String name, String displayName, List<String> dimensions) {
+    return counter(name, displayName, "1", dimensions);
+  }
+
+  private static MetricDescriptor counter(
+      String name, String displayName, String unit, List<String> dimensions) {
+    return new MetricDescriptor(
+        name,
+        series(name),
+        displayName,
+        unit,
+        MetricType.COUNTER,
+        dimensions,
+        List.of(Aggregation.RATE, Aggregation.INCREASE),
+        SUPERADMIN_ONLY);
+  }
+
+  private static MetricDescriptor gauge(
+      String name, String displayName, String unit, List<String> dimensions) {
+    return new MetricDescriptor(
+        name,
+        series(name),
+        displayName,
+        unit,
+        MetricType.GAUGE,
+        dimensions,
+        List.of(Aggregation.AVG, Aggregation.MAX, Aggregation.LAST),
+        SUPERADMIN_ONLY);
+  }
+
+  /** VictoriaMetrics stores the dotted name with underscores and no unit suffix. */
+  private static String series(String name) {
+    return name.replace('.', '_');
+  }
 
   private static ComputedMetricDescriptor.Field number(
       String name, Double min, Double max, String description) {
