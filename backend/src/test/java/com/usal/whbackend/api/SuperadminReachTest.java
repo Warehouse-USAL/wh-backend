@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.request;
 
 import com.usal.whbackend.api.error.GlobalExceptionHandler;
+import com.usal.whbackend.config.JacksonConfig;
 import com.usal.whbackend.config.JwtService;
 import com.usal.whbackend.config.SecurityConfig;
 import com.usal.whbackend.repository.ProductRepository;
@@ -42,6 +43,7 @@ import org.springframework.context.annotation.Import;
 import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.core.type.filter.AnnotationTypeFilter;
 import org.springframework.http.HttpMethod;
+import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -54,6 +56,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.context.WebApplicationContext;
+import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
 /**
  * The console drives every Domains endpoint as SUPERADMIN. A 403 here means a {@code @PreAuthorize}
@@ -62,7 +65,7 @@ import org.springframework.web.context.WebApplicationContext;
  */
 @WebMvcTest
 @EnableMethodSecurity
-@Import({GlobalExceptionHandler.class, SecurityConfig.class})
+@Import({GlobalExceptionHandler.class, SecurityConfig.class, JacksonConfig.class})
 class SuperadminReachTest {
 
   private static final String API_PACKAGE = "com.usal.whbackend.api";
@@ -76,18 +79,41 @@ class SuperadminReachTest {
 
   private static final String JSON = "{}";
 
+  /*
+   * Spring MVC validates a @Valid @RequestBody before the proxied controller method (and its
+   * @PreAuthorize) runs, so "{}" would answer 400 even if SUPERADMIN were excluded. Every @Valid
+   * handler below therefore gets the smallest valid body (snake_case, as on the wire); the test
+   * also asserts no endpoint answers 400, so a body that stops being valid cannot hide a 403.
+   * No @Valid handler is left to the reflection guard alone.
+   */
+  private static final String RESTOCK =
+      "{\"params\":{\"alpha\":0.5,\"recent_days\":7,\"long_days\":28,\"safety_days\":1,\"lead_time_days\":1,\"coverage_days\":1},\"filters\":{}}";
+  private static final String USER =
+      "{\"email\":\"a@b.co\",\"name\":\"n\",\"role\":\"ADMIN_SALES\",\"initial_password\":\"x\"}";
+  private static final String PRODUCT =
+      "{\"sku\":\"s\",\"name\":\"n\",\"category\":\"c\",\"height\":1,\"width\":1,"
+          + "\"length\":1,\"weight\":1}";
+  private static final String POSITION =
+      "{\"position_name\":\"p\",\"maximum_capacity\":1,\"size_stock_to_save\":\"CAJA\"}";
+  private static final String RECEPTION =
+      "{\"product_id\":\"p\",\"quantity_received\":1,\"delivery_unit\":\"CAJA\","
+          + "\"supplier\":\"s\"}";
+  private static final String METRICS =
+      "{\"metric\":\"m\",\"from\":\"2026-01-01T00:00:00Z\",\"to\":\"2026-01-02T00:00:00Z\","
+          + "\"step\":\"1m\",\"agg\":\"avg\"}";
+
   /** {method, path, body-or-null}; "UPLOAD" marks the multipart upload. */
   private static final String[][] ENDPOINTS = {
     {"GET", "/users", null},
     {"GET", "/users/u1", null},
-    {"POST", "/users", JSON},
+    {"POST", "/users", USER},
     {"PATCH", "/users/u1", JSON},
-    {"POST", "/users/u1/reset-password", JSON},
+    {"POST", "/users/u1/reset-password", "{\"new_password\":\"x\"}"},
     {"GET", "/products", null},
     {"GET", "/products/categories", null},
     {"GET", "/products/p1", null},
     {"GET", "/products/p1/location", null},
-    {"POST", "/products", JSON},
+    {"POST", "/products", PRODUCT},
     {"PATCH", "/products/p1", JSON},
     {"DELETE", "/products/p1", null},
     {"GET", "/orders", null},
@@ -101,36 +127,55 @@ class SuperadminReachTest {
     {"POST", "/vehicles", JSON},
     {"PATCH", "/internal/vehicles/v1", JSON},
     {"GET", "/warehouse/zones", null},
-    {"POST", "/warehouse/zones", JSON},
+    {"POST", "/warehouse/zones", "{\"zone_code\":\"A\",\"max_allowed_lines\":1}"},
     {"PATCH", "/warehouse/zones/z1", JSON},
     {"DELETE", "/warehouse/zones/z1", null},
     {"GET", "/warehouse/zones/z1/lines", null},
-    {"POST", "/warehouse/zones/z1/lines", JSON},
+    {"POST", "/warehouse/zones/z1/lines", "{\"number_line\":1,\"max_allowed_positions\":1}"},
     {"PATCH", "/warehouse/lines/l1", JSON},
     {"DELETE", "/warehouse/lines/l1", null},
     {"GET", "/warehouse/lines/l1/positions", null},
     {"GET", "/warehouse/positions", null},
-    {"GET", "/warehouse/positions/available", null},
+    {"GET", "/warehouse/positions/available?productId=p&deliveryUnit=CAJA&quantity=1", null},
     {"GET", "/warehouse/positions/pos1", null},
-    {"POST", "/warehouse/lines/l1/positions", JSON},
+    {"POST", "/warehouse/lines/l1/positions", POSITION},
     {"PATCH", "/warehouse/positions/pos1", JSON},
     {"DELETE", "/warehouse/positions/pos1", null},
-    {"POST", "/warehouse/positions/validate-fit", JSON},
-    {"POST", "/restock/orders", JSON},
+    {
+      "POST",
+      "/warehouse/positions/validate-fit",
+      "{\"product_id\":\"p\",\"quantity\":1,\"size\":\"CAJA\"}"
+    },
+    {
+      "POST",
+      "/restock/orders",
+      "{\"product_id\":\"p\",\"quantity_requested\":1,\"supplier\":\"s\"}"
+    },
     {"GET", "/restock/orders", null},
     {"GET", "/restock/orders/r1", null},
-    {"POST", "/restock/receptions", JSON},
+    {"POST", "/restock/receptions", RECEPTION},
     {"GET", "/restock/receptions", null},
     {"GET", "/restock/receptions/c1", null},
-    {"PATCH", "/restock/receptions/c1", JSON},
+    {
+      "PATCH",
+      "/restock/receptions/c1",
+      "{\"assignments\":[{\"position_id\":\"x\",\"quantity\":1}]}"
+    },
     {"GET", "/api/v1/files", null},
     {"UPLOAD", "/api/v1/files/upload", null},
     {"DELETE", "/api/v1/files/images/a.jpg", null},
     {"GET", "/console/status", null},
     {"POST", "/console/logs/query", JSON},
     {"GET", "/console/ws-events/orders", null},
-    {"POST", "/metrics/query", JSON},
+    {"POST", "/metrics/query", METRICS},
     {"GET", "/metrics/catalog", null},
+    {"POST", "/metrics/restock-suggestions", RESTOCK},
+    {"POST", "/metrics/restock-suggestions/apply", RESTOCK},
+    // Public download (permitAll in SecurityConfig): product images are shown before login, so
+    // it must stay reachable for every caller, SUPERADMIN included.
+    {"GET", "/api/v1/files/images/a.jpg", null},
+    {"POST", "/users/me/change-password", "{\"current_password\":\"a\",\"new_password\":\"b\"}"},
+    {"PATCH", "/users/me", JSON},
     {"GET", "/query/catalog", null},
     {"POST", "/query/orders", JSON},
   };
@@ -143,6 +188,7 @@ class SuperadminReachTest {
   };
 
   @Autowired WebApplicationContext context;
+  @Autowired RequestMappingHandlerMapping handlerMapping;
   MockMvc mockMvc;
   @MockitoBean JwtService jwtService;
   @MockitoBean OrderService orderService;
@@ -196,13 +242,20 @@ class SuperadminReachTest {
   @WithMockUser(roles = "SUPERADMIN")
   void superadminCanCallEveryEndpointTheConsoleUses() throws Exception {
     List<String> forbidden = new ArrayList<>();
+    List<String> unmapped = new ArrayList<>();
     for (String[] endpoint : ENDPOINTS) {
+      String method = "UPLOAD".equals(endpoint[0]) ? "POST" : endpoint[0];
+      if (handlerMapping.getHandler(new MockHttpServletRequest(method, endpoint[1].split("\\?")[0]))
+          == null) {
+        unmapped.add(method + " " + endpoint[1]);
+      }
       int status = statusOf(endpoint);
-      if (status == 403 || status == 401) {
+      if (status == 403 || status == 401 || status == 400) {
         forbidden.add(endpoint[0] + " " + endpoint[1] + " -> " + status);
       }
     }
-    assertThat(forbidden).isEmpty();
+    assertThat(unmapped).as("paths no handler serves").isEmpty();
+    assertThat(forbidden).as("401/403, or 400 that could mask a 403").isEmpty();
   }
 
   @Test
@@ -219,13 +272,17 @@ class SuperadminReachTest {
         new ClassPathScanningCandidateComponentProvider(false);
     scanner.addIncludeFilter(new AnnotationTypeFilter(RestController.class));
     List<String> offenders = new ArrayList<>();
+    Set<String> scanned = new java.util.HashSet<>();
+    int handlers = 0;
     for (BeanDefinition bd : scanner.findCandidateComponents(API_PACKAGE)) {
       Class<?> controller = Class.forName(bd.getBeanClassName());
+      scanned.add(controller.getSimpleName());
       PreAuthorize onClass = controller.getAnnotation(PreAuthorize.class);
       for (Method m : controller.getDeclaredMethods()) {
         if (AnnotatedElementUtils.findMergedAnnotation(m, RequestMapping.class) == null) {
           continue;
         }
+        handlers++;
         PreAuthorize pa =
             m.isAnnotationPresent(PreAuthorize.class)
                 ? m.getAnnotation(PreAuthorize.class)
@@ -236,12 +293,17 @@ class SuperadminReachTest {
         }
       }
     }
+    assertThat(scanned).contains("FileController", "ServiceStatusController", "ZoneController");
+    assertThat(handlers).isGreaterThan(50);
     assertThat(offenders).isEmpty();
   }
 
+  private static final java.util.regex.Pattern QUOTED_SUPERADMIN =
+      java.util.regex.Pattern.compile("'SUPERADMIN'");
+
   /** Repo expressions: hasRole('X'), hasAnyRole(...), isAuthenticated(); only roles can exclude. */
   private static boolean permitsSuperadmin(String expression) {
-    return expression.contains("SUPERADMIN")
+    return QUOTED_SUPERADMIN.matcher(expression).find()
         || expression.contains("isAuthenticated")
         || expression.contains("permitAll");
   }
