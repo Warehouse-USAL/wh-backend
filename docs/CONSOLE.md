@@ -227,7 +227,7 @@ Request (`Content-Type: application/json`), at most 200 subscriptions, ids uniqu
 
 | Kind | Params | Payload (`data`) |
 |---|---|---|
-| `metric` | as `POST /metrics/query`, but `range` (`5m`, `15m`, `1h`, `6h`, `24h`) instead of `from`/`to`. The server uses the console's window: `to = floor(now/step)*step`, `from = to - range + step` | the `/metrics/query` response; `mode: "replace"` |
+| `metric` | as `POST /metrics/query`, but `range` (`5m`, `15m`, `1h`, `6h`, `24h`) instead of `from`/`to`. The server uses the console's window: `to = floor(now/step)*step`, `from = to - range + step` | the `/metrics/query` response plus `window: {from, to, step}` (ISO instants of the first and last bucket), so the client lays series onto the server's grid; `mode: "replace"` |
 | `logs` | as `POST /console/logs/query` (same validation and limit cap), plus `range` | snapshot: the REST response (newest first); then only new lines, oldest first, never repeated; `mode: "append"` |
 | `ws-events` | `feed`: `orders`, `user-orders`, `vehicles`, `stock-alerts` | snapshot: the `/console/ws-events/{feed}` response; then each event as it happens; `mode: "append"` |
 | `status` | none | the `/console/status` response, again only when a state or detail changes (the backend `uptime_ms` alone does not count); `mode: "replace"` |

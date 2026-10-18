@@ -75,6 +75,31 @@ class MetricSourceTest {
                 "p95"));
   }
 
+  /** The {@code /metrics/query} body plus the window it answers (additive field). */
+  private static String withWindow(String response) {
+    return response.substring(0, response.length() - 1)
+        + ",\"window\":{\"from\":\"1970-01-12T13:41:50Z\",\"to\":\"1970-01-12T13:46:40Z\","
+        + "\"step\":\"10s\"}}";
+  }
+
+  @Test
+  void eachFrameCarriesTheWindowItAnswersSoTheClientNeedNotGuessTheGrid() {
+    when(metrics.query(any(), eq(ROLES))).thenReturn(response(1));
+    source.join(subscriber("cpu", a));
+
+    source.evaluate();
+    clock.set(Instant.ofEpochSecond(1_000_017));
+    source.evaluate();
+
+    assertThat(a.frames().get(0))
+        .contains(
+            "\"window\":{\"from\":\"1970-01-12T13:41:50Z\",\"to\":\"1970-01-12T13:46:40Z\","
+                + "\"step\":\"10s\"}");
+    // The window moved one step, so the frame changed although the series did not.
+    assertThat(a.frames()).hasSize(2);
+    assertThat(a.frames().get(1)).contains("\"to\":\"1970-01-12T13:46:50Z\"");
+  }
+
   @Test
   void sendsASnapshotThenOnlyChanges() {
     when(metrics.query(any(), eq(ROLES))).thenReturn(response(1), response(1), response(2));
@@ -85,8 +110,8 @@ class MetricSourceTest {
     source.evaluate();
     source.evaluate();
 
-    String one = JSON.writeValueAsString(response(1));
-    String two = JSON.writeValueAsString(response(2));
+    String one = withWindow(JSON.writeValueAsString(response(1)));
+    String two = withWindow(JSON.writeValueAsString(response(2)));
     assertThat(a.frames())
         .containsExactly(
             "event: snapshot\ndata: {\"id\":\"cpu\",\"mode\":\"replace\",\"data\":" + one + "}\n\n",
