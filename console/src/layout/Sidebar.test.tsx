@@ -6,6 +6,9 @@ import { setSession } from '@/api/client'
 import { setTheme } from '@/lib/theme'
 import Sidebar from './Sidebar'
 
+// The Dev tools section shows only under the dev profile (hidden case: pages/DevTool.test.tsx).
+vi.mock('@/data/streamHooks', () => ({ useStatus: () => ({ data: { services: [], dev: true }, loading: false }) }))
+
 const renderAt = (path: string, onSignOut = vi.fn()) =>
   render(
     <MemoryRouter initialEntries={[path]}>

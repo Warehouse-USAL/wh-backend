@@ -32,6 +32,8 @@ export interface NavSection {
   section: string
   /** The first group sits under the brand without a heading, as in the mockups. */
   hideLabel?: boolean
+  /** Shown only while `/console/status` reports the dev profile. */
+  devOnly?: boolean
   items: NavItem[]
 }
 
@@ -82,6 +84,7 @@ export const NAV: NavSection[] = [
   },
   {
     section: 'Dev tools',
+    devOnly: true,
     items: [
       item('mongo-express', '/dev/mongo-express', Database),
       item('redpanda-console', '/dev/redpanda-console', Spline),

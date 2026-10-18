@@ -10,11 +10,17 @@ import Shell from '@/layout/Shell'
 import MonitoringPage from '@/monitoring/MonitoringPage'
 import RequestTrail from '@/monitoring/RequestTrail'
 import { DOMAINS, type Domain } from '@/monitoring/routes'
+import DevTool from '@/pages/DevTool'
 import Login from '@/pages/Login'
 import Logs from '@/pages/Logs'
+import Overview from '@/pages/Overview'
+import WebSockets from '@/pages/WebSockets'
 
 // A Monitoring nav item whose label names an API domain gets that domain's page.
 const isDomain = (label: string): label is Domain => (DOMAINS as readonly string[]).includes(label)
+
+// Dev tools embed through the console nginx's frame-safe proxies (Task 17).
+const DEV_PORTS: Record<string, number> = { '/dev/mongo-express': 8091, '/dev/redpanda-console': 8092 }
 
 // Stands in for a page until its task builds it; tasks 19-25 swap it out route by route.
 function Placeholder({ crumb, title }: { crumb: string; title: string }) {
@@ -58,6 +64,12 @@ export default function App() {
                   <MonitoringPage key={path} domain={label} extra={label === 'Orders' ? <RequestTrail /> : undefined} />
                 ) : path === '/infra/logs' ? (
                   <Logs />
+                ) : path === '/overview' ? (
+                  <Overview />
+                ) : path === '/monitoring/websockets' ? (
+                  <WebSockets />
+                ) : path in DEV_PORTS ? (
+                  <DevTool key={path} name={label} port={DEV_PORTS[path]} />
                 ) : (
                   <Placeholder crumb={section} title={label} />
                 )

@@ -1,11 +1,13 @@
 import { NavLink } from 'react-router'
 import { useSession } from '@/api/auth'
 import { Button } from '@/components/ui/button'
+import { useStatus } from '@/data/streamHooks'
 import { NAV } from './nav'
 import ThemeToggle from './ThemeToggle'
 
 export default function Sidebar({ onSignOut }: { onSignOut: () => void }) {
   const { email } = useSession()
+  const { dev } = useStatus().data
   return (
     <aside className="flex w-[232px] shrink-0 flex-col border-r border-bd bg-bg">
     <nav aria-label="Console" className="flex flex-1 flex-col gap-px overflow-y-auto px-2.5 pt-3.5 pb-2">
@@ -14,7 +16,7 @@ export default function Sidebar({ onSignOut }: { onSignOut: () => void }) {
         wh-backend
         <span className="ml-auto rounded-full border border-bd px-2 text-[11px] font-medium text-mu">staging</span>
       </div>
-      {NAV.map(({ section, hideLabel, items }) => (
+      {NAV.filter((s) => dev || !s.devOnly).map(({ section, hideLabel, items }) => (
         <div key={section} className="flex flex-col gap-px">
           {!hideLabel && (
             <div className="px-2.5 pt-3.5 pb-1 text-[13px] font-medium text-mu">{section}</div>
