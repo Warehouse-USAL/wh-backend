@@ -7,7 +7,7 @@
 set -eu
 
 base=${1:-origin/${GITHUB_BASE_REF:?pass a base ref or set GITHUB_BASE_REF}}
-files=$(git diff --name-only --no-renames "$base...HEAD")
+files=$(git -c core.quotePath=false diff --name-only --no-renames "$base...HEAD")
 
 backend=false bridge=false console=false platform=false
 while IFS= read -r f; do
@@ -17,8 +17,10 @@ while IFS= read -r f; do
 		backend=true bridge=true console=true platform=true ;;
 	backend/*) backend=true ;;
 	bridge/* | e2e/*) bridge=true ;;
+	# The bridge job runs the coverage gate, so it re-runs when the gate changes.
+	scripts/go-coverage.sh | scripts/go-coverage.test.sh) bridge=true platform=true ;;
 	console/*) console=true ;;
-	docker-compose*.yml | config/* | .github/workflows/* | scripts/*) platform=true ;;
+	docker-compose*.yml | .env.example | config/* | .github/workflows/* | scripts/*) platform=true ;;
 	esac
 done <<EOF
 $files

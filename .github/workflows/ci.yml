@@ -234,8 +234,8 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
         run: |
           if [ ! -f coverage/cobertura-coverage.xml ]; then
-            echo "::warning::console/coverage/cobertura-coverage.xml missing: enable Vitest's cobertura reporter"
-            exit 0
+            echo "::error::console/coverage/cobertura-coverage.xml missing (enable Vitest's cobertura reporter in console/vite.config.ts)"
+            exit 1
           fi
           cd .. && pipx run --spec diff-cover==10.6.0 diff-cover console/coverage/cobertura-coverage.xml \
             --compare-branch="origin/$BASE_REF" --fail-under=90
@@ -330,8 +330,21 @@ jobs:
       - name: All jobs passed or were skipped
         env:
           RESULTS: ${{ join(needs.*.result, ' ') }}
+          CHANGES: ${{ needs.changes.result }}
+          OUTPUTS: >-
+            backend=${{ needs.changes.outputs.backend }}
+            bridge=${{ needs.changes.outputs.bridge }}
+            console=${{ needs.changes.outputs.console }}
+            platform=${{ needs.changes.outputs.platform }}
         run: |
           echo "results: $RESULTS"
+          if [ "$CHANGES" = success ]; then
+            for o in $OUTPUTS; do
+              case $o in
+                *=) echo "::error::changes job succeeded but output '${o%=}' is empty"; exit 1 ;;
+              esac
+            done
+          fi
           for r in $RESULTS; do
             case $r in
               failure|cancelled) echo "a required job ended in '$r'"; exit 1 ;;

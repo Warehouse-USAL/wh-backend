@@ -111,9 +111,10 @@ feature/* ──► develop ──► beta/* ──► master
 Draft PRs are skipped by CI until marked ready for review.
 
 CI is path-aware: `scripts/ci-changes.sh` decides which components the PR touches (`backend/`,
-`bridge/` + `e2e/`, `console/`, and the platform files: compose, `config/`, workflows, `scripts/`)
-and only their jobs run; a change to `ci.yml`, `scripts/ci-changes.sh` or the `Makefile` runs
-everything. The final `ci-ok` job passes when every job passed or was skipped, so **`ci-ok` is the
+`bridge/` + `e2e/`, `console/`, and the platform files: compose, `.env.example`, `config/`,
+workflows, `scripts/`) and only their jobs run; a change to `ci.yml`, `scripts/ci-changes.sh` or
+the `Makefile` runs everything. The bridge's total and diff coverage measure `./internal/...` only
+(`cmd/` is not counted). The final `ci-ok` job passes when every job passed or was skipped, so **`ci-ok` is the
 only required status check** in the branch protection of `develop` and `master` (a repository
 setting: requiring the per-component jobs would block PRs that skip them).
 
