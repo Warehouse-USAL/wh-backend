@@ -6,6 +6,8 @@ export type ChartProps = {
   title: string
   sub?: string
   series: Series[]
+  /** The bucket times of the query window (epoch ms), so empty buckets keep their slot. */
+  times?: number[]
   className?: string
 }
 
@@ -21,7 +23,7 @@ const GRID_LINES = [25, 50, 75]
 
 /** Shared frame of the time-series widgets: plot box, y-axis labels, x-axis times and legend. */
 export default function Chart({ title, sub, series, className, data, max, format, children }: Props) {
-  const empty = data.times.length === 0
+  const empty = data.values.every((row) => row.every((v) => v === undefined))
   return (
     <Card title={title} sub={sub} className={className}>
       {empty ? (

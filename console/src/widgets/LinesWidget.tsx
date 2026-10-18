@@ -12,7 +12,7 @@ const num = (v: number) => +v.toFixed(2)
 /** One line per series on a shared time axis; a missing bucket breaks the line instead of dropping to zero. */
 export default function LinesWidget({ format = formatCount, area, ...props }: Props) {
   const { series } = props
-  const data = plotData(series)
+  const data = plotData(series, props.times)
   const n = data.times.length
   const max = niceMax(Math.max(0, ...data.values.flat().map((v) => v ?? 0)) * 1.05)
   const x = (i: number) => (n === 1 ? 150 : (i / (n - 1)) * 300)

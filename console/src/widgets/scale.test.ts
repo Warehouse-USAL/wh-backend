@@ -48,6 +48,11 @@ describe('scale', () => {
     expect(data.values).toEqual([[2, 1], [undefined, 5]])
   })
 
+  it('plotDataLaysSeriesOntoAGivenGrid', () => {
+    const data = plotData([{ label: 'a', color: 'x', points: [{ t: 1, v: 2 }, { t: 3, v: 4 }, { t: 9, v: 9 }] }], [1, 2, 3])
+    expect(data).toEqual({ times: [1, 2, 3], values: [[2, undefined, 4]] })
+  })
+
   it('timeLabelsAreEvenlySpacedAndShowSecondsOnShortSpans', () => {
     const long = Array.from({ length: 10 }, (_, i) => at(13, 48 + i * 2))
     expect(timeLabels(long)).toEqual(['13:48', '13:52', '13:58', '14:02', '14:06'])

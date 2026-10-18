@@ -31,12 +31,16 @@ export function toneFor(pct: number): Tone {
 
 export type PlotData = { times: number[]; values: (number | undefined)[][] }
 
-/** Aligns series on the union of their timestamps; negative and non-finite points are ignored. */
-export function plotData(series: Series[]): PlotData {
+/**
+ * Aligns series on `grid` when given (the query window's buckets, so a bucket missing from every
+ * series still takes its slot), else on the union of their timestamps. Points off the grid,
+ * negative or non-finite are ignored.
+ */
+export function plotData(series: Series[], grid?: number[]): PlotData {
   const maps = series.map(
     (s) => new Map(s.points.filter((p) => Number.isFinite(p.v) && p.v >= 0 && Number.isFinite(p.t)).map((p) => [p.t, p.v])),
   )
-  const times = [...new Set(maps.flatMap((m) => [...m.keys()]))].sort((a, b) => a - b)
+  const times = grid ?? [...new Set(maps.flatMap((m) => [...m.keys()]))].sort((a, b) => a - b)
   return { times, values: maps.map((m) => times.map((t) => m.get(t))) }
 }
 

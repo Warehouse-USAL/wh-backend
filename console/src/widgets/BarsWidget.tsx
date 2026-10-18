@@ -6,7 +6,7 @@ const num = (v: number) => +v.toFixed(2)
 /** Stacked bars, one per timestamp; series are stacked in order, first at the bottom. */
 export default function BarsWidget(props: ChartProps) {
   const { series } = props
-  const data = plotData(series)
+  const data = plotData(series, props.times)
   const totals = data.times.map((_, i) => data.values.reduce((sum, row) => sum + (row[i] ?? 0), 0))
   const max = niceMax(Math.max(0, ...totals) * 1.05)
   const slot = 300 / Math.max(data.times.length, 1)
