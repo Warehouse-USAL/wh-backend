@@ -80,6 +80,8 @@ func (c *fakeChannel) record(
 func (c *fakeChannel) Confirm(
 	noWait bool,
 ) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.confirming = !noWait
 	return c.confirmErr
 }
@@ -87,14 +89,45 @@ func (c *fakeChannel) Confirm(
 func (c *fakeChannel) NotifyReturn(
 	returns chan amqp.Return,
 ) chan amqp.Return {
-	if c.returned != nil {
-		returns <- *c.returned
+	c.mu.Lock()
+	returned := c.returned
+	c.mu.Unlock()
+	if returned != nil {
+		returns <- *returned
 	}
 	return returns
 }
 
 func (c *fakeChannel) IsClosed() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return c.closed
+}
+
+func (c *fakeChannel) close() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.closed = true
+}
+
+func (c *fakeChannel) returnWith(
+	r amqp.Return,
+) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.returned = &r
+}
+
+func (c *fakeChannel) isConfirming() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.confirming
+}
+
+func (c *fakeChannel) publications() []published {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]published(nil), c.published...)
 }
 
 func (c *fakeChannel) PublishConfirmed(
@@ -105,7 +138,9 @@ func (c *fakeChannel) PublishConfirmed(
 	immediate bool,
 	msg amqp.Publishing,
 ) (confirmation, error) {
+	c.mu.Lock()
 	c.published = append(c.published, published{exchange, routingKey, mandatory, immediate, msg})
+	c.mu.Unlock()
 	if c.publishErr != nil {
 		return nil, c.publishErr
 	}

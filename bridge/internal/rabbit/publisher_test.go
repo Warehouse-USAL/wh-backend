@@ -50,7 +50,7 @@ func TestHeadersAreCopiedOntoThePublishing(
 	if err := p.Publish(requestid.With(context.Background(), "req-1"), []byte(body)); err != nil {
 		t.Fatalf("Publish returned %v", err)
 	}
-	got := conn.channel.published[0]
+	got := conn.channel.publications()[0]
 	if got.exchange != "amq.topic" || got.routingKey != "orders" || !got.mandatory || got.immediate {
 		t.Fatalf("published %+v, want a mandatory publish to amq.topic/orders", got)
 	}
@@ -61,8 +61,8 @@ func TestHeadersAreCopiedOntoThePublishing(
 	if len(msg.Headers) != 1 || msg.Headers["x-request-id"] != "req-1" {
 		t.Fatalf("headers %v, want x-request-id=req-1", msg.Headers)
 	}
-	if !conn.channel.confirming || broker.urls[0] != "amqp://rabbit" {
-		t.Fatalf("confirming=%v dialed %v", conn.channel.confirming, broker.urls)
+	if !conn.channel.isConfirming() || broker.urls[0] != "amqp://rabbit" {
+		t.Fatalf("confirming=%v dialed %v", conn.channel.isConfirming(), broker.urls)
 	}
 }
 
@@ -95,7 +95,7 @@ func TestUnroutableMessageKeepsTheConnection(
 	t *testing.T,
 ) {
 	conn := acking()
-	conn.channel.returned = &amqp.Return{ReplyCode: 312, ReplyText: "NO_ROUTE"}
+	conn.channel.returnWith(amqp.Return{ReplyCode: 312, ReplyText: "NO_ROUTE"})
 	p, broker := newTestPublisher(conn)
 	err := p.Publish(context.Background(), []byte(body))
 	if !errors.Is(err, errUnroutable) || !strings.Contains(err.Error(), "312 NO_ROUTE") {
@@ -122,11 +122,11 @@ func TestPublishReusesTheOpenChannelAndRedialsAClosedOne(
 	if broker.dialed() != 1 {
 		t.Fatalf("dialed %d times for an open channel, want 1", broker.dialed())
 	}
-	first.channel.closed = true
+	first.channel.close()
 	if err := p.Publish(context.Background(), []byte(body)); err != nil {
 		t.Fatal(err)
 	}
-	if broker.dialed() != 2 || first.closed() != 1 || len(second.channel.published) != 1 {
+	if broker.dialed() != 2 || first.closed() != 1 || len(second.channel.publications()) != 1 {
 		t.Fatalf("dials=%d first closed=%d, want a redial after the channel closed", broker.dialed(), first.closed())
 	}
 }

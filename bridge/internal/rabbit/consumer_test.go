@@ -143,7 +143,7 @@ const (
 	telemetryBody = `{"vehicle_id":"VHC-001","status":"idle","battery":90,"last_qr":null,"error":null,"timestamp":"t"}`
 )
 
-func TestConsumerAcksOn2xxAndNacksOnRetry(
+func TestConsumerAcksASuccessAndRequeuesAMessageStillRetryingAtShutdown(
 	t *testing.T,
 ) {
 	attempts := make(chan string, 1024)

@@ -3,7 +3,6 @@ package health
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -49,11 +48,7 @@ func shutdown(
 ) error {
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
-	err := server.Shutdown(ctx)
-	if errors.Is(err, http.ErrServerClosed) {
-		return nil
-	}
-	return err
+	return server.Shutdown(ctx)
 }
 
 // Probe performs one GET /healthz against a server listening on addr and

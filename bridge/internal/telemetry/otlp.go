@@ -39,9 +39,7 @@ func New(
 	base := strings.TrimRight(endpoint, "/")
 	res := resource.NewSchemaless(semconv.ServiceName(service))
 	stdout := slog.New(slog.NewJSONHandler(os.Stdout, nil))
-	otel.SetErrorHandler(otel.ErrorHandlerFunc(func(err error) {
-		stdout.Debug("telemetry export failed", "error", err)
-	}))
+	otel.SetErrorHandler(exportErrorHandler(stdout))
 
 	metricExporter, err := otlpmetrichttp.New(ctx, otlpmetrichttp.WithEndpointURL(base+"/v1/metrics"))
 	if err != nil {
@@ -69,6 +67,16 @@ func New(
 	return rec, func(ctx context.Context) error {
 		return errors.Join(meters.Shutdown(ctx), logs.Shutdown(ctx))
 	}, nil
+}
+
+// exportErrorHandler reports export failures on logger at debug level, so an
+// unreachable collector never floods the output.
+func exportErrorHandler(
+	logger *slog.Logger,
+) otel.ErrorHandler {
+	return otel.ErrorHandlerFunc(func(err error) {
+		logger.Debug("telemetry export failed", "error", err)
+	})
 }
 
 // fanout sends every record at Info or above to all its handlers, matching the

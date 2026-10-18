@@ -1,7 +1,9 @@
 package telemetry_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	"log/slog"
@@ -190,7 +192,21 @@ func TestUnreachableCollectorNeverFailsShutdownCallers(
 	if ctx.Err() != nil {
 		t.Fatal("shutdown blocked until its deadline")
 	}
-	otel.Handle(errors.New("export failed"))
+}
+
+func TestExportFailuresAreLoggedAtDebugLevel(
+	t *testing.T,
+) {
+	var out bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&out, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	telemetry.ExportErrorHandler(logger).Handle(errors.New("collector down"))
+	var line struct{ Level, Msg, Error string }
+	if err := json.Unmarshal(out.Bytes(), &line); err != nil {
+		t.Fatalf("log line %q: %v", out.String(), err)
+	}
+	if line.Level != "DEBUG" || line.Msg != "telemetry export failed" || line.Error != "collector down" {
+		t.Fatalf("logged %+v", line)
+	}
 }
 
 // writeCertificate stores the certificate of a TLS test server as PEM, so an
