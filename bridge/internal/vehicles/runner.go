@@ -106,18 +106,18 @@ func (r *runner) settle(
 	err error,
 ) {
 	if err == nil {
-		r.logger.Info("delivered to backend", "kind", req.Kind, "path", req.Path, "request_id", requestID)
+		r.logger.Info("delivered to backend", "kind", req.Kind, "path", req.Path, requestid.Attr(requestID))
 		r.rec.Message(flowOf(req), "ok")
 		r.ack(delivery)
 		return
 	}
 	if errors.Is(err, backend.ErrRejected) {
-		r.logger.Warn("backend rejected message, dropping", "kind", req.Kind, "path", req.Path, "request_id", requestID, "error", err, "payload", string(req.Body))
+		r.logger.Warn("backend rejected message, dropping", "kind", req.Kind, "path", req.Path, requestid.Attr(requestID), "error", err, "payload", string(req.Body))
 		r.rec.Message(flowOf(req), "dropped")
 		r.ack(delivery)
 		return
 	}
-	r.logger.Info("stopping with a message in flight, requeueing", "kind", req.Kind, "path", req.Path, "request_id", requestID)
+	r.logger.Info("stopping with a message in flight, requeueing", "kind", req.Kind, "path", req.Path, requestid.Attr(requestID))
 	r.rec.Message(flowOf(req), "error")
 	if requeueErr := delivery.Requeue(); requeueErr != nil {
 		r.logger.Error("requeue failed", "error", requeueErr)

@@ -5,6 +5,7 @@ package requestid
 import (
 	"container/list"
 	"context"
+	"log/slog"
 	"regexp"
 	"sync"
 	"time"
@@ -15,6 +16,10 @@ const (
 	ttl      = time.Hour
 )
 
+// Header is the Kafka record and AMQP message header that carries the
+// request id between the backend, the bridge and Infra.
+const Header = "x-request-id"
+
 // safe matches the ids the backend accepts: bounded and free of separators,
 // so a value read from a broker can never forge a header or a log line.
 var safe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
@@ -24,6 +29,18 @@ func Valid(
 	id string,
 ) bool {
 	return safe.MatchString(id)
+}
+
+// Attr returns id as the request_id log attribute, or an empty Attr, which
+// slog handlers drop, when id is "". Log lines of messages without a request
+// id therefore carry no request_id key at all.
+func Attr(
+	id string,
+) slog.Attr {
+	if id == "" {
+		return slog.Attr{}
+	}
+	return slog.String("request_id", id)
 }
 
 type contextKey struct{}
@@ -66,7 +83,9 @@ func New() *Store {
 }
 
 // Remember records requestID as the id of orderID, evicting the least
-// recently used order when the store is full.
+// recently used order when the store is full. Callers skip Remember when a
+// message carries no id, so a redelivered order without one keeps the id
+// remembered earlier.
 func (s *Store) Remember(
 	orderID string,
 	requestID string,

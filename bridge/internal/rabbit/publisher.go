@@ -12,8 +12,6 @@ import (
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/requestid"
 )
 
-const requestIDHeader = "x-request-id"
-
 var (
 	errNacked      = errors.New("broker nacked the message")
 	errUnroutable  = errors.New("message is unroutable")
@@ -125,5 +123,5 @@ func headers(
 	if id == "" {
 		return nil
 	}
-	return amqp.Table{requestIDHeader: id}
+	return amqp.Table{requestid.Header: id}
 }

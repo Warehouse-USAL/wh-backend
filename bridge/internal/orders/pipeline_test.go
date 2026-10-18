@@ -302,3 +302,16 @@ func TestRecordWithoutRequestIDIsPublishedWithoutOne(
 		t.Fatalf("published with ids %v", publisher.ids)
 	}
 }
+
+func TestRedeliveryWithoutRequestIDKeepsTheRememberedOne(
+	t *testing.T,
+) {
+	var order []string
+	consumer := &fakeConsumer{records: []orders.Record{idRecord{fakeRecord{pending}, "req-1"}, fakeRecord{cancelled}}}
+	publisher := &fakePublisher{order: &order}
+	ids := requestid.New()
+	runWith(t, consumer, publisher, 2, ids)
+	if got := ids.Lookup("ORD-1"); got != "req-1" {
+		t.Fatalf("remembered %q, want req-1 kept", got)
+	}
+}

@@ -43,7 +43,7 @@ func (r *runner) step(
 	requestID := record.RequestID()
 	orderID := orderIDOf(record.Value())
 	if orderID == "" {
-		r.logger.Error("skipping record without a valid order_id", "payload", string(record.Value()), "request_id", requestID)
+		r.logger.Error("skipping record without a valid order_id", "payload", string(record.Value()), requestid.Attr(requestID))
 		r.rec.Message(flow, "dropped")
 		return r.consumer.Commit(ctx, record)
 	}
@@ -59,7 +59,7 @@ func (r *runner) step(
 		r.rec.Message(flow, "error")
 		return err
 	}
-	r.logger.Info("order published to infra", "payload", string(record.Value()), "request_id", requestID)
+	r.logger.Info("order published to infra", "payload", string(record.Value()), requestid.Attr(requestID))
 	r.rec.Message(flow, "ok")
 	return r.consumer.Commit(ctx, record)
 }
