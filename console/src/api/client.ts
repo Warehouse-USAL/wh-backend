@@ -73,7 +73,8 @@ export async function api(path: string, init: RequestInit = {}): Promise<unknown
   if (typeof init.body === 'string' && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
 
   const response = await fetch(`/api${path}`, { ...init, headers })
-  if (response.status === 401 && token) {
+  // Only the session that sent the request is expired; a sign-in made meanwhile stays.
+  if (response.status === 401 && token && session?.token === token) {
     setSession(null)
     unauthorizedHandlers.forEach((handler) => handler())
   }

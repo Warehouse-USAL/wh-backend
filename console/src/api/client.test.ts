@@ -56,6 +56,23 @@ describe('api', () => {
     unsubscribe()
   })
 
+  it('stale401KeepsANewerSession', async () => {
+    setSession({ token: 'old', email: 'root@x.io' })
+    const handler = vi.fn()
+    const unsubscribe = onUnauthorized(handler)
+    let answer: (response: Response) => void = () => undefined
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>(() => new Promise((resolve) => (answer = resolve))))
+
+    const pending = api('/users')
+    setSession({ token: 'fresh', email: 'root@x.io' })
+    answer(new Response(null, { status: 401 }))
+
+    await expect(pending).rejects.toMatchObject({ status: 401 })
+    expect(getSession()).toEqual({ token: 'fresh', email: 'root@x.io' })
+    expect(handler).not.toHaveBeenCalled()
+    unsubscribe()
+  })
+
   it('401WithoutSessionDoesNotCallHandler', async () => {
     const handler = vi.fn()
     const unsubscribe = onUnauthorized(handler)

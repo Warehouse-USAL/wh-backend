@@ -4,6 +4,9 @@ import { ApiError } from '@/api/client'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 
+// The proxy answers these when the backend is down; their bodies are nginx pages, not API errors.
+const GATEWAY_ERRORS = new Set([502, 503, 504])
+
 export default function Login({ notice }: { notice?: string }) {
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
@@ -16,7 +19,7 @@ export default function Login({ notice }: { notice?: string }) {
     try {
       await login(String(form.get('email')), String(form.get('password')))
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'Cannot reach the server. Try again.')
+      setError(e instanceof ApiError && !GATEWAY_ERRORS.has(e.status) ? e.message : 'Cannot reach the server. Try again.')
       setPending(false)
     }
   }

@@ -43,6 +43,24 @@ describe('Login', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Cannot reach the server')
   })
 
+  it.each([502, 503, 504])('reportsA%sFromTheProxyAsUnreachable', async (status) => {
+    mockFetch(new Response('<html>Bad Gateway</html>', { status, statusText: 'Bad Gateway' }))
+    render(<Login />)
+
+    await signIn()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Cannot reach the server')
+  })
+
+  it('showsAServerErrorMessageForOther5xx', async () => {
+    mockFetch(jsonResponse(500, { error: { code: 'INTERNAL_ERROR', message: 'Unexpected error' } }))
+    render(<Login />)
+
+    await signIn()
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Unexpected error')
+  })
+
   it('signsInASuperadmin', async () => {
     mockFetch(jsonResponse(200, { token: jwt({ email: 'root@x.io', role: 'SUPERADMIN' }) }))
     render(<Login />)
