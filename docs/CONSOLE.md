@@ -46,19 +46,25 @@ can therefore write metrics and logs into VictoriaMetrics and VictoriaLogs (it c
 neither store is on `wh-proxy`). Accepted for now; the fix would be a dedicated scrape-only network
 shared with Caddy.
 
-## Rollout (prod, one-time and on config change)
+## Rollout (prod)
+
+`make deploy` (run by the Deploy workflow) does these steps on every deploy, in this order:
 
 ```sh
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps victorialogs otel-collector minio
+docker compose -f docker-compose.yml -f docker-compose.prod.yml pull backend bridge console
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps victorialogs
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps --force-recreate otel-collector
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps minio victoriametrics
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps backend bridge console restock-cron
 ```
 
 - MinIO is recreated for `MINIO_PROMETHEUS_AUTH_TYPE`, so it restarts briefly (uploads fail for
   a few seconds).
 - The collector config is a bind mount: when only `collector-config*.yml` changed, compose sees no
-  change, so add `--force-recreate` (or run `docker compose restart otel-collector`).
+  change, hence `--force-recreate` (the collector restarts on every deploy).
 - Order: the collector must have the logs pipeline before the new backend and bridge are deployed;
   otherwise their log export gets 404s and warns on stdout until it does.
-- Then deploy backend, bridge and console as usual, and apply the Caddy step below.
+- Then backend, bridge and console are deployed; apply the Caddy step below once.
 
 ## Caddy (manual step, shared proxy)
 
