@@ -116,6 +116,107 @@ Moving the admin address: the running Caddy still listens on the old one, so the
 target it, `caddy reload --config /etc/caddy/Caddyfile --address localhost:2019` (or restart the
 Caddy container). Later reloads read `localhost:2020` from the Caddyfile.
 
+## Push stream (`POST /console/stream`)
+
+The browser never polls: each open console view holds one Server-Sent Events response that
+carries all its live data. SUPERADMIN only. The JWT goes in the `Authorization` header as for every
+call (a token in the URL is ignored), so the console reads it with `fetch`, not `EventSource`.
+
+Request (`Content-Type: application/json`), at most 200 subscriptions, ids unique and matching
+`[A-Za-z0-9_.-]{1,64}`:
+
+```json
+{"subscriptions": [
+  {"id": "p95", "kind": "metric", "metric": "http.server.duration", "range": "15m", "step": "10s",
+   "agg": "p95", "group_by": ["route"], "filters": {"method": "GET"}},
+  {"id": "errors", "kind": "logs", "service": "backend", "level": "error", "range": "1h", "limit": 100},
+  {"id": "orders", "kind": "ws-events", "feed": "orders"},
+  {"id": "status", "kind": "status"}
+]}
+```
+
+| Kind | Params | Payload (`data`) |
+|---|---|---|
+| `metric` | as `POST /metrics/query`, but `range` (`5m`, `15m`, `1h`, `6h`, `24h`) instead of `from`/`to`. The server uses the console's window: `to = floor(now/step)*step`, `from = to - range + step` | the `/metrics/query` response; `mode: "replace"` |
+| `logs` | as `POST /console/logs/query` (same validation and limit cap), plus `range` | snapshot: the REST response (newest first); then only new lines, oldest first, never repeated; `mode: "append"` |
+| `ws-events` | `feed`: `orders`, `user-orders`, `vehicles`, `stock-alerts` | snapshot: the `/console/ws-events/{feed}` response; then each event as it happens; `mode: "append"` |
+| `status` | none | the `/console/status` response, again only when a state or detail changes (the backend `uptime_ms` alone does not count); `mode: "replace"` |
+
+Response headers: `Content-Type: text/event-stream`, `Cache-Control: no-cache`,
+`X-Accel-Buffering: no`. Frames (each `data` is one line of JSON):
+
+```
+event: snapshot
+data: {"id":"orders","mode":"append","data":{"feed":"/ws/v1/orders","events":[...]}}
+
+event: update
+data: {"id":"status","mode":"replace","data":{"dev":true,"services":[...]}}
+
+event: error
+data: {"id":"p95","code":"UNKNOWN_METRIC","message":"La suscripción no es válida."}
+
+: ping
+
+event: end
+data: {"reason":"token-expired"}
+```
+
+- `snapshot` is the first data frame of a subscription; later ones are `update`.
+- `error`: a 4xx from the source (unknown or hidden metric, undeclared dimension) is permanent and
+  the source stops querying; anything else (`METRICS_UNAVAILABLE`, `LOG_STORE_UNAVAILABLE`,
+  `SOURCE_UNAVAILABLE`) is retried on the next evaluation, and the next good result is pushed even
+  if it equals the last one. The message is fixed per class and never names the metric.
+- `end` then the response completes: `token-expired` (the stream never outlives its JWT),
+  `server-shutdown`, or `limit` (the client fell too far behind). The client reconnects and gets
+  fresh snapshots.
+- Rejected before the stream starts, with the usual `{"error":{"code","message"}}`: 400
+  `INVALID_SUBSCRIPTION` (bad id, duplicate id, unknown kind, bad range or step, too many),
+  `INVALID_FILTER_VALUE` (log filters), `MALFORMED_REQUEST`; 429 `STREAM_LIMIT`.
+
+How the server produces it: sources are shared by canonical params across every stream, start with
+their first subscriber and stop with their last. WebSocket events are pushed by a listener on the
+event buffer (no timer). Logs follow a cursor: every interval the search is re-run from 10 s
+(`logs-overlap`) before the newest line seen, and lines already sent are skipped (VictoriaLogs'
+`/select/logsql/tail` was not used: it holds an open response per search and needs its own
+streaming client). Metrics are the one internal pull (VictoriaMetrics cannot push): one query per
+unique subscription every 5 s, about 12 a minute however many streams share it. Each stream has a
+bounded queue; a waiting `replace` frame is overwritten by the newer one, and overflowing `append`
+frames end the stream with `limit`. A client that accepts nothing for `send-timeout` is dropped. A
+disconnected client is noticed at the latest on the next heartbeat.
+
+| Key (`console.stream.`) | Default | |
+|---|---|---|
+| `metric-interval` | `5s` | metric re-evaluation (the metrics resolution is 10 s) |
+| `logs-interval` | `2s` | logs cursor query |
+| `logs-overlap` | `10s` | how far back each logs query reaches for late lines |
+| `status-interval` | `5s` | status probes |
+| `heartbeat` | `15s` | `: ping` comment |
+| `send-timeout` | `30s` | drop a client that stopped reading |
+| `max-subscriptions` | `200` | per stream |
+| `max-streams-per-principal` | `5` | per user |
+| `max-streams` | `50` | whole backend |
+| `queue-capacity` | `1000` | frames waiting per stream; keep above `max-subscriptions` |
+
+Observability: the stream is left out of `http.server.duration` and of the access log (it lasts as
+long as its token). One INFO line on open and one on close (subscription count, duration, reason,
+`request_id`; never the user). `DEBUG` on `com.usal.whbackend.service.console.stream` logs each
+source start and stop with the number of active sources.
+
+Proxies must not buffer the response:
+
+- The console's nginx: `proxy_buffering off` for `/api/console/stream` (Task 23e; the backend's
+  `X-Accel-Buffering: no` already asks nginx for it).
+- Caddy streams `text/event-stream` as it arrives by default. For the owner of the Caddyfile, the
+  explicit safe setting on the route that reaches the backend is:
+
+  ```caddyfile
+  reverse_proxy backend:8080 {
+  	flush_interval -1
+  }
+  ```
+
+  Also keep any proxy read timeout above the heartbeat (15 s).
+
 ## Scraped series
 
 Exact names as stored in VictoriaMetrics (collector `0.115.1`, MinIO `RELEASE.2026-09-22`,
