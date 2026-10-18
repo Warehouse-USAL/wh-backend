@@ -122,3 +122,18 @@ func TestLogValueHidesSecrets(
 		t.Fatalf("expected the AMQP host in the log: %s", logged)
 	}
 }
+
+func TestLoadReadsOTLPEndpoint(
+	t *testing.T,
+) {
+	cfg, err := config.Load(env(required()))
+	if err != nil || cfg.OTLPEndpoint != "" {
+		t.Fatalf("default = %q, err = %v", cfg.OTLPEndpoint, err)
+	}
+	values := required()
+	values["OTEL_EXPORTER_OTLP_ENDPOINT"] = " http://otel-collector:4318 "
+	cfg, err = config.Load(env(values))
+	if err != nil || cfg.OTLPEndpoint != "http://otel-collector:4318" {
+		t.Fatalf("endpoint = %q, err = %v", cfg.OTLPEndpoint, err)
+	}
+}

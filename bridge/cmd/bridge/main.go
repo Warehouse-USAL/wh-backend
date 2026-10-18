@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/backend"
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/config"
@@ -19,6 +20,7 @@ import (
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/rabbit"
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/retry"
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/supervise"
+	"github.com/Warehouse-USAL/wh-backend/bridge/internal/telemetry"
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/vehicles"
 )
 
@@ -26,6 +28,7 @@ const (
 	exchange         = "amq.topic"
 	ordersRoutingKey = "orders"
 	vehiclesKey      = "vehicles"
+	flushTimeout     = 5 * time.Second
 )
 
 func main() {
@@ -44,12 +47,32 @@ func run() int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	_, shutdown, err := telemetry.New(ctx, cfg.OTLPEndpoint, "wh-bridge")
+	if err != nil {
+		logger.Error("telemetry unavailable", "error", err)
+		return 2
+	}
+	if cfg.OTLPEndpoint != "" {
+		logger = slog.Default()
+	}
+	defer flushTelemetry(shutdown, logger)
 	if err = serve(ctx, cfg, logger); err != nil {
 		logger.Error("bridge stopped", "error", err)
 		return 1
 	}
 	logger.Info("bridge stopped")
 	return 0
+}
+
+func flushTelemetry(
+	shutdown func(context.Context) error,
+	logger *slog.Logger,
+) {
+	ctx, cancel := context.WithTimeout(context.Background(), flushTimeout)
+	defer cancel()
+	if err := shutdown(ctx); err != nil {
+		logger.Debug("telemetry flush failed", "error", err)
+	}
 }
 
 func probe() int {

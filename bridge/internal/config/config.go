@@ -20,6 +20,7 @@ type Config struct {
 	RetryMin         time.Duration
 	RetryMax         time.Duration
 	HealthAddr       string
+	OTLPEndpoint     string
 }
 
 // Load builds a Config from getenv, usually os.Getenv.
@@ -43,6 +44,7 @@ func Load(
 		RetryMin:         r.duration("RETRY_MIN", time.Second),
 		RetryMax:         r.duration("RETRY_MAX", 30*time.Second),
 		HealthAddr:       r.optional("HEALTH_ADDR", ":8081"),
+		OTLPEndpoint:     r.optional("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
 	}
 	if err := r.err(); err != nil {
 		return Config{}, err
@@ -68,6 +70,7 @@ func (c Config) LogValue() slog.Value {
 		slog.Duration("retry_min", c.RetryMin),
 		slog.Duration("retry_max", c.RetryMax),
 		slog.String("health_addr", c.HealthAddr),
+		slog.String("otlp_endpoint", c.OTLPEndpoint),
 	)
 }
 
