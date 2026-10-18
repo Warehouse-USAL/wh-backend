@@ -44,7 +44,7 @@ function numberTile(title: string, query: MetricQuery[], read: (series: Series[]
     query,
     value: (series, ctx) => {
       const v = read(series)
-      return v === undefined ? undefined : { value: format(v), tone: tone(v), ...(label && { label: label(ctx) }), spark: series[0]?.points.map((p) => p.v) }
+      return v === undefined ? undefined : { value: format(v), tone: tone(v), ...(label && { label: label(ctx) }), ...(series.length === 1 && { spark: series[0].points.map((p) => p.v) }) }
     },
   }
 }
@@ -500,7 +500,7 @@ const cron: PageSpec = {
           query: [DURATION],
           select: (s) => mapPoints(pick(['ok', 'ok', blue], ['error', 'failed', red])(s), () => 1),
         },
-        { kind: 'lines', title: 'Duration', sub: 'ms per run', span: 4, query: [DURATION], select: pick(['ok', 'ok', blue], ['error', 'failed', red]), format: formatMs },
+        { kind: 'lines', title: 'Duration', sub: 'per run', span: 4, query: [DURATION], select: pick(['ok', 'ok', blue], ['error', 'failed', red]), format: formatMs },
         { kind: 'bars', title: 'Suggestions', sub: 'rows applied per run', span: 4, query: [m('job.run', 'last', { job: 'restock', field: 'suggestions' }, [], 'suggestions')], select: pick(['suggestions', 'suggestions', gray]) },
       ],
     },

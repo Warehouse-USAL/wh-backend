@@ -126,9 +126,9 @@ function Panel({ state, title, span, children }: { state: Loadable; title: strin
   return children
 }
 
-function EmptyCard({ title, sub, span, message }: { title: string; sub?: string; span: Span; message: string }) {
+function EmptyCard({ title, sub, span, message, tile }: { title: string; sub?: string; span: Span; message: string; tile?: boolean }) {
   return (
-    <Card title={title} sub={sub} className={SPAN[span]}>
+    <Card title={title} sub={sub} className={cn(SPAN[span], tile && 'min-h-[150px]')}>
       <p className="py-6 text-center text-xs text-mu">{message}</p>
     </Card>
   )
@@ -162,7 +162,7 @@ function MetricTile({ spec, ...shared }: Shared & { spec: TileSpec }) {
 }
 
 function TileView({ spec, value, ctx, empty }: Shared & { spec: TileSpec | StatusSpec; value: ReturnType<TileSpec['value']> }) {
-  if (!value) return <EmptyCard title={spec.title} sub={text(spec.sub, ctx, [])} span={spec.span} message={empty} />
+  if (!value) return <EmptyCard title={spec.title} sub={text(spec.sub, ctx, [])} span={spec.span} message={empty} tile />
   return <TileWidget value={value.value} tone={value.tone} label={value.label ?? spec.title} spark={value.spark} className={SPAN[spec.span]} />
 }
 
