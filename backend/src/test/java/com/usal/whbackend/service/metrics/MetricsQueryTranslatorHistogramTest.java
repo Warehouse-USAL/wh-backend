@@ -80,6 +80,14 @@ class MetricsQueryTranslatorHistogramTest {
   }
 
   @Test
+  void severalFiltersAreSortedAndEscapedOnTheHistogramPath() {
+    assertThat(translate(Map.of("route", "/a\"b", "method", "GET"), List.of(), "p99"))
+        .isEqualTo(
+            "histogram_quantile(0.99, sum by (le) "
+                + "(rate(http_server_duration_bucket{method=\"GET\", route=\"/a\\\"b\"}[30s])))");
+  }
+
+  @Test
   void undeclaredTagsAreStillRejected() {
     assertThatThrownBy(() -> translate(Map.of("le", "100"), List.of(), "p95"))
         .satisfies(t -> assertThat(codeOf(t)).isEqualTo("UNKNOWN_DIMENSION"));

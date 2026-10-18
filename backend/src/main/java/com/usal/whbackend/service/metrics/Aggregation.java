@@ -10,6 +10,8 @@ import java.util.Optional;
  *   <li>{@link #overTimeFunction()} collapses the samples inside one step bucket
  *   <li>{@link #operator()} collapses the remaining series into the requested {@code group_by}
  * </ul>
+ *
+ * <p>P50/P95/P99 are histogram-only quantiles, rendered by the translator's histogram branch.
  */
 public enum Aggregation {
   AVG("avg_over_time", "avg", false),
