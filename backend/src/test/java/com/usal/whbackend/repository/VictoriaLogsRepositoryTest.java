@@ -32,7 +32,7 @@ class VictoriaLogsRepositoryTest {
 
   @Test
   void buildsLogsQlFromFixedFilters() {
-    assertThat(VictoriaLogsRepository.buildQuery("wh-bridge", "error", "7f3a", "timeout"))
+    assertThat(VictoriaLogsRepository.buildQuery("bridge", "error", "7f3a", "timeout"))
         .isEqualTo(
             "\"service.name\":=\"wh-bridge\" \"severity\":i(\"error\")"
                 + " \"request_id\":=\"7f3a\" \"timeout\" | sort by (_time) desc");
@@ -50,7 +50,7 @@ class VictoriaLogsRepositoryTest {
     f.server()
         .expect(
             requestTo(
-                "http://victorialogs:9428/select/logsql/query?query=*%20%7C%20sort%20by%20(_time)%20desc"
+                "http://victorialogs:9428/select/logsql/query?query=*%20%7C%20sort%20by%20%28_time%29%20desc"
                     + "&start=2026-10-18T10:00:00Z&end=2026-10-18T11:00:00Z&limit=50"))
         .andRespond(withSuccess("", MediaType.APPLICATION_NDJSON));
 
@@ -79,8 +79,7 @@ class VictoriaLogsRepositoryTest {
 
     assertThat(lines)
         .containsExactly(
-            new LogLine(
-                Instant.parse("2026-10-18T10:30:00Z"), "ERROR", "wh-backend", "boom", "abc"),
+            new LogLine(Instant.parse("2026-10-18T10:30:00Z"), "ERROR", "backend", "boom", "abc"),
             new LogLine(null, null, null, null, null),
             new LogLine(null, null, null, "bare", null));
   }
@@ -93,6 +92,42 @@ class VictoriaLogsRepositoryTest {
         .andRespond(withSuccess());
 
     assertThat(f.repository().search(null, null, null, null, FROM, TO, 10)).isEmpty();
+  }
+
+  @Test
+  void mapsShortServiceNamesToStoreNames() {
+    assertThat(VictoriaLogsRepository.buildQuery("backend", null, null, null))
+        .startsWith("\"service.name\":=\"wh-backend\" ");
+    assertThat(VictoriaLogsRepository.buildQuery("bridge", null, null, null))
+        .startsWith("\"service.name\":=\"wh-bridge\" ");
+  }
+
+  @Test
+  void newestFirstOrderingIsPartOfTheQuery() {
+    assertThat(VictoriaLogsRepository.buildQuery(null, null, null, "x"))
+        .endsWith(" | sort by (_time) desc");
+  }
+
+  @Test
+  void logsQlOperatorsInTextStayInsideOneQuotedPhrase() {
+    assertThat(
+            VictoriaLogsRepository.buildQuery(null, null, null, "level:error _msg:~x -x (a OR b)*"))
+        .isEqualTo("\"level:error _msg:~x -x (a OR b)*\" | sort by (_time) desc");
+  }
+
+  @Test
+  void encodesReservedCharactersStrictlyOnTheWire() {
+    Fixture f = fixture();
+    f.server()
+        .expect(
+            requestTo(
+                "http://victorialogs:9428/select/logsql/query?query=%22a%2Bb%3Bc%20d%22"
+                    + "%20%7C%20sort%20by%20%28_time%29%20desc"
+                    + "&start=2026-10-18T10:00:00Z&end=2026-10-18T11:00:00Z&limit=5"))
+        .andRespond(withSuccess("", MediaType.APPLICATION_NDJSON));
+
+    f.repository().search(null, null, null, "a+b;c d", FROM, TO, 5);
+    f.server().verify();
   }
 
   @Test
@@ -120,6 +155,11 @@ class VictoriaLogsRepositoryTest {
     VictoriaLogsRepository repository = new VictoriaLogsRepository(properties);
 
     assertThatThrownBy(() -> repository.search(null, null, null, null, FROM, TO, 1))
-        .isInstanceOf(ResponseStatusException.class);
+        .isInstanceOfSatisfying(
+            ResponseStatusException.class,
+            ex -> {
+              assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.BAD_GATEWAY);
+              assertThat(ex.getReason()).isEqualTo("LOG_STORE_UNAVAILABLE");
+            });
   }
 }

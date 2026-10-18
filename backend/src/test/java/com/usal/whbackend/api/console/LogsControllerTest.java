@@ -40,7 +40,7 @@ class LogsControllerTest {
 
   private static final String BODY =
       """
-      {"service":"wh-bridge","level":"error","request_id":"7f3a","text":"timeout",
+      {"service":"bridge","level":"error","request_id":"7f3a","text":"timeout",
        "from":"2026-10-18T10:00:00Z","to":"2026-10-18T11:00:00Z","limit":20}
       """;
 
@@ -61,7 +61,7 @@ class LogsControllerTest {
         .thenReturn(
             List.of(
                 new LogLine(
-                    Instant.parse("2026-10-18T10:30:00Z"), "error", "wh-bridge", "boom", "7f3a")));
+                    Instant.parse("2026-10-18T10:30:00Z"), "error", "bridge", "boom", "7f3a")));
 
     mockMvc
         .perform(post("/console/logs/query").contentType(MediaType.APPLICATION_JSON).content(BODY))
@@ -76,7 +76,7 @@ class LogsControllerTest {
     org.assertj.core.api.Assertions.assertThat(captor.getValue())
         .isEqualTo(
             new LogsQuery(
-                "wh-bridge",
+                "bridge",
                 "error",
                 "7f3a",
                 "timeout",

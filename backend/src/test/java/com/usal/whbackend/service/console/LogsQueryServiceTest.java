@@ -42,14 +42,14 @@ class LogsQueryServiceTest {
 
   @Test
   void passesValidatedFiltersToTheRepository() {
-    LogLine line = new LogLine(TO, "error", "wh-bridge", "m", "7f3a");
+    LogLine line = new LogLine(TO, "error", "bridge", "m", "7f3a");
     when(repository.search(any(), any(), any(), any(), any(), any(), anyInt()))
         .thenReturn(List.of(line));
 
-    List<LogLine> result = service.query(query("wh-bridge", "error", "7f3a", "timeout"));
+    List<LogLine> result = service.query(query("bridge", "error", "7f3a", "timeout"));
 
     assertThat(result).containsExactly(line);
-    verify(repository).search("wh-bridge", "error", "7f3a", "timeout", TO.minusSeconds(60), TO, 10);
+    verify(repository).search("bridge", "error", "7f3a", "timeout", TO.minusSeconds(60), TO, 10);
   }
 
   @Test
@@ -78,9 +78,9 @@ class LogsQueryServiceTest {
 
   @Test
   void acceptsMaxLengthTextAndAllServices() {
-    service.query(query("wh-backend", "debug", null, "x".repeat(200)));
-    service.query(query("restock-cron", "warn", null, "free text: ok"));
-    verify(repository).search(eq("restock-cron"), eq("warn"), any(), any(), any(), any(), eq(10));
+    service.query(query("backend", "debug", null, "x".repeat(200)));
+    service.query(query("bridge", "warn", null, "free text: ok"));
+    verify(repository).search(eq("bridge"), eq("warn"), any(), any(), any(), any(), eq(10));
   }
 
   @Test
@@ -111,6 +111,46 @@ class LogsQueryServiceTest {
   void rangeOfExactly7DaysIsAllowed() {
     service.query(new LogsQuery(null, null, null, null, TO.minus(Duration.ofDays(7)), TO, 1));
     verify(repository).search(any(), any(), any(), any(), any(), eq(TO), eq(1));
+  }
+
+  @Test
+  void rejectsTheStoreServiceNamesAndRestockCron() {
+    assertCode(query("wh-bridge", null, null, null), "INVALID_FILTER_VALUE");
+    assertCode(query("wh-backend", null, null, null), "INVALID_FILTER_VALUE");
+    assertCode(query("restock-cron", null, null, null), "INVALID_FILTER_VALUE");
+  }
+
+  @Test
+  void instantsOutsideYears0000To9999Are400() {
+    assertCode(
+        new LogsQuery(null, null, null, null, Instant.parse("-0001-01-01T00:00:00Z"), TO, 1),
+        "INVALID_TIME_RANGE");
+    assertCode(
+        new LogsQuery(null, null, null, null, TO, Instant.parse("+10000-01-01T00:00:00Z"), 1),
+        "INVALID_TIME_RANGE");
+    assertCode(
+        new LogsQuery(null, null, null, null, Instant.MIN, Instant.MAX, 1), "INVALID_TIME_RANGE");
+    // Short ranges that straddle the boundary must be refused too.
+    assertCode(
+        new LogsQuery(
+            null,
+            null,
+            null,
+            null,
+            Instant.parse("9999-12-31T23:59:59Z"),
+            Instant.parse("+10000-01-01T00:00:01Z"),
+            1),
+        "INVALID_TIME_RANGE");
+    assertCode(
+        new LogsQuery(
+            null,
+            null,
+            null,
+            null,
+            Instant.parse("-0001-12-31T23:59:59Z"),
+            Instant.parse("0000-01-01T00:00:01Z"),
+            1),
+        "INVALID_TIME_RANGE");
   }
 
   @Test

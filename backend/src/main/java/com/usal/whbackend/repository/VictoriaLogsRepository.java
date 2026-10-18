@@ -5,12 +5,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.usal.whbackend.service.console.ConsoleProperties;
 import com.usal.whbackend.service.console.LogLine;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,7 +23,6 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.util.UriComponentsBuilder;
-import org.springframework.web.util.UriUtils;
 
 /**
  * Reads log lines from VictoriaLogs (v1.x) through {@code /select/logsql/query}.
@@ -55,6 +56,13 @@ public class VictoriaLogsRepository {
   /** VictoriaLogs built-in timestamp field. */
   static final String FIELD_TIME = "_time";
 
+  /**
+   * API service names mapped to the store's {@code service.name} values (a Task 15 / 28
+   * verification point like the field names above). The API never exposes the {@code wh-} names.
+   */
+  private static final Map<String, String> SERVICE_NAMES =
+      Map.of("backend", "wh-backend", "bridge", "wh-bridge");
+
   private static final String QUERY_PATH = "/select/logsql/query";
   private static final String MATCH_ALL = "*";
   private static final String NEWEST_FIRST = " | sort by (" + FIELD_TIME + ") desc";
@@ -82,13 +90,15 @@ public class VictoriaLogsRepository {
   }
 
   /**
-   * Builds the LogsQL for the fixed filters; null or blank filters are skipped. Callers must have
-   * validated each value (no quotes, braces, pipes, backslashes, backticks or newlines).
+   * Builds the LogsQL for the fixed filters, newest first; null or blank filters are skipped.
+   * Callers must have validated each value (no quotes, braces, pipes, backslashes, backticks or
+   * newlines).
    */
   static String buildQuery(String service, String level, String requestId, String text) {
     List<String> parts = new ArrayList<>();
     if (service != null) {
-      parts.add(quoted(FIELD_SERVICE) + ":=" + quoted(service));
+      parts.add(
+          quoted(FIELD_SERVICE) + ":=" + quoted(SERVICE_NAMES.getOrDefault(service, service)));
     }
     if (level != null) {
       parts.add(quoted(FIELD_LEVEL) + ":i(" + quoted(level) + ")");
@@ -134,12 +144,20 @@ public class VictoriaLogsRepository {
   private URI uri(String query, Instant from, Instant to, int limit) {
     return UriComponentsBuilder.fromUriString(baseUrl)
         .path(QUERY_PATH)
-        .queryParam("query", UriUtils.encodeQueryParam(query, StandardCharsets.UTF_8))
+        .queryParam("query", strictlyEncoded(query))
         .queryParam("start", from.toString())
         .queryParam("end", to.toString())
         .queryParam("limit", limit)
         .build(true)
         .toUri();
+  }
+
+  /**
+   * Percent-encodes everything but unreserved characters. {@code UriUtils.encodeQueryParam} leaves
+   * {@code +} and {@code ;} alone, which the server then reads as a space or a parameter separator.
+   */
+  private static String strictlyEncoded(String value) {
+    return URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20");
   }
 
   /** Newline-delimited JSON; blank and malformed lines are skipped, missing fields are null. */
@@ -159,7 +177,7 @@ public class VictoriaLogsRepository {
               new LogLine(
                   time(text(node, FIELD_TIME)),
                   text(node, FIELD_LEVEL),
-                  text(node, FIELD_SERVICE),
+                  apiService(text(node, FIELD_SERVICE)),
                   text(node, FIELD_MESSAGE),
                   text(node, FIELD_REQUEST_ID)));
         }
@@ -168,6 +186,14 @@ public class VictoriaLogsRepository {
       }
     }
     return lines;
+  }
+
+  private static String apiService(String storeName) {
+    return SERVICE_NAMES.entrySet().stream()
+        .filter(e -> e.getValue().equals(storeName))
+        .map(Map.Entry::getKey)
+        .findFirst()
+        .orElse(storeName);
   }
 
   private static String text(JsonNode node, String field) {

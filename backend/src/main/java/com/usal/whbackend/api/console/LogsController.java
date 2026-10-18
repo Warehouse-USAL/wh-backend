@@ -32,8 +32,9 @@ public class LogsController {
   @Operation(
       summary = "Search logs",
       description =
-          "Filters: service, level (debug|info|warn|error), request_id, text, from, to, limit"
-              + " (default 100, max 500). Range at most 7 days; defaults to the last hour.")
+          "Filters: service (backend|bridge), level (debug|info|warn|error), request_id, text, from, to, limit"
+              + " (default 100, max 500). Range at most 7 days; defaults to the last hour."
+              + " Lines are newest first; total is the number of returned lines.")
   @PostMapping("/query")
   public ResponseEntity<Map<String, Object>> query(@RequestBody LogsQuery query) {
     List<LogLine> lines = service.query(query);

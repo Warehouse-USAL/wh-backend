@@ -14,8 +14,8 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class LogsQueryService {
 
-  /** The services that ship logs. Kept here, in one place. */
-  static final Set<String> SERVICES = Set.of("wh-backend", "wh-bridge", "restock-cron");
+  /** The services accepted on the API; the repository maps them to the store's names. */
+  static final Set<String> SERVICES = Set.of("backend", "bridge");
 
   static final Set<String> LEVELS = Set.of("debug", "info", "warn", "error");
 
@@ -25,6 +25,8 @@ public class LogsQueryService {
   static final Duration MAX_RANGE = Duration.ofDays(7);
   static final Duration DEFAULT_RANGE = Duration.ofHours(1);
 
+  private static final Instant MIN_INSTANT = Instant.parse("0000-01-01T00:00:00Z");
+  private static final Instant MAX_INSTANT = Instant.parse("9999-12-31T23:59:59Z");
   private static final Pattern REQUEST_ID = Pattern.compile("[A-Za-z0-9_-]{1,64}");
   private static final Pattern FORBIDDEN_TEXT = Pattern.compile("[\"{}|\\\\`\\r\\n]");
 
@@ -53,6 +55,9 @@ public class LogsQueryService {
       throw invalid();
     }
 
+    if (outOfSupportedYears(query.from()) || outOfSupportedYears(query.to())) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "INVALID_TIME_RANGE");
+    }
     Instant to = query.to() != null ? query.to() : Instant.now();
     Instant from = query.from() != null ? query.from() : to.minus(DEFAULT_RANGE);
     if (from.isAfter(to) || Duration.between(from, to).compareTo(MAX_RANGE) > 0) {
@@ -64,6 +69,11 @@ public class LogsQueryService {
             ? DEFAULT_LIMIT
             : Math.min(query.limit(), MAX_LIMIT);
     return repository.search(service, level, requestId, text, from, to, limit);
+  }
+
+  /** The store takes RFC 3339 timestamps, which only cover years 0000 to 9999. */
+  private static boolean outOfSupportedYears(Instant instant) {
+    return instant != null && (instant.isBefore(MIN_INSTANT) || instant.isAfter(MAX_INSTANT));
   }
 
   private static ResponseStatusException invalid() {
