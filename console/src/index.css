@@ -1,0 +1,106 @@
+@import "tailwindcss";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
+
+/* coss ui semantic tokens, mapped onto the console's Vercel/Geist light palette. */
+:root {
+  --bg: #fff;
+  --bg2: #fafafa;
+  --bd: #eaeaea;
+  --bd2: #d9d9d9;
+  --tx: #171717;
+  --mu: #666;
+  --blue: #0070f3;
+  --ok: #0a8f4f;
+  --wn: #c77700;
+  --er: #e5484d;
+
+  --background: var(--bg);
+  --foreground: var(--tx);
+  --card: var(--bg);
+  --card-foreground: var(--tx);
+  --popover: var(--bg);
+  --popover-foreground: var(--tx);
+  --primary: var(--tx);
+  --primary-foreground: #fff;
+  --secondary: #f2f2f2;
+  --secondary-foreground: var(--tx);
+  --muted: #f2f2f2;
+  --muted-foreground: var(--mu);
+  --accent: #f2f2f2;
+  --accent-foreground: var(--tx);
+  --border: var(--bd);
+  --input: var(--bd2);
+  --ring: var(--bd2);
+  --destructive: var(--er);
+  --destructive-foreground: var(--er);
+  --info: var(--blue);
+  --info-foreground: var(--blue);
+  --success: var(--ok);
+  --success-foreground: var(--ok);
+  --warning: var(--wn);
+  --warning-foreground: var(--wn);
+  --radius: 0.5rem;
+}
+
+@theme inline {
+  --font-sans: "Geist Variable", system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, monospace;
+
+  --color-bg: var(--bg);
+  --color-bg2: var(--bg2);
+  --color-bd: var(--bd);
+  --color-bd2: var(--bd2);
+  --color-tx: var(--tx);
+  --color-mu: var(--mu);
+  --color-blue: var(--blue);
+  --color-ok: var(--ok);
+  --color-wn: var(--wn);
+  --color-er: var(--er);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-info: var(--info);
+  --color-info-foreground: var(--info-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-bg2 text-tx font-sans antialiased;
+    font-size: 13px;
+    line-height: 1.45;
+  }
+  code, kbd, samp, pre {
+    font-family: var(--font-mono);
+  }
+}
