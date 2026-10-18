@@ -13,11 +13,13 @@
   </appender>
 
   <!--
-    The SDK reports export failures (collector down) through these loggers. Silenced so a missing
-    collector never spams the console or feeds back into the OTEL appender; set
-    logging.level.io.opentelemetry=DEBUG to see them.
+    The SDK reports export failures (collector down) through these loggers. They stay visible on
+    the console but are not additive, so they never reach the OTEL appender: shipping an export
+    failure would itself fail to export and feed back into the logger.
   -->
-  <logger name="io.opentelemetry" level="OFF"/>
+  <logger name="io.opentelemetry" level="WARN" additivity="false">
+    <appender-ref ref="CONSOLE"/>
+  </logger>
 
   <root level="INFO">
     <appender-ref ref="CONSOLE"/>
