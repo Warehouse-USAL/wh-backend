@@ -6,6 +6,7 @@ import fixture from '@/api/__fixtures__/logs-query.json'
 import { setSession } from '@/api/client'
 import { LiveProvider } from '@/data/live'
 import { jsonResponse } from '@/test/http'
+import { formatTime } from '@/widgets/scale'
 import Logs from './Logs'
 
 type Body = Record<string, unknown>
@@ -34,7 +35,8 @@ const renderLogs = (url = '/infra/logs') =>
     </MemoryRouter>,
   )
 
-const stream = () => within(screen.getByText('Stream').closest('div.rounded-lg') as HTMLElement)
+const firstLabel = (chart: HTMLElement) => chart.parentElement?.nextElementSibling?.firstElementChild?.textContent
+const stream = () => within(screen.getByRole('region', { name: 'Stream' }))
 
 describe('Logs', () => {
   beforeEach(() => setSession({ token: 'tok', email: 'root@x.io' }))
@@ -58,7 +60,7 @@ describe('Logs', () => {
     stubLogs()
     renderLogs()
     await screen.findByText('Facets')
-    const facets = within(screen.getByText('Facets').closest('div.rounded-lg') as HTMLElement)
+    const facets = within(screen.getByRole('region', { name: 'Facets' }))
     expect(facets.getByText('4 returned lines')).toBeInTheDocument()
     const row = (name: string) => facets.getAllByText(name)[0].parentElement as HTMLElement
     expect(row('backend')).toHaveTextContent('backend2')
@@ -72,6 +74,53 @@ describe('Logs', () => {
     stubLogs(() => jsonResponse(200, { lines: Array.from({ length: 200 }, () => line), total: 200 }))
     renderLogs()
     expect(await screen.findByText('newest 200 lines, more may match')).toBeInTheDocument()
+  })
+
+  it('capsTheVolumeToTheSpanTheNewestLinesCover', async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: Date.parse('2026-10-18T21:23:30Z') })
+    const line = (time: string) => ({ ...fixture.lines[0], time })
+    // 199 lines in the last minute and the 200th at 21:21:10: nothing older was fetched.
+    const lines = [...Array.from({ length: 199 }, () => line('2026-10-18T21:23:20Z')), line('2026-10-18T21:21:10Z')]
+    stubLogs(() => jsonResponse(200, { lines, total: 200 }))
+    renderLogs()
+    const chart = await screen.findByRole('img', { name: /Log volume/ })
+    expect(screen.getByText('by level, newest 200 lines only')).toBeInTheDocument()
+    // 21:21:00 to 21:23:15 in 15 s buckets: 10 buckets, not the range's 60.
+    expect(firstLabel(chart)).toBe(formatTime(Date.parse('2026-10-18T21:21:00Z'), true))
+  })
+
+  it('keepsTheFullAxisAndIncludesTheFirstPartialBucketWhenNotCapped', async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: Date.parse('2026-10-18T21:23:40Z') })
+    // 15m range at 21:23:40: the window starts 21:08:40, inside the partial 21:08:30 bucket.
+    const old = { ...fixture.lines[0], time: '2026-10-18T21:08:42Z' }
+    stubLogs(() => jsonResponse(200, { lines: [old, fixture.lines[0]], total: 2 }))
+    renderLogs()
+    const chart = await screen.findByRole('img', { name: /Log volume/ })
+    expect(screen.getByText('by level')).toBeInTheDocument()
+    expect(chart.querySelectorAll('rect')).toHaveLength(2)
+    expect(firstLabel(chart)).toBe(formatTime(Date.parse('2026-10-18T21:08:30Z'), false))
+  })
+
+  it('ignoresAnInvalidRequestIdInTheUrlWithAHintAndSendsNothingForIt', async () => {
+    const bodies = stubLogs()
+    renderLogs('/infra/logs?req=bad%20id%22')
+    expect(await screen.findByRole('note')).toHaveTextContent('Ignored the request id')
+    await screen.findByRole('region', { name: 'Stream' })
+    expect(bodies[0]).not.toHaveProperty('request_id')
+    expect(screen.queryByRole('button', { name: /^Clear request id/ })).toBeNull()
+  })
+
+  it('refusesForbiddenSearchCharactersWithAHintBeforeSending', async () => {
+    const bodies = stubLogs()
+    renderLogs()
+    await screen.findByRole('region', { name: 'Stream' })
+    await userEvent.type(screen.getByLabelText('Search log text'), 'a|b{Enter}')
+    expect(screen.getByRole('note')).toHaveTextContent('cannot contain')
+    expect(bodies).toHaveLength(1)
+    await userEvent.clear(screen.getByLabelText('Search log text'))
+    await userEvent.type(screen.getByLabelText('Search log text'), 'ok{Enter}')
+    expect(screen.queryByRole('note')).toBeNull()
+    await vi.waitFor(() => expect(bodies.at(-1)).toMatchObject({ text: 'ok' }))
   })
 
   it('storeUnavailableShowsTheErrorNotAnEmptyList', async () => {

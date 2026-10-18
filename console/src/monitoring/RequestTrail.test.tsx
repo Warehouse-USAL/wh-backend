@@ -1,4 +1,4 @@
-import { render, screen, within } from '@testing-library/react'
+import { act, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import fixture from '@/api/__fixtures__/logs-query.json'
@@ -55,6 +55,30 @@ describe('RequestTrail', () => {
     expect(trail).toHaveTextContent(/rabbitmq publish failed, retrying.*order published to infra/)
     expect(rows).toBeInTheDocument()
     expect(within(trail).getByRole('link', { name: 'Open in Logs' })).toHaveAttribute('href', '/infra/logs?req=t23order1')
+  })
+
+  it('refreshesOnEachTickKeepingTheTrailAndAbortingASupersededRequest', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    stubApi((b) => jsonResponse(200, b.request_id ? { lines: fixture.lines.slice(0, 2), total: 2 } : { lines: [fixture.lines[0]], total: 1 }))
+    renderAt('/monitoring/orders')
+    const trail = await screen.findByRole('region', { name: 'Event trail' })
+    await within(trail).findByText('order published to infra')
+
+    const signals: AbortSignal[] = []
+    vi.mocked(fetch).mockImplementation(async (input, init) => {
+      if (String(input).endsWith('/metrics/query')) return jsonResponse(200, { metric: 'm', unit: '', step: '15s', series: [] })
+      signals.push(init?.signal as AbortSignal)
+      return new Promise<Response>(() => undefined)
+    })
+    await act(() => vi.advanceTimersByTimeAsync(5000))
+    expect(signals).toHaveLength(1)
+    expect(signals[0].aborted).toBe(false)
+    expect(within(trail).getByText('order published to infra')).toBeInTheDocument()
+
+    await act(() => vi.advanceTimersByTimeAsync(5000))
+    expect(signals[0].aborted).toBe(true)
+    expect(within(trail).getByText('order published to infra')).toBeInTheDocument()
+    vi.useRealTimers()
   })
 
   it('otherDomainPagesHaveNoTrail', async () => {

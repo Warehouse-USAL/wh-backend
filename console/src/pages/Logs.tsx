@@ -20,6 +20,9 @@ const LEVEL_COLOR: Record<LogLevel, string> = { debug: PALETTE.gray, info: PALET
 const LEVEL_TONE: Record<string, string> = { error: 'text-er', warn: 'text-wn', info: 'text-blue' }
 const ROW_TONE: Record<string, string> = { error: 'bg-er/10', warn: 'bg-wn/10' }
 const LONG = 160
+// The backend's rules (LogsQueryService): anything else is a 400, so say so before sending.
+const REQUEST_ID = /^[A-Za-z0-9_-]{1,64}$/
+const FORBIDDEN_TEXT = /["{}|\\`\r\n]/
 
 type State = { key: string; data?: LogsResult & { at: number }; error?: unknown }
 
@@ -27,7 +30,9 @@ type State = { key: string; data?: LogsResult & { at: number }; error?: unknown 
 export default function Logs() {
   const { range, tick } = useLive()
   const [params, setParams] = useSearchParams()
-  const requestId = params.get('req') ?? undefined
+  const rawRequest = params.get('req') ?? undefined
+  const requestId = rawRequest && REQUEST_ID.test(rawRequest) ? rawRequest : undefined
+  const [hint, setHint] = useState<string>()
   const [service, setService] = useState<LogService>()
   const [level, setLevel] = useState<LogLevel>()
   const [text, setText] = useState('')
@@ -52,11 +57,15 @@ export default function Logs() {
   const setRequest = (id?: string) => setParams(id ? { req: id } : {}, { replace: true })
   const search = (e: FormEvent) => {
     e.preventDefault()
-    setText(draft.trim())
+    const next = draft.trim()
+    if (FORBIDDEN_TEXT.test(next)) return void setHint('Search text cannot contain " { } | \\ ` or line breaks.')
+    setHint(undefined)
+    setText(next)
   }
   const retry = () => setAttempt((n) => n + 1)
   const ready = state.key === key
   const data = state.data
+  const capped = (data?.lines.length ?? 0) >= LIMIT
 
   return (
     <>
@@ -87,6 +96,11 @@ export default function Logs() {
             </button>
           )}
         </form>
+        {(hint || (rawRequest && !requestId)) && (
+          <p role="note" className="text-xs text-er">
+            {hint ?? 'Ignored the request id in the address: it may only hold letters, digits, - and _ (up to 64).'}
+          </p>
+        )}
         {state.error && ready ? (
           <div role="alert" className="flex flex-col items-start gap-2 rounded-lg border border-bd bg-bg p-4 text-[13px]">
             <p className="font-medium">{errorText(state.error)}</p>
@@ -101,9 +115,14 @@ export default function Logs() {
           </p>
         ) : (
           <>
-            <BarsWidget title="Log volume" sub="by level" series={volume(data.lines, range)} times={buckets(range, data.at)} />
+            <BarsWidget
+              title="Log volume"
+              sub={capped ? `by level, newest ${data.lines.length} lines only` : 'by level'}
+              series={volume(data.lines, range)}
+              times={buckets(data.lines, range, data.at, capped)}
+            />
             <div className="flex flex-wrap items-start gap-3">
-              <Facets lines={data.lines} capped={data.lines.length >= LIMIT} />
+              <Facets lines={data.lines} capped={capped} />
               <Stream lines={data.lines} onRequest={setRequest} />
             </div>
           </>
@@ -131,11 +150,17 @@ function Chips<T extends string>({ label, options, value, onChange }: { label: s
   )
 }
 
-/** Bucket starts, oldest first, the last one holding `at`. */
-function buckets(range: Range, at: number): number[] {
+/**
+ * Bucket starts, oldest first, the last one holding `at`. The first is the partial bucket at the
+ * range's start, so every line in range has a bar. When the lines are capped the older part of
+ * the range was never fetched, so the axis starts at the oldest returned line, not at zeros.
+ */
+function buckets(lines: LogLine[], range: Range, at: number, capped: boolean): number[] {
   const step = stepMs(stepFor(range))
   const end = Math.floor(at / step) * step
-  return Array.from({ length: RANGE_MS[range] / step }, (_, i) => end - (RANGE_MS[range] / step - 1 - i) * step)
+  let start = Math.floor((at - RANGE_MS[range]) / step) * step
+  if (capped) start = Math.max(start, Math.floor(Math.min(...lines.map((l) => Date.parse(l.time ?? '') || end)) / step) * step)
+  return Array.from({ length: (end - start) / step + 1 }, (_, i) => start + i * step)
 }
 
 /** Line counts per bucket, one series per level present (so a quiet level adds no legend entry). */
@@ -170,7 +195,8 @@ function Facets({ lines, capped }: { lines: LogLine[]; capped: boolean }) {
     ['Level', count((l) => l.level)],
   ]
   return (
-    <Card title="Facets" sub={capped ? `newest ${lines.length} lines, more may match` : `${lines.length} returned lines`} className="w-56 flex-none">
+    <section aria-label="Facets" className="w-56 flex-none">
+    <Card title="Facets" sub={capped ? `newest ${lines.length} lines, more may match` : `${lines.length} returned lines`} className="h-full">
       {facets.map(([title, rows]) => (
         <div key={title} className="mb-2 flex flex-col gap-1 text-xs">
           <span className="font-medium">{title}</span>
@@ -183,12 +209,14 @@ function Facets({ lines, capped }: { lines: LogLine[]; capped: boolean }) {
         </div>
       ))}
     </Card>
+    </section>
   )
 }
 
 function Stream({ lines, onRequest }: { lines: LogLine[]; onRequest: (id: string) => void }) {
   return (
-    <Card title="Stream" sub="newest first" flush className="min-w-[320px] flex-[999_1_560px]">
+    <section aria-label="Stream" className="min-w-[320px] flex-[999_1_560px]">
+    <Card title="Stream" sub="newest first" flush className="h-full">
       {lines.length === 0 ? (
         <p className="py-6 text-center text-xs text-mu">No log lines match</p>
       ) : (
@@ -199,6 +227,7 @@ function Stream({ lines, onRequest }: { lines: LogLine[]; onRequest: (id: string
         </div>
       )}
     </Card>
+    </section>
   )
 }
 
@@ -212,7 +241,7 @@ function Row({ line, onRequest }: { line: LogLine; onRequest: (id: string) => vo
       <span className={cn('uppercase', LEVEL_TONE[line.level ?? ''] ?? 'text-mu')}>{line.level}</span>
       <span>{line.service}</span>
       <span className="min-w-0">
-        <span className={cn('break-words', long && !open && 'line-clamp-2')}>{message}</span>{' '}
+        <span className={cn('whitespace-pre-wrap break-words', long && !open && 'line-clamp-2')}>{message}</span>{' '}
         {long && (
           <button type="button" onClick={() => setOpen(!open)} className="text-blue">
             {open ? 'less' : 'more'}
