@@ -129,13 +129,35 @@ func serve(
 	) error {
 		return health.Health(ctx, cfg.HealthAddr)
 	}}
-	// Without an OTLP endpoint the recorder is a no-op, so the lag is not polled.
-	if cfg.OTLPEndpoint != "" {
-		tasks = append(tasks, func(
-			ctx context.Context,
-		) error {
-			return kafka.ReportLag(ctx, cfg.KafkaBrokers, cfg.KafkaGroupID, cfg.KafkaOrdersTopic, rec, logger)
-		})
-	}
+	// A no-op recorder means telemetry is off or failed to start: nothing would read the lag.
+	tasks = withLagReporter(tasks, rec != telemetry.Noop(), func(
+		ctx context.Context,
+	) error {
+		return kafka.ReportLag(ctx, cfg.KafkaBrokers, cfg.KafkaGroupID, cfg.KafkaOrdersTopic, rec, logger)
+	}, logger)
 	return supervise.Supervise(ctx, tasks...)
+}
+
+// withLagReporter adds report to tasks when telemetry is live. The reporter is
+// best effort: supervise stops the bridge as soon as any task returns, so
+// whatever report returns, its task keeps waiting for ctx and never ends the
+// bridge by itself.
+func withLagReporter(
+	tasks []func(context.Context) error,
+	live bool,
+	report func(context.Context) error,
+	logger *slog.Logger,
+) []func(context.Context) error {
+	if !live {
+		return tasks
+	}
+	return append(tasks, func(
+		ctx context.Context,
+	) error {
+		if err := report(ctx); err != nil {
+			logger.Error("consumer lag reporting stopped", "error", err)
+		}
+		<-ctx.Done()
+		return nil
+	})
 }
