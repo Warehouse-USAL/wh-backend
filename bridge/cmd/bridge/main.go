@@ -47,7 +47,7 @@ func run() int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	_, shutdown, err := telemetry.New(ctx, cfg.OTLPEndpoint, "wh-bridge")
+	rec, shutdown, err := telemetry.New(ctx, cfg.OTLPEndpoint, "wh-bridge")
 	if err != nil {
 		logger.Error("telemetry unavailable", "error", err)
 		return 2
@@ -56,7 +56,7 @@ func run() int {
 		logger = slog.Default()
 	}
 	defer flushTelemetry(shutdown, logger)
-	if err = serve(ctx, cfg, logger); err != nil {
+	if err = serve(ctx, cfg, logger, rec); err != nil {
 		logger.Error("bridge stopped", "error", err)
 		return 1
 	}
@@ -91,6 +91,7 @@ func serve(
 	ctx context.Context,
 	cfg config.Config,
 	logger *slog.Logger,
+	rec telemetry.Recorder,
 ) error {
 	logger.Info("starting bridge", "config", cfg)
 	consumer, err := kafka.NewConsumer(cfg.KafkaBrokers, cfg.KafkaOrdersTopic, cfg.KafkaGroupID, logger)
@@ -99,16 +100,26 @@ func serve(
 	}
 	defer consumer.Close()
 	policy := retry.Policy{Min: cfg.RetryMin, Max: cfg.RetryMax}
-	toInfra := orders.New(consumer, rabbit.NewPublisher(cfg.AMQPURL, exchange, ordersRoutingKey), policy, logger)
+	toInfra := orders.New(consumer, rabbit.NewPublisher(cfg.AMQPURL, exchange, ordersRoutingKey), policy, logger, rec)
 	fromInfra := vehicles.New(
 		rabbit.NewConsumer(cfg.AMQPURL, rabbit.Binding{Exchange: exchange, Queue: cfg.AMQPQueue, RoutingKey: vehiclesKey}, policy, logger),
 		backend.New(cfg.BackendURL, cfg.InfraAPIKey, cfg.HTTPTimeout),
 		policy,
 		logger,
+		rec,
 	)
-	return supervise.Supervise(ctx, toInfra.Run, fromInfra.Run, func(
+	tasks := []func(context.Context) error{toInfra.Run, fromInfra.Run, func(
 		ctx context.Context,
 	) error {
 		return health.Health(ctx, cfg.HealthAddr)
-	})
+	}}
+	// Without an OTLP endpoint the recorder is a no-op, so the lag is not polled.
+	if cfg.OTLPEndpoint != "" {
+		tasks = append(tasks, func(
+			ctx context.Context,
+		) error {
+			return kafka.ReportLag(ctx, cfg.KafkaBrokers, cfg.KafkaGroupID, cfg.KafkaOrdersTopic, rec, logger)
+		})
+	}
+	return supervise.Supervise(ctx, tasks...)
 }

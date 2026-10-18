@@ -99,9 +99,59 @@ func (c *scriptedClient) paths() []string {
 	return paths
 }
 
+type fakeRecorder struct {
+	mu        sync.Mutex
+	messages  []string
+	callbacks []string
+}
+
+func (r *fakeRecorder) Message(
+	flow string,
+	result string,
+) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.messages = append(r.messages, flow+":"+result)
+}
+
+func (r *fakeRecorder) Callback(
+	flow string,
+	d time.Duration,
+) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if d >= 0 {
+		r.callbacks = append(r.callbacks, flow)
+	}
+}
+
+func (r *fakeRecorder) Lag(string, int64) {}
+
+func (r *fakeRecorder) recorded() ([]string, []string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.messages...), append([]string(nil), r.callbacks...)
+}
+
+func equal(
+	got []string,
+	want ...string,
+) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
 type harness struct {
 	source *fakeSource
 	client *scriptedClient
+	rec    *fakeRecorder
 	cancel context.CancelFunc
 	done   chan error
 }
@@ -113,12 +163,13 @@ func start(
 	h := &harness{
 		source: &fakeSource{deliveries: make(chan vehicles.Delivery)},
 		client: &scriptedClient{results: results},
+		rec:    &fakeRecorder{},
 		done:   make(chan error, 1),
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	h.cancel = cancel
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	pipeline := vehicles.New(h.source, h.client, fastPolicy, logger)
+	pipeline := vehicles.New(h.source, h.client, fastPolicy, logger, h.rec)
 	go func() { h.done <- pipeline.Run(ctx) }()
 	t.Cleanup(cancel)
 	return h
@@ -257,5 +308,82 @@ func TestRunStopsWhenSourceCloses(
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Run did not return after the source closed")
+	}
+}
+
+type recordingCase struct {
+	name      string
+	body      string
+	results   []error
+	messages  []string
+	callbacks []string
+}
+
+func (c recordingCase) run(
+	t *testing.T,
+) {
+	h := start(t, c.results...)
+	d := newDelivery(c.body)
+	h.deliver(t, d)
+	h.waitSettled(t, d)
+	messages, callbacks := h.rec.recorded()
+	if !equal(messages, c.messages...) {
+		t.Fatalf("messages %v, want %v", messages, c.messages)
+	}
+	if !equal(callbacks, c.callbacks...) {
+		t.Fatalf("callbacks %v, want %v", callbacks, c.callbacks)
+	}
+}
+
+func TestDeliveriesAreRecordedPerFlowAndAttempt(
+	t *testing.T,
+) {
+	cases := []recordingCase{
+		{
+			name:      "status accepted",
+			body:      statusMsg,
+			messages:  []string{"orders_in:ok"},
+			callbacks: []string{"orders_in"},
+		},
+		{
+			name:      "telemetry 503 then 200",
+			body:      telemetryMsg,
+			results:   []error{errors.New("backend answered status 503")},
+			messages:  []string{"vehicles_in:retry", "vehicles_in:ok"},
+			callbacks: []string{"vehicles_in", "vehicles_in"},
+		},
+		{
+			name:      "status 422",
+			body:      statusMsg,
+			results:   []error{&backend.RejectedError{Status: 422, Body: "INVALID"}},
+			messages:  []string{"orders_in:dropped"},
+			callbacks: []string{"orders_in"},
+		},
+		{
+			name:     "unclassifiable",
+			body:     `{"status":"idle"}`,
+			messages: []string{"vehicles_in:dropped"},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, c.run)
+	}
+}
+
+func TestCancellationWithAMessageInFlightRecordsAnError(
+	t *testing.T,
+) {
+	h := start(t, errors.New("503"), errors.New("503"), errors.New("503"), errors.New("503"), errors.New("503"), errors.New("503"), errors.New("503"), errors.New("503"), errors.New("503"), errors.New("503"))
+	d := newDelivery(telemetryMsg)
+	h.deliver(t, d)
+	time.Sleep(10 * time.Millisecond)
+	h.cancel()
+	h.waitSettled(t, d)
+	messages, callbacks := h.rec.recorded()
+	if len(messages) < 2 || messages[0] != "vehicles_in:retry" || messages[len(messages)-1] != "vehicles_in:error" {
+		t.Fatalf("messages %v, want retries then vehicles_in:error", messages)
+	}
+	if len(callbacks) != len(messages)-1 {
+		t.Fatalf("%d callbacks for %d attempts", len(callbacks), len(messages)-1)
 	}
 }

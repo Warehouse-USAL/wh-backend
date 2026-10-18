@@ -90,17 +90,42 @@ func (p *fakePublisher) bodies() []string {
 	return append([]string(nil), p.published...)
 }
 
+type fakeRecorder struct {
+	mu       sync.Mutex
+	messages []string
+}
+
+func (r *fakeRecorder) Message(
+	flow string,
+	result string,
+) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.messages = append(r.messages, flow+":"+result)
+}
+
+func (r *fakeRecorder) Callback(string, time.Duration) {}
+
+func (r *fakeRecorder) Lag(string, int64) {}
+
+func (r *fakeRecorder) results() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.messages...)
+}
+
 func run(
 	t *testing.T,
 	consumer *fakeConsumer,
 	publisher *fakePublisher,
 	want int,
-) {
+) *fakeRecorder {
+	rec := &fakeRecorder{}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { done <- orders.New(consumer, publisher, fastPolicy, logger).Run(ctx) }()
+	go func() { done <- orders.New(consumer, publisher, fastPolicy, logger, rec).Run(ctx) }()
 	deadline := time.After(2 * time.Second)
 	for len(consumer.commits()) < want {
 		select {
@@ -113,6 +138,23 @@ func run(
 	if err := <-done; err != nil {
 		t.Fatalf("Run returned %v", err)
 	}
+	return rec
+}
+
+func assertResults(
+	t *testing.T,
+	got []string,
+	want ...string,
+) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("recorded %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("recorded %v, want %v", got, want)
+		}
+	}
 }
 
 const pending = `{"order_id":"ORD-1","status":"pending","stops":["A","B"],"destination":"AREA-B"}`
@@ -124,10 +166,11 @@ func TestOrderIsPublishedUnchangedThenCommitted(
 	var order []string
 	consumer := &fakeConsumer{records: []orders.Record{fakeRecord{pending}}}
 	publisher := &fakePublisher{order: &order}
-	run(t, consumer, publisher, 1)
+	rec := run(t, consumer, publisher, 1)
 	if got := publisher.bodies(); len(got) != 1 || got[0] != pending {
 		t.Fatalf("published %v", got)
 	}
+	assertResults(t, rec.results(), "orders_out:ok")
 }
 
 func TestPublishFailureIsRetriedBeforeCommitting(
@@ -136,10 +179,11 @@ func TestPublishFailureIsRetriedBeforeCommitting(
 	var order []string
 	consumer := &fakeConsumer{records: []orders.Record{fakeRecord{pending}}}
 	publisher := &fakePublisher{failures: 3, order: &order}
-	run(t, consumer, publisher, 1)
+	rec := run(t, consumer, publisher, 1)
 	if got := publisher.bodies(); len(got) != 1 {
 		t.Fatalf("published %v", got)
 	}
+	assertResults(t, rec.results(), "orders_out:retry", "orders_out:retry", "orders_out:retry", "orders_out:ok")
 }
 
 func TestOrdersKeepTheirOrder(
@@ -165,10 +209,11 @@ func TestInvalidRecordsAreSkippedButCommitted(
 		fakeRecord{pending},
 	}}
 	publisher := &fakePublisher{order: &order}
-	run(t, consumer, publisher, 3)
+	rec := run(t, consumer, publisher, 3)
 	if got := publisher.bodies(); len(got) != 1 || got[0] != pending {
 		t.Fatalf("published %v", got)
 	}
+	assertResults(t, rec.results(), "orders_out:dropped", "orders_out:dropped", "orders_out:ok")
 }
 
 func TestRecordIsNotCommittedWhenStoppedBeforePublishing(
@@ -177,10 +222,11 @@ func TestRecordIsNotCommittedWhenStoppedBeforePublishing(
 	var order []string
 	consumer := &fakeConsumer{records: []orders.Record{fakeRecord{pending}}}
 	publisher := &fakePublisher{failures: 1 << 30, order: &order}
+	rec := &fakeRecorder{}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- orders.New(consumer, publisher, fastPolicy, logger).Run(ctx) }()
+	go func() { done <- orders.New(consumer, publisher, fastPolicy, logger, rec).Run(ctx) }()
 	time.Sleep(20 * time.Millisecond)
 	cancel()
 	if err := <-done; err != nil {
@@ -188,5 +234,9 @@ func TestRecordIsNotCommittedWhenStoppedBeforePublishing(
 	}
 	if got := consumer.commits(); len(got) != 0 {
 		t.Fatalf("committed %v without publishing", got)
+	}
+	got := rec.results()
+	if len(got) < 2 || got[0] != "orders_out:retry" || got[len(got)-1] != "orders_out:error" {
+		t.Fatalf("recorded %v, want retries then orders_out:error", got)
 	}
 }

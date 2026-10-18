@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/retry"
+	"github.com/Warehouse-USAL/wh-backend/bridge/internal/telemetry"
 )
 
 type runner struct {
@@ -14,6 +15,7 @@ type runner struct {
 	publisher Publisher
 	policy    retry.Policy
 	logger    *slog.Logger
+	rec       telemetry.Recorder
 }
 
 func (r *runner) Run(
@@ -38,6 +40,7 @@ func (r *runner) step(
 	}
 	if !hasOrderID(record.Value()) {
 		r.logger.Error("skipping record without a valid order_id", "payload", string(record.Value()))
+		r.rec.Message(flow, "dropped")
 		return r.consumer.Commit(ctx, record)
 	}
 	err = retry.Retry(ctx, r.policy, func(
@@ -46,9 +49,11 @@ func (r *runner) step(
 		return r.publisher.Publish(ctx, record.Value())
 	})
 	if err != nil {
+		r.rec.Message(flow, "error")
 		return err
 	}
 	r.logger.Info("order published to infra", "payload", string(record.Value()))
+	r.rec.Message(flow, "ok")
 	return r.consumer.Commit(ctx, record)
 }
 

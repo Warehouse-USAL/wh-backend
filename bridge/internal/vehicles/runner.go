@@ -4,10 +4,17 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"time"
 
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/backend"
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/classify"
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/retry"
+	"github.com/Warehouse-USAL/wh-backend/bridge/internal/telemetry"
+)
+
+const (
+	flowOrders   = "orders_in"
+	flowVehicles = "vehicles_in"
 )
 
 type runner struct {
@@ -15,6 +22,7 @@ type runner struct {
 	client backend.Client
 	policy retry.Policy
 	logger *slog.Logger
+	rec    telemetry.Recorder
 }
 
 func (r *runner) Run(
@@ -51,6 +59,7 @@ func (r *runner) handle(
 	req, err := classify.Classify(delivery.Body())
 	if err != nil {
 		r.logger.Error("dropping unclassifiable message", "error", err, "payload", string(delivery.Body()))
+		r.rec.Message(flowVehicles, "dropped")
 		r.ack(delivery)
 		return
 	}
@@ -66,9 +75,14 @@ func (r *runner) send(
 	ctx context.Context,
 	req classify.Request,
 ) error {
+	start := time.Now()
 	err := r.client.Send(ctx, req)
+	r.rec.Callback(flowOf(req), time.Since(start))
 	if errors.Is(err, backend.ErrRejected) {
 		return retry.Permanent(err)
+	}
+	if err != nil {
+		r.rec.Message(flowOf(req), "retry")
 	}
 	return err
 }
@@ -80,15 +94,18 @@ func (r *runner) settle(
 ) {
 	if err == nil {
 		r.logger.Info("delivered to backend", "kind", req.Kind, "path", req.Path)
+		r.rec.Message(flowOf(req), "ok")
 		r.ack(delivery)
 		return
 	}
 	if errors.Is(err, backend.ErrRejected) {
 		r.logger.Warn("backend rejected message, dropping", "kind", req.Kind, "path", req.Path, "error", err, "payload", string(req.Body))
+		r.rec.Message(flowOf(req), "dropped")
 		r.ack(delivery)
 		return
 	}
 	r.logger.Info("stopping with a message in flight, requeueing", "kind", req.Kind, "path", req.Path)
+	r.rec.Message(flowOf(req), "error")
 	if requeueErr := delivery.Requeue(); requeueErr != nil {
 		r.logger.Error("requeue failed", "error", requeueErr)
 	}
@@ -100,4 +117,13 @@ func (r *runner) ack(
 	if err := delivery.Ack(); err != nil {
 		r.logger.Error("ack failed", "error", err)
 	}
+}
+
+func flowOf(
+	req classify.Request,
+) string {
+	if req.Kind == classify.KindOrderStatus {
+		return flowOrders
+	}
+	return flowVehicles
 }
