@@ -156,6 +156,8 @@ services:
   console:
     image: ghcr.io/warehouse-usal/wh-console:latest
     ports: !override []
+    # No dev-tools proxies in prod.
+    volumes: !reset []
     restart: always
     networks:
       - wh-network

@@ -248,6 +248,11 @@ services:
     build: ./console
     ports:
       - "8083:80"
+      # Frame-safe proxies to mongo-express and redpanda-console (dev profile) for the Dev tools pages.
+      - "8091:8091"
+      - "8092:8092"
+    volumes:
+      - ./console/nginx.dev-tools.conf:/etc/nginx/conf.d/dev-tools.conf:ro
     depends_on:
       backend:
         condition: service_started
