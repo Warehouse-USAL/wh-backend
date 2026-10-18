@@ -11,6 +11,12 @@ export class ApiError extends Error {
   }
 }
 
+/** One line for the operator: the backend's `CODE: message`, or the error's own message. */
+export function errorText(error: unknown): string {
+  if (error instanceof ApiError) return `${error.code}: ${error.message}`
+  return error instanceof Error ? error.message : String(error)
+}
+
 export interface Session {
   token: string
   email: string
@@ -66,6 +72,20 @@ export function onUnauthorized(handler: () => void): () => void {
 
 /** Calls the backend under `/api`, returning the parsed body (`null` when empty). */
 export async function api(path: string, init: RequestInit = {}): Promise<unknown> {
+  const response = await send(path, init)
+  const body = parse(await response.text())
+  if (!response.ok) throw toApiError(response, body)
+  return body
+}
+
+/** Downloads a binary resource with the session's token in the header, never in the URL. */
+export async function apiBlob(path: string): Promise<Blob> {
+  const response = await send(path, {})
+  if (!response.ok) throw toApiError(response, parse(await response.text()))
+  return response.blob()
+}
+
+async function send(path: string, init: RequestInit): Promise<Response> {
   const token = session?.token
   const headers = new Headers(init.headers)
   headers.set('Accept', 'application/json')
@@ -78,9 +98,7 @@ export async function api(path: string, init: RequestInit = {}): Promise<unknown
     setSession(null)
     unauthorizedHandlers.forEach((handler) => handler())
   }
-  const body = parse(await response.text())
-  if (!response.ok) throw toApiError(response, body)
-  return body
+  return response
 }
 
 function parse(text: string): unknown {

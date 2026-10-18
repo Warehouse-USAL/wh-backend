@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { RANGES, type Range, useLive } from '@/data/live'
 import { cn } from '@/lib/utils'
 
@@ -17,10 +18,11 @@ interface HeaderProps {
   tab?: string
   onTab?: (tab: string) => void
   chips?: string[]
+  /** Pages that do not poll (Domains) show their own actions instead of the range and Live controls. */
+  actions?: ReactNode
 }
 
-export default function Header({ crumb, title, tabs, tab, onTab, chips }: HeaderProps) {
-  const { live, range, toggle, setRange } = useLive()
+export default function Header({ crumb, title, tabs, tab, onTab, chips, actions }: HeaderProps) {
   const activeTab = tab ?? tabs?.[0]
   return (
     <header className="border-b border-bd bg-bg px-6">
@@ -33,29 +35,7 @@ export default function Header({ crumb, title, tabs, tab, onTab, chips }: Header
           </span>
         ))}
         <div className="flex-1" />
-        <select
-          name="range"
-          aria-label="Time range"
-          value={range}
-          onChange={(e) => setRange(e.target.value as Range)}
-          className="min-h-8 rounded-md border border-bd2 bg-bg px-3 text-[13px]"
-        >
-          {RANGES.map((r) => (
-            <option key={r} value={r}>
-              {RANGE_LABEL[r]}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          aria-pressed={live}
-          aria-label="Live updates"
-          onClick={toggle}
-          className={cn('flex items-center gap-1.5 text-[13px] font-medium', live ? 'text-ok' : 'text-mu')}
-        >
-          <span className="size-[7px] rounded-full bg-current" aria-hidden />
-          Live
-        </button>
+        {actions ?? <TimeControls />}
       </div>
       {tabs && (
         <div role="tablist" className="flex gap-[22px]">
@@ -74,5 +54,36 @@ export default function Header({ crumb, title, tabs, tab, onTab, chips }: Header
         </div>
       )}
     </header>
+  )
+}
+
+function TimeControls() {
+  const { live, range, toggle, setRange } = useLive()
+  return (
+    <>
+      <select
+        name="range"
+        aria-label="Time range"
+        value={range}
+        onChange={(e) => setRange(e.target.value as Range)}
+        className="min-h-8 rounded-md border border-bd2 bg-bg px-3 text-[13px]"
+      >
+        {RANGES.map((r) => (
+          <option key={r} value={r}>
+            {RANGE_LABEL[r]}
+          </option>
+        ))}
+      </select>
+      <button
+        type="button"
+        aria-pressed={live}
+        aria-label="Live updates"
+        onClick={toggle}
+        className={cn('flex items-center gap-1.5 text-[13px] font-medium', live ? 'text-ok' : 'text-mu')}
+      >
+        <span className="size-[7px] rounded-full bg-current" aria-hidden />
+        Live
+      </button>
+    </>
   )
 }

@@ -53,4 +53,12 @@ describe('Header', () => {
     await user.selectOptions(range, '1h')
     expect(range).toHaveValue('1h')
   })
+
+  it('showsActionsInsteadOfTheTimeControls', () => {
+    render(<Header crumb="Domains" title="Users" actions={<button type="button">New user</button>} />)
+
+    expect(screen.getByRole('button', { name: 'New user' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Live updates' })).toBeNull()
+    expect(screen.queryByRole('combobox', { name: 'Time range' })).toBeNull()
+  })
 })

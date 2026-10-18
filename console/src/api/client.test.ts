@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, api, getSession, onUnauthorized, setSession } from './client'
+import { ApiError, api, apiBlob, errorText, getSession, onUnauthorized, setSession } from './client'
 import { jsonResponse, mockFetch } from '../test/http'
 
 describe('api', () => {
@@ -82,6 +82,35 @@ describe('api', () => {
 
     expect(handler).not.toHaveBeenCalled()
     unsubscribe()
+  })
+})
+
+describe('apiBlob', () => {
+  beforeEach(() => setSession({ token: 'tok', email: 'root@x.io' }))
+
+  it('downloadsWithTheTokenInTheHeader', async () => {
+    const fetchMock = mockFetch(new Response('png', { status: 200 }))
+
+    const blob = await apiBlob('/api/v1/files/images/a.png')
+
+    expect(await blob.text()).toBe('png')
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/api/v1/files/images/a.png')
+    expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer tok')
+  })
+
+  it('turnsAFailedDownloadIntoApiError', async () => {
+    mockFetch(jsonResponse(404, { error: { code: 'FILE_NOT_FOUND', message: 'missing' } }))
+
+    await expect(apiBlob('/api/v1/files/images/a.png')).rejects.toMatchObject({ status: 404, code: 'FILE_NOT_FOUND' })
+  })
+})
+
+describe('errorText', () => {
+  it('prefersTheApiCodeThenTheMessage', () => {
+    expect(errorText(new ApiError(422, 'INVALID_REQUEST', 'bad'))).toBe('INVALID_REQUEST: bad')
+    expect(errorText(new TypeError('Failed to fetch'))).toBe('Failed to fetch')
+    expect(errorText('plain')).toBe('plain')
   })
 })
 

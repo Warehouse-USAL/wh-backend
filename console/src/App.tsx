@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { Navigate, Route, Routes } from 'react-router'
 import { useSession } from '@/api/auth'
 import { onUnauthorized } from '@/api/client'
+import { DOMAIN_PAGES } from '@/domains/entities'
+import EntityPage from '@/domains/EntityPage'
 import Header from '@/layout/Header'
 import { NAV } from '@/layout/nav'
 import Shell from '@/layout/Shell'
@@ -39,7 +41,17 @@ export default function App() {
         <Route path="/" element={<Navigate to="/overview" replace />} />
         {NAV.flatMap(({ section, items }) =>
           items.map(({ label, path }) => (
-            <Route key={path} path={path} element={<Placeholder crumb={section} title={label} />} />
+            <Route
+              key={path}
+              path={path}
+              element={
+                path in DOMAIN_PAGES ? (
+                  <EntityPage title={label} entities={DOMAIN_PAGES[path]} />
+                ) : (
+                  <Placeholder crumb={section} title={label} />
+                )
+              }
+            />
           )),
         )}
         <Route path="*" element={<NotFound />} />

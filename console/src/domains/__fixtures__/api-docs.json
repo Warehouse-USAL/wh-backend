@@ -1,0 +1,5137 @@
+{
+ "openapi": "3.1.0",
+ "info": {
+  "title": "SmartWarehouse API",
+  "description": "Backend API for the SmartWarehouse autonomous warehouse system",
+  "version": "v1.0"
+ },
+ "servers": [
+  {
+   "url": "http://localhost:8080",
+   "description": "Generated server url"
+  }
+ ],
+ "tags": [
+  {
+   "name": "Query",
+   "description": "Whitelisted entity queries for dashboards"
+  },
+  {
+   "name": "Console",
+   "description": "Backend console (SUPERADMIN only)"
+  },
+  {
+   "name": "Users",
+   "description": "User management — requires ADMIN_SYSTEM role"
+  },
+  {
+   "name": "Restock Orders",
+   "description": "Pedidos de reposición a proveedor — no afectan stock"
+  },
+  {
+   "name": "Receptions",
+   "description": "Remitos de recepción — la única vía que incrementa stock"
+  },
+  {
+   "name": "Products",
+   "description": "Product catalogue and stock management"
+  },
+  {
+   "name": "Vehicles",
+   "description": "Autonomous vehicle fleet management"
+  },
+  {
+   "name": "Files",
+   "description": "Image upload, serving and management"
+  },
+  {
+   "name": "Orders",
+   "description": "Order lifecycle management"
+  },
+  {
+   "name": "Infra",
+   "description": "Called by the Infra bridge — authenticated by X-Api-Key"
+  },
+  {
+   "name": "Internal - Vehicles",
+   "description": "Internal vehicle state management"
+  },
+  {
+   "name": "Internal",
+   "description": "Internal simulation endpoints — not for production use"
+  },
+  {
+   "name": "Metrics",
+   "description": "Time-series metrics for dashboards"
+  },
+  {
+   "name": "Authentication",
+   "description": "Login and token management"
+  }
+ ],
+ "paths": {
+  "/warehouse/zones": {
+   "get": {
+    "tags": [
+     "Warehouse - Zones"
+    ],
+    "operationId": "getZones",
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {}
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   },
+   "post": {
+    "tags": [
+     "Warehouse - Zones"
+    ],
+    "operationId": "createZone",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CreateZoneRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/ZoneResponse"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/warehouse/zones/{zoneId}/lines": {
+   "get": {
+    "tags": [
+     "Warehouse - Lines"
+    ],
+    "operationId": "getLines",
+    "parameters": [
+     {
+      "name": "zoneId",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {}
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   },
+   "post": {
+    "tags": [
+     "Warehouse - Lines"
+    ],
+    "operationId": "createLine",
+    "parameters": [
+     {
+      "name": "zoneId",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CreateLineRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/LineResponse"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/warehouse/positions/validate-fit": {
+   "post": {
+    "tags": [
+     "Warehouse - Positions"
+    ],
+    "operationId": "validateFit",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ValidateFitRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/FitValidationResponse"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/warehouse/lines/{lineId}/positions": {
+   "get": {
+    "tags": [
+     "Warehouse - Positions"
+    ],
+    "operationId": "getPositions",
+    "parameters": [
+     {
+      "name": "lineId",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {}
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   },
+   "post": {
+    "tags": [
+     "Warehouse - Positions"
+    ],
+    "operationId": "createPosition",
+    "parameters": [
+     {
+      "name": "lineId",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CreatePositionRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/PositionResponse"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/vehicles": {
+   "get": {
+    "tags": [
+     "Vehicles"
+    ],
+    "summary": "List vehicles",
+    "description": "Requires ADMIN_SYSTEM or ADMIN_WAREHOUSE role",
+    "operationId": "getVehicles",
+    "parameters": [
+     {
+      "name": "page",
+      "in": "query",
+      "description": "Zero-indexed page number",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "format": "int32",
+       "default": 0
+      }
+     },
+     {
+      "name": "size",
+      "in": "query",
+      "description": "Page size (max 50)",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "format": "int32",
+       "default": 10
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Paginated vehicle list",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {}
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "Insufficient role",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {}
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   },
+   "post": {
+    "tags": [
+     "Vehicles"
+    ],
+    "summary": "Register vehicle",
+    "description": "Registers a new vehicle in the fleet. Requires ADMIN_SYSTEM role.",
+    "operationId": "registerVehicle",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RegisterVehicleRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "description": "Vehicle registered",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/VehicleResponse"
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "Insufficient role",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/VehicleResponse"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/users": {
+   "get": {
+    "tags": [
+     "Users"
+    ],
+    "summary": "List users",
+    "description": "Returns paginated users, optionally filtered by role and active status",
+    "operationId": "getUsers",
+    "parameters": [
+     {
+      "name": "role",
+      "in": "query",
+      "description": "Filter by role (e.g. ADMIN_SALES, OPERATOR)",
+      "required": false,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "isActive",
+      "in": "query",
+      "description": "Filter by active status",
+      "required": false,
+      "schema": {
+       "type": "boolean"
+      }
+     },
+     {
+      "name": "page",
+      "in": "query",
+      "description": "Zero-indexed page number",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "format": "int32",
+       "default": 0
+      }
+     },
+     {
+      "name": "size",
+      "in": "query",
+      "description": "Page size (max 50)",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "format": "int32",
+       "default": 10
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Paginated user list",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {}
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "Insufficient role",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {}
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   },
+   "post": {
+    "tags": [
+     "Users"
+    ],
+    "summary": "Create user",
+    "operationId": "createUser",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CreateUserRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "description": "User created",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/UserResponse"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "Validation error",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/UserResponse"
+        }
+       }
+      }
+     },
+     "409": {
+      "description": "EMAIL_ALREADY_EXISTS",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/UserResponse"
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "Insufficient role",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/UserResponse"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/users/{id}/reset-password": {
+   "post": {
+    "tags": [
+     "Users"
+    ],
+    "summary": "Reset user password",
+    "operationId": "resetPassword",
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ResetPasswordRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "204": {
+      "description": "Password reset successfully"
+     },
+     "400": {
+      "description": "Validation error"
+     },
+     "403": {
+      "description": "Insufficient role"
+     },
+     "404": {
+      "description": "USER_NOT_FOUND"
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/users/me/change-password": {
+   "post": {
+    "tags": [
+     "Users"
+    ],
+    "summary": "Self-service change password",
+    "operationId": "changePassword",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ChangePasswordRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Contraseña actualizada correctamente.",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "type": "string"
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "WRONG_CURRENT_PASSWORD or SAME_PASSWORD",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "type": "string"
+         }
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Unauthorized",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "type": "string"
+         }
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/restock/receptions": {
+   "get": {
+    "tags": [
+     "Receptions"
+    ],
+    "summary": "List receptions",
+    "description": "Paginated, filterable listing.",
+    "operationId": "getReceptions",
+    "parameters": [
+     {
+      "name": "productId",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "restockOrderId",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "status",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "enum": [
+        "PENDING_LOCATION",
+        "COMPLETED"
+       ]
+      }
+     },
+     {
+      "name": "from",
+      "in": "query",
+      "description": "ISO-8601 start date (inclusive)",
+      "required": false,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "to",
+      "in": "query",
+      "description": "ISO-8601 end date (inclusive)",
+      "required": false,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "page",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "format": "int32",
+       "default": 0
+      }
+     },
+     {
+      "name": "size",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "format": "int32",
+       "default": 10
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Paginated reception list",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {}
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   },
+   "post": {
+    "tags": [
+     "Receptions"
+    ],
+    "summary": "Register reception",
+    "description": "Registers the remito and its position assignments atomically, incrementing stock (RN-04/05/06/07).",
+    "operationId": "createReception",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CreateReceptionRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "description": "Reception registered",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/ReceptionResponse"
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "PRODUCT_NOT_FOUND, ASSIGNMENT_QUANTITY_MISMATCH, RESTOCK_ORDER_PRODUCT_MISMATCH",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/ReceptionResponse"
+         }
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "RESTOCK_ORDER_NOT_FOUND, POSITION_NOT_FOUND",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/ReceptionResponse"
+         }
+        }
+       }
+      }
+     },
+     "409": {
+      "description": "POSITION_ALREADY_OCCUPIED, STOCK_EXCEEDS_CAPACITY",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/ReceptionResponse"
+         }
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/restock/orders": {
+   "get": {
+    "tags": [
+     "Restock Orders"
+    ],
+    "summary": "List restock orders",
+    "description": "Paginated, filterable listing.",
+    "operationId": "getRestockOrders",
+    "parameters": [
+     {
+      "name": "productId",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "supplier",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "from",
+      "in": "query",
+      "description": "ISO-8601 start date (inclusive)",
+      "required": false,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "to",
+      "in": "query",
+      "description": "ISO-8601 end date (inclusive)",
+      "required": false,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "page",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "format": "int32",
+       "default": 0
+      }
+     },
+     {
+      "name": "size",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "format": "int32",
+       "default": 10
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Paginated restock order list",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {}
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   },
+   "post": {
+    "tags": [
+     "Restock Orders"
+    ],
+    "summary": "Create restock order",
+    "description": "Registers a request to a supplier. Never affects stock (RN-03).",
+    "operationId": "createRestockOrder",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CreateRestockOrderRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "description": "Restock order created",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/RestockOrderResponse"
+         }
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "PRODUCT_NOT_FOUND",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/RestockOrderResponse"
+         }
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/query/{entity}": {
+   "post": {
+    "tags": [
+     "Query"
+    ],
+    "summary": "Query an entity",
+    "description": "Filtered, sorted, paginated records.",
+    "operationId": "query",
+    "parameters": [
+     {
+      "name": "entity",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/EntityQueryRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Matching records",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {}
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "UNKNOWN_ENTITY, UNKNOWN_FIELD, UNSUPPORTED_OPERATOR, TOO_MANY_FILTERS, INVALID_FILTER_VALUE",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {}
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/products": {
+   "get": {
+    "tags": [
+     "Products"
+    ],
+    "summary": "List products",
+    "description": "Returns paginated products, optionally filtered",
+    "operationId": "getProducts",
+    "parameters": [
+     {
+      "name": "category",
+      "in": "query",
+      "description": "Filter by category",
+      "required": false,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "search",
+      "in": "query",
+      "description": "Search by name or SKU (case-insensitive)",
+      "required": false,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "isActive",
+      "in": "query",
+      "description": "Filter by active status (default: true)",
+      "required": false,
+      "schema": {
+       "type": "boolean"
+      }
+     },
+     {
+      "name": "page",
+      "in": "query",
+      "description": "Zero-indexed page number",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "format": "int32",
+       "default": 0
+      }
+     },
+     {
+      "name": "size",
+      "in": "query",
+      "description": "Page size (max 50)",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "format": "int32",
+       "default": 10
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Paginated product list",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {}
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   },
+   "post": {
+    "tags": [
+     "Products"
+    ],
+    "summary": "Create product",
+    "description": "Requires ADMIN_WAREHOUSE or ADMIN_SALES role",
+    "operationId": "createProduct",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CreateProductRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "description": "Product created",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/ProductResponse"
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "Validation failed — field constraints not met",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/ProductResponse"
+         }
+        }
+       }
+      }
+     },
+     "409": {
+      "description": "SKU_ALREADY_EXISTS",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/ProductResponse"
+         }
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "Insufficient role",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/ProductResponse"
+         }
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/orders": {
+   "get": {
+    "tags": [
+     "Orders"
+    ],
+    "summary": "List orders",
+    "description": "Returns paginated orders, optionally filtered by status, date range, or assigned vehicle",
+    "operationId": "getOrders",
+    "parameters": [
+     {
+      "name": "status",
+      "in": "query",
+      "description": "Filter by status: pending, in_progress, completed, cancelled",
+      "required": false,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "from",
+      "in": "query",
+      "description": "ISO-8601 start date (inclusive), e.g. 2026-01-01T00:00:00Z",
+      "required": false,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "to",
+      "in": "query",
+      "description": "ISO-8601 end date (inclusive), e.g. 2026-12-31T23:59:59Z",
+      "required": false,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "vehicleId",
+      "in": "query",
+      "description": "Filter by assigned vehicle ID",
+      "required": false,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "page",
+      "in": "query",
+      "description": "Zero-indexed page number",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "format": "int32",
+       "default": 0
+      }
+     },
+     {
+      "name": "size",
+      "in": "query",
+      "description": "Page size (max 50)",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "format": "int32",
+       "default": 10
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Paginated order list",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {}
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "INVALID_STATUS or INVALID_DATE_FORMAT",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {}
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   },
+   "post": {
+    "tags": [
+     "Orders"
+    ],
+    "summary": "Create order",
+    "description": "Creates a new order and reserves stock. Requires ADMIN_SALES or ADMIN_WAREHOUSE role.",
+    "operationId": "createOrder",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CreateOrderRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "description": "Order created",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/OrderResponse"
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "DESTINATION_AREA_REQUIRED, ITEMS_REQUIRED, PRODUCT_NOT_FOUND, INSUFFICIENT_STOCK, QUANTITY_EXCEEDS_LIMIT, etc.",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/OrderResponse"
+         }
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "Insufficient role",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/OrderResponse"
+         }
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/orders/{id}/cancel": {
+   "post": {
+    "tags": [
+     "Orders"
+    ],
+    "summary": "Cancel order",
+    "description": "Cancels an order and restores reserved stock. Requires ADMIN_WAREHOUSE or ADMIN_SALES role.",
+    "operationId": "cancelOrder",
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CancelOrderRequest"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Order cancelled",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/OrderResponse"
+         }
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "Insufficient role",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/OrderResponse"
+         }
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "ORDER_NOT_FOUND",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/OrderResponse"
+         }
+        }
+       }
+      }
+     },
+     "409": {
+      "description": "ORDER_NOT_CANCELLABLE — already completed or cancelled",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/OrderResponse"
+         }
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/metrics/restock-suggestions": {
+   "post": {
+    "tags": [
+     "Metrics"
+    ],
+    "summary": "Restock suggestions",
+    "description": "Weighted daily demand and, per active product, whether to restock and how much. Every param is required: each team sends its own business decisions. Inventory position = available (already net of reservations) + on order.",
+    "operationId": "restockSuggestions",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RestockSuggestionsRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "One row per product, most urgent first",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/ComputedMetricResponseRestockSuggestionRow"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "INVALID_METRIC_PARAMS",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/ComputedMetricResponseRestockSuggestionRow"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/metrics/restock-suggestions/apply": {
+   "post": {
+    "tags": [
+     "Metrics"
+    ],
+    "summary": "Apply restock suggestions (daily run)",
+    "description": "Computes every active product's restock recommendation with the given params and stores it on the product (product.restock), stamped with calculated_at. Called once a day by the restock-cron service. Filters are not accepted: a run always covers every product, so all recommendations share one calculation time.",
+    "operationId": "applyRestockSuggestions",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/RestockSuggestionsRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "The rows written, most urgent first",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/ComputedMetricResponseRestockSuggestionRow"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "INVALID_METRIC_PARAMS",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/ComputedMetricResponseRestockSuggestionRow"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/metrics/query": {
+   "post": {
+    "tags": [
+     "Metrics"
+    ],
+    "summary": "Query a metric over time",
+    "description": "Returns chart-ready series. Rejects unknown or over-broad queries.",
+    "operationId": "query_1",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/MetricsQueryRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Time series",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/MetricsQueryResponse"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "UNKNOWN_METRIC, UNKNOWN_DIMENSION, UNSUPPORTED_AGGREGATION, QUERY_TOO_BROAD",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/MetricsQueryResponse"
+        }
+       }
+      }
+     },
+     "503": {
+      "description": "METRICS_UNAVAILABLE",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/MetricsQueryResponse"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/infra/vehicles/{vehicleId}/telemetry": {
+   "post": {
+    "tags": [
+     "Infra"
+    ],
+    "summary": "Report a vehicle telemetry reading",
+    "description": "Status, battery and an optional error. Faults arrive here too, as `error`, instead of on a separate channel. The id in the path is Infra's; the first reading of an id creates the vehicle.",
+    "operationId": "reportTelemetry",
+    "parameters": [
+     {
+      "name": "vehicleId",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/InfraTelemetryRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Reading applied",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "type": "string"
+         }
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Missing or wrong X-Api-Key",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "type": "string"
+         }
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "infra-api-key": []
+     }
+    ]
+   }
+  },
+  "/infra/orders/{orderId}/status": {
+   "post": {
+    "tags": [
+     "Infra"
+    ],
+    "summary": "Report an order status change",
+    "description": "Infra confirms in_progress (with the vehicle that took the order), completed or cancelled. Repeating the current status is a no-op, so redelivery is safe.",
+    "operationId": "reportStatus",
+    "parameters": [
+     {
+      "name": "orderId",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/InfraOrderStatusRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Status applied (or already applied)",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/OrderResponse"
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "INVALID_STATUS or VEHICLE_ID_REQUIRED",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/OrderResponse"
+         }
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Missing or wrong X-Api-Key",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/OrderResponse"
+         }
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "ORDER_NOT_FOUND",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/OrderResponse"
+         }
+        }
+       }
+      }
+     },
+     "409": {
+      "description": "ORDER_NOT_MODIFIABLE or VEHICLE_ALREADY_BUSY",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/OrderResponse"
+         }
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "infra-api-key": []
+     }
+    ]
+   }
+  },
+  "/console/logs/query": {
+   "post": {
+    "tags": [
+     "Console"
+    ],
+    "summary": "Search logs",
+    "description": "Filters: service (backend|bridge), level (debug|info|warn|error), request_id, text, from, to, limit (default 100, max 500). Range at most 7 days; defaults to the last hour. Lines are newest first; total is the number of returned lines.",
+    "operationId": "query_2",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/LogsQuery"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {}
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/auth/login": {
+   "post": {
+    "tags": [
+     "Authentication"
+    ],
+    "summary": "Login",
+    "description": "Authenticate with email/password and receive a signed JWT token",
+    "operationId": "login",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/LoginRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Login successful — returns JWT and user info",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/LoginResponse"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "MALFORMED_REQUEST — body is not valid JSON",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/LoginResponse"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Invalid credentials",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/LoginResponse"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/v1/files/upload": {
+   "post": {
+    "tags": [
+     "Files"
+    ],
+    "summary": "Upload an image",
+    "description": "Returns the URL and key. Requires ADMIN_WAREHOUSE, ADMIN_SALES or SUPERADMIN role.",
+    "operationId": "upload",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "type": "object",
+        "properties": {
+         "file": {
+          "type": "string",
+          "format": "binary"
+         }
+        },
+        "required": [
+         "file"
+        ]
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/FileUploadResponse"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/warehouse/zones/{id}": {
+   "delete": {
+    "tags": [
+     "Warehouse - Zones"
+    ],
+    "operationId": "deleteZone",
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   },
+   "patch": {
+    "tags": [
+     "Warehouse - Zones"
+    ],
+    "operationId": "updateZone",
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/UpdateZoneRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/ZoneResponse"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/warehouse/positions/{id}": {
+   "get": {
+    "tags": [
+     "Warehouse - Positions"
+    ],
+    "operationId": "getPosition",
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/PositionDetailResponse"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   },
+   "delete": {
+    "tags": [
+     "Warehouse - Positions"
+    ],
+    "operationId": "deletePosition",
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   },
+   "patch": {
+    "tags": [
+     "Warehouse - Positions"
+    ],
+    "operationId": "updatePosition",
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/UpdatePositionRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/PositionResponse"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/warehouse/lines/{id}": {
+   "delete": {
+    "tags": [
+     "Warehouse - Lines"
+    ],
+    "operationId": "deleteLine",
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   },
+   "patch": {
+    "tags": [
+     "Warehouse - Lines"
+    ],
+    "operationId": "updateLine",
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/UpdateLineRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/LineResponse"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/users/{id}": {
+   "get": {
+    "tags": [
+     "Users"
+    ],
+    "summary": "Get user by ID",
+    "operationId": "getUser",
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "User found",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/UserResponse"
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "Insufficient role",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/UserResponse"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "USER_NOT_FOUND",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/UserResponse"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   },
+   "patch": {
+    "tags": [
+     "Users"
+    ],
+    "summary": "Update user",
+    "description": "Partial update — only provided fields are changed",
+    "operationId": "updateUser",
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/UpdateUserRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "User updated",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/UserResponse"
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "Insufficient role",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/UserResponse"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "USER_NOT_FOUND",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/UserResponse"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/users/me": {
+   "patch": {
+    "tags": [
+     "Users"
+    ],
+    "summary": "Update own profile (name and/or address)",
+    "operationId": "updateMe",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/UpdateMeRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Profile updated",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/UserResponse"
+        }
+       }
+      }
+     },
+     "401": {
+      "description": "Unauthorized",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/UserResponse"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/restock/receptions/{id}": {
+   "get": {
+    "tags": [
+     "Receptions"
+    ],
+    "summary": "Get reception by ID",
+    "description": "Includes the per-position breakdown.",
+    "operationId": "getReception",
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Reception found",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/ReceptionResponse"
+         }
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "RECEPTION_NOT_FOUND",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/ReceptionResponse"
+         }
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   },
+   "patch": {
+    "tags": [
+     "Receptions"
+    ],
+    "summary": "Assign positions to reception",
+    "description": "Assigns warehouse positions to a reception that is in PENDING_LOCATION status.",
+    "operationId": "assignPositions",
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AssignReceptionPositionsRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Positions assigned",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/ReceptionResponse"
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "ASSIGNMENT_QUANTITY_MISMATCH, RECEPTION_ALREADY_COMPLETED",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/ReceptionResponse"
+         }
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "RECEPTION_NOT_FOUND, POSITION_NOT_FOUND",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/ReceptionResponse"
+         }
+        }
+       }
+      }
+     },
+     "409": {
+      "description": "POSITION_ALREADY_OCCUPIED, STOCK_EXCEEDS_CAPACITY",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/ReceptionResponse"
+         }
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/products/{id}": {
+   "get": {
+    "tags": [
+     "Products"
+    ],
+    "summary": "Get product by ID",
+    "operationId": "getProduct",
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "isActive",
+      "in": "query",
+      "description": "Include inactive products when false",
+      "required": false,
+      "schema": {
+       "type": "boolean"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Product found",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/ProductResponse"
+         }
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "PRODUCT_NOT_FOUND",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/ProductResponse"
+         }
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   },
+   "delete": {
+    "tags": [
+     "Products"
+    ],
+    "summary": "Delete product (soft delete)",
+    "description": "Sets active=false. Requires ADMIN_WAREHOUSE role.",
+    "operationId": "deleteProduct",
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Product deleted"
+     },
+     "403": {
+      "description": "Insufficient role"
+     },
+     "404": {
+      "description": "PRODUCT_NOT_FOUND"
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   },
+   "patch": {
+    "tags": [
+     "Products"
+    ],
+    "summary": "Update product",
+    "description": "Partial update — only provided fields are changed. Requires ADMIN_WAREHOUSE or ADMIN_SALES role.",
+    "operationId": "updateProduct",
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/UpdateProductRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Product updated",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/ProductResponse"
+         }
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "Insufficient role",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/ProductResponse"
+         }
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "PRODUCT_NOT_FOUND",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/ProductResponse"
+         }
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/internal/vehicles/{id}": {
+   "patch": {
+    "tags": [
+     "Internal - Vehicles"
+    ],
+    "summary": "Patch vehicle state",
+    "description": "Partially updates a vehicle's state (status, position, battery, etc.). All fields are optional — only provided fields are updated. Requires ADMIN_SYSTEM role.",
+    "operationId": "patchVehicle",
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PatchVehicleRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Vehicle updated",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/VehicleResponse"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "Invalid status value",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/VehicleResponse"
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "Insufficient role",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/VehicleResponse"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "VEHICLE_NOT_FOUND",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/VehicleResponse"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/internal/orders/{id}/status": {
+   "patch": {
+    "tags": [
+     "Internal"
+    ],
+    "summary": "Change order status",
+    "description": "Forces an order into the given status (in_progress, completed, or cancelled), simulating the asynchronous transition that would normally arrive via Kafka. Completing an order drains its stock. Reverting to pending is rejected, and orders already completed or cancelled cannot be modified.",
+    "operationId": "changeStatus",
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/ChangeOrderStatusRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Status changed",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/OrderResponse"
+         }
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "INVALID_STATUS or INVALID_STATUS_TRANSITION",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/OrderResponse"
+         }
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "ORDER_NOT_FOUND",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/OrderResponse"
+         }
+        }
+       }
+      }
+     },
+     "409": {
+      "description": "ORDER_NOT_MODIFIABLE",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/OrderResponse"
+         }
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/internal/orders/{id}/assign-vehicle": {
+   "patch": {
+    "tags": [
+     "Internal"
+    ],
+    "summary": "Assign vehicle to order",
+    "description": "Assigns a vehicle to a pending or in-progress order, transitioning it to IN_PROGRESS. Simulates the asynchronous assignment that would normally arrive via Kafka.",
+    "operationId": "assignVehicle",
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AssignVehicleRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Vehicle assigned",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/OrderResponse"
+         }
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "ORDER_NOT_FOUND or VEHICLE_NOT_FOUND",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/OrderResponse"
+         }
+        }
+       }
+      }
+     },
+     "409": {
+      "description": "ORDER_NOT_ASSIGNABLE",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/OrderResponse"
+         }
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/warehouse/positions": {
+   "get": {
+    "tags": [
+     "Warehouse - Positions"
+    ],
+    "operationId": "getAllPositions",
+    "parameters": [
+     {
+      "name": "occupied",
+      "in": "query",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {}
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/warehouse/positions/available": {
+   "get": {
+    "tags": [
+     "Warehouse - Positions"
+    ],
+    "operationId": "getAvailablePositions",
+    "parameters": [
+     {
+      "name": "productId",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "deliveryUnit",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "enum": [
+        "CAJA",
+        "MEDIO_PALLET",
+        "PALLET"
+       ]
+      }
+     },
+     {
+      "name": "quantity",
+      "in": "query",
+      "required": true,
+      "schema": {
+       "type": "integer",
+       "format": "int32"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {}
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/vehicles/{id}": {
+   "get": {
+    "tags": [
+     "Vehicles"
+    ],
+    "summary": "Get vehicle by ID",
+    "description": "Requires ADMIN_SYSTEM or ADMIN_WAREHOUSE role",
+    "operationId": "getVehicle",
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Vehicle found",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/VehicleResponse"
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "Insufficient role",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/VehicleResponse"
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "VEHICLE_NOT_FOUND",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/VehicleResponse"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/restock/orders/{id}": {
+   "get": {
+    "tags": [
+     "Restock Orders"
+    ],
+    "summary": "Get restock order by ID",
+    "description": "Includes quantity_received_so_far, computed from linked receptions.",
+    "operationId": "getRestockOrder",
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Restock order found",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/RestockOrderDetailResponse"
+         }
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "RESTOCK_ORDER_NOT_FOUND",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/RestockOrderDetailResponse"
+         }
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/query/catalog": {
+   "get": {
+    "tags": [
+     "Query"
+    ],
+    "summary": "List queryable entities",
+    "description": "Self-describing catalogue: each entity lists its queryable fields, their types and the operators each field permits. Mirrors GET /metrics/catalog.",
+    "operationId": "catalog",
+    "responses": {
+     "200": {
+      "description": "Entities visible to the caller",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {}
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/products/{id}/location": {
+   "get": {
+    "tags": [
+     "Products"
+    ],
+    "summary": "Get product locations",
+    "description": "Returns total stock and the positions where this product is stored",
+    "operationId": "getProductLocation",
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Product locations found",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {}
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "PRODUCT_NOT_FOUND",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {}
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/products/categories": {
+   "get": {
+    "tags": [
+     "Products"
+    ],
+    "summary": "List product categories",
+    "description": "Returns the catalogue categories accepted by the API (RFC sec 3.3)",
+    "operationId": "getCategories",
+    "responses": {
+     "200": {
+      "description": "Category list",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {}
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/orders/{id}": {
+   "get": {
+    "tags": [
+     "Orders"
+    ],
+    "summary": "Get order by ID",
+    "operationId": "getOrder",
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Order found",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/OrderResponse"
+         }
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "ORDER_NOT_FOUND",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/OrderResponse"
+         }
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/metrics/catalog": {
+   "get": {
+    "tags": [
+     "Metrics"
+    ],
+    "summary": "List queryable metrics",
+    "description": "Self-describing catalogue: each entry carries the dimensions and aggregations a valid query may use, so a client can build a metric picker without further docs. computed_metrics lists the metrics the backend calculates, each with its endpoint and the params it requires.",
+    "operationId": "catalog_1",
+    "responses": {
+     "200": {
+      "description": "Metrics visible to the caller",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {}
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/console/ws-events/{feed}": {
+   "get": {
+    "tags": [
+     "Console"
+    ],
+    "summary": "Recent WebSocket events of a feed",
+    "description": "Newest first, at most 200. Feed is one of orders, user-orders, vehicles, stock-alerts.",
+    "operationId": "events",
+    "parameters": [
+     {
+      "name": "feed",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {}
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/console/status": {
+   "get": {
+    "tags": [
+     "Console"
+    ],
+    "summary": "Service status",
+    "description": "State (UP|DOWN|UNKNOWN) of backend, bridge, mongodb, redpanda, minio, victoriametrics, victorialogs and otel-collector, probed in parallel. dev is true under the dev or docker profile. uptime_ms is set for the backend only.",
+    "operationId": "status",
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {}
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/api/v1/files": {
+   "get": {
+    "tags": [
+     "Files"
+    ],
+    "summary": "List stored files",
+    "description": "SUPERADMIN only. Sorted by path then filename; capped at the first 1000 objects.",
+    "operationId": "list",
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "type": "array",
+          "items": {
+           "$ref": "#/components/schemas/StoredFileResponse"
+          }
+         }
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/api/v1/files/{path}/{filename}": {
+   "get": {
+    "tags": [
+     "Files"
+    ],
+    "summary": "Serve an image by path and filename",
+    "description": "Proxies the image from MinIO. Public access (no auth required).",
+    "operationId": "serve",
+    "parameters": [
+     {
+      "name": "path",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "filename",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "string",
+         "format": "binary"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   },
+   "delete": {
+    "tags": [
+     "Files"
+    ],
+    "summary": "Delete an image by path and filename",
+    "description": "Requires ADMIN_WAREHOUSE or SUPERADMIN role.",
+    "operationId": "delete",
+    "parameters": [
+     {
+      "name": "path",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "filename",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "OK"
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  }
+ },
+ "components": {
+  "schemas": {
+   "CreateZoneRequest": {
+    "properties": {
+     "zone_code": {
+      "type": "string",
+      "minLength": 1
+     },
+     "max_allowed_lines": {
+      "type": "integer",
+      "format": "int32",
+      "minimum": 1
+     }
+    },
+    "required": [
+     "zone_code"
+    ]
+   },
+   "ZoneResponse": {
+    "properties": {
+     "id_zone": {
+      "type": "string"
+     },
+     "zone_code": {
+      "type": "string"
+     },
+     "is_active": {
+      "type": "boolean"
+     },
+     "max_allowed_lines": {
+      "type": "integer",
+      "format": "int32"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time"
+     }
+    }
+   },
+   "CreateLineRequest": {
+    "properties": {
+     "number_line": {
+      "type": "integer",
+      "format": "int32",
+      "minimum": 1
+     },
+     "max_allowed_positions": {
+      "type": "integer",
+      "format": "int32",
+      "minimum": 1
+     }
+    }
+   },
+   "LineResponse": {
+    "properties": {
+     "id_line": {
+      "type": "string"
+     },
+     "id_zone": {
+      "type": "string"
+     },
+     "number_line": {
+      "type": "integer",
+      "format": "int32"
+     },
+     "is_active": {
+      "type": "boolean"
+     },
+     "max_allowed_positions": {
+      "type": "integer",
+      "format": "int32"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time"
+     }
+    }
+   },
+   "ValidateFitRequest": {
+    "properties": {
+     "product_id": {
+      "type": "string",
+      "minLength": 1
+     },
+     "quantity": {
+      "type": "integer",
+      "format": "int32",
+      "minimum": 1
+     },
+     "size": {
+      "type": "string",
+      "enum": [
+       "CAJA",
+       "MEDIO_PALLET",
+       "PALLET"
+      ]
+     }
+    },
+    "required": [
+     "product_id",
+     "size"
+    ]
+   },
+   "FitValidationResponse": {
+    "properties": {
+     "fits": {
+      "type": "boolean"
+     },
+     "product_volume": {
+      "type": "number",
+      "format": "double"
+     },
+     "container_volume": {
+      "type": "number",
+      "format": "double"
+     },
+     "required_volume": {
+      "type": "number",
+      "format": "double"
+     },
+     "max_quantity_allowed": {
+      "type": "integer",
+      "format": "int32"
+     }
+    }
+   },
+   "CreatePositionRequest": {
+    "properties": {
+     "position_name": {
+      "type": "string",
+      "minLength": 1
+     },
+     "maximum_capacity": {
+      "type": "integer",
+      "format": "int32",
+      "minimum": 1
+     },
+     "size_stock_to_save": {
+      "type": "string",
+      "enum": [
+       "CAJA",
+       "MEDIO_PALLET",
+       "PALLET"
+      ]
+     },
+     "qr_code": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "position_name",
+     "size_stock_to_save"
+    ]
+   },
+   "PositionResponse": {
+    "properties": {
+     "id_position": {
+      "type": "string"
+     },
+     "id_line": {
+      "type": "string"
+     },
+     "id_zone": {
+      "type": "string"
+     },
+     "position_name": {
+      "type": "string"
+     },
+     "is_active": {
+      "type": "boolean"
+     },
+     "maximum_capacity": {
+      "type": "integer",
+      "format": "int32"
+     },
+     "size_stock_to_save": {
+      "type": "string",
+      "enum": [
+       "CAJA",
+       "MEDIO_PALLET",
+       "PALLET"
+      ]
+     },
+     "product_id": {
+      "type": "string"
+     },
+     "qr_code": {
+      "type": "string"
+     },
+     "current_stock": {
+      "type": "integer",
+      "format": "int32"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time"
+     }
+    }
+   },
+   "RegisterVehicleRequest": {
+    "properties": {
+     "name": {
+      "type": "string"
+     }
+    }
+   },
+   "Position": {
+    "properties": {
+     "x": {
+      "type": "number",
+      "format": "double"
+     },
+     "y": {
+      "type": "number",
+      "format": "double"
+     }
+    }
+   },
+   "VehicleResponse": {
+    "properties": {
+     "id": {
+      "type": "string"
+     },
+     "name": {
+      "type": "string"
+     },
+     "status": {
+      "type": "string"
+     },
+     "position": {
+      "$ref": "#/components/schemas/Position"
+     },
+     "battery": {
+      "type": "integer",
+      "format": "int32"
+     },
+     "current_order_id": {
+      "type": "string"
+     },
+     "last_seen_at": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "operation_since": {
+      "type": "string",
+      "format": "date-time"
+     }
+    }
+   },
+   "CreateUserRequest": {
+    "properties": {
+     "email": {
+      "type": "string",
+      "minLength": 1
+     },
+     "name": {
+      "type": "string",
+      "minLength": 1
+     },
+     "role": {
+      "type": "string",
+      "minLength": 1
+     },
+     "initial_password": {
+      "type": "string",
+      "minLength": 1
+     }
+    },
+    "required": [
+     "email",
+     "initial_password",
+     "name",
+     "role"
+    ]
+   },
+   "AddressResponse": {
+    "properties": {
+     "street": {
+      "type": "string"
+     },
+     "department": {
+      "type": "string"
+     },
+     "floor": {
+      "type": "string"
+     },
+     "postal_code": {
+      "type": "string"
+     }
+    }
+   },
+   "UserResponse": {
+    "properties": {
+     "id": {
+      "type": "string"
+     },
+     "email": {
+      "type": "string"
+     },
+     "name": {
+      "type": "string"
+     },
+     "role": {
+      "type": "string"
+     },
+     "active": {
+      "type": "boolean"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "address": {
+      "$ref": "#/components/schemas/AddressResponse"
+     }
+    }
+   },
+   "ResetPasswordRequest": {
+    "properties": {
+     "new_password": {
+      "type": "string",
+      "minLength": 1
+     }
+    },
+    "required": [
+     "new_password"
+    ]
+   },
+   "ChangePasswordRequest": {
+    "properties": {
+     "current_password": {
+      "type": "string",
+      "minLength": 1
+     },
+     "new_password": {
+      "type": "string",
+      "minLength": 1
+     }
+    },
+    "required": [
+     "current_password",
+     "new_password"
+    ]
+   },
+   "AssignmentRequest": {
+    "properties": {
+     "position_id": {
+      "type": "string",
+      "minLength": 1
+     },
+     "quantity": {
+      "type": "integer",
+      "format": "int32",
+      "minimum": 1
+     }
+    },
+    "required": [
+     "position_id"
+    ]
+   },
+   "CreateReceptionRequest": {
+    "properties": {
+     "restock_order_id": {
+      "type": "string"
+     },
+     "product_id": {
+      "type": "string",
+      "minLength": 1
+     },
+     "quantity_received": {
+      "type": "integer",
+      "format": "int32",
+      "minimum": 1
+     },
+     "delivery_unit": {
+      "type": "string",
+      "enum": [
+       "CAJA",
+       "MEDIO_PALLET",
+       "PALLET"
+      ]
+     },
+     "supplier": {
+      "type": "string",
+      "minLength": 1
+     },
+     "assignments": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/AssignmentRequest"
+      }
+     }
+    },
+    "required": [
+     "delivery_unit",
+     "product_id",
+     "supplier"
+    ]
+   },
+   "AssignmentResponse": {
+    "properties": {
+     "position_id": {
+      "type": "string"
+     },
+     "quantity": {
+      "type": "integer",
+      "format": "int32"
+     }
+    }
+   },
+   "ReceptionResponse": {
+    "properties": {
+     "id": {
+      "type": "string"
+     },
+     "restock_order_id": {
+      "type": "string"
+     },
+     "product_id": {
+      "type": "string"
+     },
+     "quantity_received": {
+      "type": "integer",
+      "format": "int32"
+     },
+     "delivery_unit": {
+      "type": "string",
+      "enum": [
+       "CAJA",
+       "MEDIO_PALLET",
+       "PALLET"
+      ]
+     },
+     "supplier": {
+      "type": "string"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "PENDING_LOCATION",
+       "COMPLETED"
+      ]
+     },
+     "assignments": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/AssignmentResponse"
+      }
+     },
+     "received_by_user_id": {
+      "type": "string"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time"
+     }
+    }
+   },
+   "CreateRestockOrderRequest": {
+    "properties": {
+     "product_id": {
+      "type": "string",
+      "minLength": 1
+     },
+     "quantity_requested": {
+      "type": "integer",
+      "format": "int32",
+      "minimum": 1
+     },
+     "supplier": {
+      "type": "string",
+      "minLength": 1
+     }
+    },
+    "required": [
+     "product_id",
+     "supplier"
+    ]
+   },
+   "RestockOrderResponse": {
+    "properties": {
+     "id": {
+      "type": "string"
+     },
+     "product_id": {
+      "type": "string"
+     },
+     "quantity_requested": {
+      "type": "integer",
+      "format": "int32"
+     },
+     "supplier": {
+      "type": "string"
+     },
+     "requested_by_user_id": {
+      "type": "string"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time"
+     }
+    }
+   },
+   "AggregateSpec": {
+    "properties": {
+     "op": {
+      "type": "string"
+     },
+     "field": {
+      "type": "string"
+     },
+     "as": {
+      "type": "string"
+     }
+    }
+   },
+   "EntityQueryRequest": {
+    "properties": {
+     "filters": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/Filter"
+      }
+     },
+     "sort": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/SortSpec"
+      }
+     },
+     "fields": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "page": {
+      "type": "integer",
+      "format": "int32"
+     },
+     "size": {
+      "type": "integer",
+      "format": "int32"
+     },
+     "unwind": {
+      "type": "string"
+     },
+     "group_by": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/GroupSpec"
+      }
+     },
+     "aggregates": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/AggregateSpec"
+      }
+     },
+     "timezone": {
+      "type": "string"
+     },
+     "aggregation": {
+      "type": "boolean"
+     }
+    }
+   },
+   "Filter": {
+    "properties": {
+     "field": {
+      "type": "string"
+     },
+     "op": {
+      "type": "string"
+     },
+     "value": {
+      "type": "object"
+     }
+    }
+   },
+   "GroupSpec": {
+    "properties": {
+     "field": {
+      "type": "string"
+     },
+     "bucket": {
+      "type": "string"
+     },
+     "as": {
+      "type": "string"
+     }
+    }
+   },
+   "SortSpec": {
+    "properties": {
+     "field": {
+      "type": "string"
+     },
+     "dir": {
+      "type": "string"
+     }
+    }
+   },
+   "CreateProductRequest": {
+    "description": "Request body for creating a new product",
+    "properties": {
+     "sku": {
+      "type": "string",
+      "description": "Unique product identifier",
+      "example": "SKU-001",
+      "minLength": 1
+     },
+     "name": {
+      "type": "string",
+      "description": "Product display name",
+      "example": "Casco de seguridad",
+      "minLength": 1
+     },
+     "description": {
+      "type": "string",
+      "description": "Product description"
+     },
+     "category": {
+      "type": "string",
+      "description": "Product category",
+      "example": "seguridad",
+      "minLength": 1
+     },
+     "images": {
+      "type": "array",
+      "description": "Product images",
+      "items": {
+       "$ref": "#/components/schemas/ImageRequest"
+      }
+     },
+     "price": {
+      "$ref": "#/components/schemas/PriceRequest"
+     },
+     "specs": {
+      "type": "array",
+      "description": "Technical spec list",
+      "items": {
+       "$ref": "#/components/schemas/SpecRequest"
+      }
+     },
+     "max_quantity_per_order": {
+      "type": "integer",
+      "format": "int32",
+      "description": "Maximum units a single order can request",
+      "minimum": 0
+     },
+     "minimum_stock": {
+      "type": "integer",
+      "format": "int32",
+      "description": "Minimum stock threshold for restock alert",
+      "minimum": 0
+     },
+     "height": {
+      "type": "number",
+      "format": "double",
+      "description": "Product height in cm",
+      "minimum": 0
+     },
+     "width": {
+      "type": "number",
+      "format": "double",
+      "description": "Product width in cm",
+      "minimum": 0
+     },
+     "length": {
+      "type": "number",
+      "format": "double",
+      "description": "Product length in cm",
+      "minimum": 0
+     },
+     "weight": {
+      "type": "number",
+      "format": "double",
+      "description": "Product weight in kg/g",
+      "minimum": 0
+     }
+    },
+    "required": [
+     "category",
+     "height",
+     "length",
+     "name",
+     "sku",
+     "weight",
+     "width"
+    ]
+   },
+   "ImageRequest": {
+    "description": "Product images",
+    "properties": {
+     "url": {
+      "type": "string"
+     },
+     "alt": {
+      "type": "string"
+     },
+     "is_primary": {
+      "type": "boolean"
+     }
+    }
+   },
+   "PriceRequest": {
+    "description": "Product price",
+    "properties": {
+     "amount_cents": {
+      "type": "integer",
+      "format": "int64"
+     },
+     "currency": {
+      "type": "string"
+     },
+     "tax_included": {
+      "type": "boolean"
+     }
+    }
+   },
+   "SpecRequest": {
+    "description": "Technical spec list",
+    "properties": {
+     "label": {
+      "type": "string"
+     },
+     "value": {
+      "type": "string"
+     }
+    }
+   },
+   "Image": {
+    "properties": {
+     "url": {
+      "type": "string"
+     },
+     "alt": {
+      "type": "string"
+     },
+     "is_primary": {
+      "type": "boolean"
+     }
+    }
+   },
+   "OrderConstraints": {
+    "properties": {
+     "max_quantity_per_order": {
+      "type": "integer",
+      "format": "int32"
+     }
+    }
+   },
+   "Price": {
+    "properties": {
+     "amount_cents": {
+      "type": "integer",
+      "format": "int64"
+     },
+     "currency": {
+      "type": "string"
+     },
+     "tax_included": {
+      "type": "boolean"
+     }
+    }
+   },
+   "ProductResponse": {
+    "properties": {
+     "id": {
+      "type": "string"
+     },
+     "sku": {
+      "type": "string"
+     },
+     "name": {
+      "type": "string"
+     },
+     "description": {
+      "type": "string"
+     },
+     "category": {
+      "type": "string"
+     },
+     "images": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/Image"
+      }
+     },
+     "price": {
+      "$ref": "#/components/schemas/Price"
+     },
+     "specs": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/Spec"
+      }
+     },
+     "stock": {
+      "$ref": "#/components/schemas/Stock"
+     },
+     "order_constraints": {
+      "$ref": "#/components/schemas/OrderConstraints"
+     },
+     "active": {
+      "type": "boolean"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "height": {
+      "type": "number",
+      "format": "double"
+     },
+     "width": {
+      "type": "number",
+      "format": "double"
+     },
+     "length": {
+      "type": "number",
+      "format": "double"
+     },
+     "weight": {
+      "type": "number",
+      "format": "double"
+     },
+     "volume": {
+      "type": "number",
+      "format": "double"
+     },
+     "restock": {
+      "$ref": "#/components/schemas/Restock"
+     }
+    }
+   },
+   "Restock": {
+    "properties": {
+     "should_restock": {
+      "type": "boolean"
+     },
+     "suggested_quantity": {
+      "type": "integer",
+      "format": "int32"
+     },
+     "reorder_point": {
+      "type": "number",
+      "format": "double"
+     },
+     "target_stock": {
+      "type": "number",
+      "format": "double"
+     },
+     "inventory_position": {
+      "type": "integer",
+      "format": "int32"
+     },
+     "calculated_at": {
+      "type": "string",
+      "format": "date-time"
+     }
+    }
+   },
+   "Spec": {
+    "properties": {
+     "label": {
+      "type": "string"
+     },
+     "value": {
+      "type": "string"
+     }
+    }
+   },
+   "Stock": {
+    "properties": {
+     "available": {
+      "type": "integer",
+      "format": "int32"
+     },
+     "reserved": {
+      "type": "integer",
+      "format": "int32"
+     },
+     "physical": {
+      "type": "integer",
+      "format": "int32"
+     },
+     "min": {
+      "type": "integer",
+      "format": "int32"
+     }
+    }
+   },
+   "AddressRequest": {
+    "properties": {
+     "street": {
+      "type": "string"
+     },
+     "department": {
+      "type": "string"
+     },
+     "floor": {
+      "type": "string"
+     },
+     "postal_code": {
+      "type": "string"
+     }
+    }
+   },
+   "CreateOrderRequest": {
+    "properties": {
+     "items": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/OrderItemRequest"
+      }
+     },
+     "destination_area": {
+      "type": "string"
+     },
+     "address": {
+      "$ref": "#/components/schemas/AddressRequest"
+     },
+     "priority": {
+      "type": "string",
+      "enum": [
+       "low",
+       "medium",
+       "high",
+       "urgent"
+      ]
+     }
+    }
+   },
+   "OrderItemRequest": {
+    "properties": {
+     "product_id": {
+      "type": "string"
+     },
+     "quantity": {
+      "type": "integer",
+      "format": "int32"
+     }
+    }
+   },
+   "OrderItemResponse": {
+    "properties": {
+     "product_id": {
+      "type": "string"
+     },
+     "sku": {
+      "type": "string"
+     },
+     "quantity": {
+      "type": "integer",
+      "format": "int32"
+     },
+     "unit_price": {
+      "$ref": "#/components/schemas/Price"
+     }
+    }
+   },
+   "OrderResponse": {
+    "properties": {
+     "id": {
+      "type": "string"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "pending",
+       "in_progress",
+       "completed",
+       "cancelled"
+      ]
+     },
+     "requested_by_user_id": {
+      "type": "string"
+     },
+     "items": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/OrderItemResponse"
+      }
+     },
+     "destination_area": {
+      "type": "string"
+     },
+     "assigned_vehicle_id": {
+      "type": "string"
+     },
+     "address": {
+      "$ref": "#/components/schemas/AddressResponse"
+     },
+     "timestamps": {
+      "$ref": "#/components/schemas/Timestamps"
+     },
+     "cancel_reason": {
+      "type": "string"
+     },
+     "priority": {
+      "type": "string",
+      "enum": [
+       "low",
+       "medium",
+       "high",
+       "urgent"
+      ]
+     },
+     "total": {
+      "$ref": "#/components/schemas/Price"
+     }
+    }
+   },
+   "Timestamps": {
+    "properties": {
+     "created_at": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "started_at": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "completed_at": {
+      "type": "string",
+      "format": "date-time"
+     }
+    }
+   },
+   "CancelOrderRequest": {
+    "properties": {
+     "reason": {
+      "type": "string"
+     }
+    }
+   },
+   "Filters": {
+    "properties": {
+     "product_ids": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "category": {
+      "type": "string"
+     }
+    }
+   },
+   "Params": {
+    "properties": {
+     "alpha": {
+      "type": "number",
+      "format": "double"
+     },
+     "recent_days": {
+      "type": "integer",
+      "format": "int32"
+     },
+     "long_days": {
+      "type": "integer",
+      "format": "int32"
+     },
+     "safety_days": {
+      "type": "number",
+      "format": "double"
+     },
+     "lead_time_days": {
+      "type": "number",
+      "format": "double"
+     },
+     "coverage_days": {
+      "type": "number",
+      "format": "double"
+     }
+    }
+   },
+   "RestockSuggestionsRequest": {
+    "properties": {
+     "params": {
+      "$ref": "#/components/schemas/Params"
+     },
+     "filters": {
+      "$ref": "#/components/schemas/Filters"
+     }
+    }
+   },
+   "ComputedMetricResponseRestockSuggestionRow": {
+    "properties": {
+     "metric": {
+      "type": "string"
+     },
+     "params_used": {
+      "type": "object"
+     },
+     "generated_at": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "data": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/RestockSuggestionRow"
+      }
+     }
+    }
+   },
+   "RestockSuggestionRow": {
+    "properties": {
+     "product_id": {
+      "type": "string"
+     },
+     "sku": {
+      "type": "string"
+     },
+     "name": {
+      "type": "string"
+     },
+     "long_term_demand": {
+      "type": "number",
+      "format": "double"
+     },
+     "recent_demand": {
+      "type": "number",
+      "format": "double"
+     },
+     "blended_demand": {
+      "type": "number",
+      "format": "double"
+     },
+     "safety_stock": {
+      "type": "number",
+      "format": "double"
+     },
+     "reorder_point": {
+      "type": "number",
+      "format": "double"
+     },
+     "target_stock": {
+      "type": "number",
+      "format": "double"
+     },
+     "available_stock": {
+      "type": "integer",
+      "format": "int32"
+     },
+     "on_order_stock": {
+      "type": "integer",
+      "format": "int32"
+     },
+     "inventory_position": {
+      "type": "integer",
+      "format": "int32"
+     },
+     "should_restock": {
+      "type": "boolean"
+     },
+     "suggested_quantity": {
+      "type": "integer",
+      "format": "int32"
+     }
+    }
+   },
+   "MetricsQueryRequest": {
+    "properties": {
+     "metric": {
+      "type": "string",
+      "minLength": 1
+     },
+     "from": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "to": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "step": {
+      "type": "string",
+      "minLength": 1
+     },
+     "filters": {
+      "type": "object",
+      "additionalProperties": {
+       "type": "string"
+      }
+     },
+     "group_by": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "agg": {
+      "type": "string",
+      "minLength": 1
+     }
+    },
+    "required": [
+     "agg",
+     "from",
+     "metric",
+     "step",
+     "to"
+    ]
+   },
+   "MetricsQueryResponse": {
+    "properties": {
+     "metric": {
+      "type": "string"
+     },
+     "unit": {
+      "type": "string"
+     },
+     "step": {
+      "type": "string"
+     },
+     "series": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/Series"
+      }
+     }
+    }
+   },
+   "Series": {
+    "properties": {
+     "labels": {
+      "type": "object",
+      "additionalProperties": {
+       "type": "string"
+      }
+     },
+     "points": {
+      "type": "array",
+      "items": {
+       "type": "array",
+       "items": {
+        "type": "number"
+       }
+      }
+     }
+    }
+   },
+   "Fault": {
+    "properties": {
+     "code": {
+      "type": "string"
+     },
+     "message": {
+      "type": "string"
+     }
+    }
+   },
+   "InfraTelemetryRequest": {
+    "properties": {
+     "status": {
+      "type": "string"
+     },
+     "battery": {
+      "type": "integer",
+      "format": "int32"
+     },
+     "error": {
+      "$ref": "#/components/schemas/Fault"
+     },
+     "timestamp": {
+      "type": "string"
+     }
+    }
+   },
+   "InfraOrderStatusRequest": {
+    "properties": {
+     "status": {
+      "type": "string"
+     },
+     "vehicle_id": {
+      "type": "string"
+     },
+     "timestamp": {
+      "type": "string"
+     }
+    }
+   },
+   "LogsQuery": {
+    "properties": {
+     "service": {
+      "type": "string"
+     },
+     "level": {
+      "type": "string"
+     },
+     "request_id": {
+      "type": "string"
+     },
+     "text": {
+      "type": "string"
+     },
+     "from": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "to": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "limit": {
+      "type": "integer",
+      "format": "int32"
+     }
+    }
+   },
+   "LoginRequest": {
+    "properties": {
+     "email": {
+      "type": "string"
+     },
+     "password": {
+      "type": "string"
+     }
+    }
+   },
+   "LoginResponse": {
+    "properties": {
+     "token": {
+      "type": "string"
+     },
+     "user": {
+      "$ref": "#/components/schemas/UserInfo"
+     }
+    }
+   },
+   "UserInfo": {
+    "properties": {
+     "id": {
+      "type": "string"
+     },
+     "name": {
+      "type": "string"
+     },
+     "email": {
+      "type": "string"
+     },
+     "role": {
+      "type": "string"
+     }
+    }
+   },
+   "FileUploadResponse": {
+    "properties": {
+     "url": {
+      "type": "string"
+     },
+     "key": {
+      "type": "string"
+     }
+    }
+   },
+   "UpdateZoneRequest": {
+    "properties": {
+     "zone_code": {
+      "type": "string"
+     },
+     "max_allowed_lines": {
+      "type": "integer",
+      "format": "int32",
+      "minimum": 1
+     },
+     "is_active": {
+      "type": "boolean"
+     }
+    }
+   },
+   "UpdatePositionRequest": {
+    "properties": {
+     "position_name": {
+      "type": "string"
+     },
+     "is_active": {
+      "type": "boolean"
+     },
+     "current_stock": {
+      "type": "integer",
+      "format": "int32",
+      "minimum": 0
+     },
+     "size_stock_to_save": {
+      "type": "string",
+      "enum": [
+       "CAJA",
+       "MEDIO_PALLET",
+       "PALLET"
+      ]
+     },
+     "product_id": {
+      "type": "string"
+     },
+     "unassign_product": {
+      "type": "boolean"
+     },
+     "qr_code": {
+      "type": "string"
+     }
+    }
+   },
+   "UpdateLineRequest": {
+    "properties": {
+     "number_line": {
+      "type": "integer",
+      "format": "int32",
+      "minimum": 1
+     },
+     "max_allowed_positions": {
+      "type": "integer",
+      "format": "int32",
+      "minimum": 1
+     },
+     "is_active": {
+      "type": "boolean"
+     }
+    }
+   },
+   "UpdateUserRequest": {
+    "properties": {
+     "name": {
+      "type": "string"
+     },
+     "role": {
+      "type": "string"
+     },
+     "active": {
+      "type": "boolean"
+     }
+    }
+   },
+   "UpdateMeRequest": {
+    "properties": {
+     "name": {
+      "type": "string"
+     },
+     "address": {
+      "$ref": "#/components/schemas/AddressRequest"
+     }
+    }
+   },
+   "AssignReceptionPositionsRequest": {
+    "properties": {
+     "assignments": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/AssignmentRequest"
+      },
+      "minItems": 1
+     }
+    },
+    "required": [
+     "assignments"
+    ]
+   },
+   "UpdateProductRequest": {
+    "properties": {
+     "name": {
+      "type": "string"
+     },
+     "description": {
+      "type": "string"
+     },
+     "category": {
+      "type": "string"
+     },
+     "images": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/ImageRequest"
+      }
+     },
+     "price": {
+      "$ref": "#/components/schemas/PriceRequest"
+     },
+     "specs": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/SpecRequest"
+      }
+     },
+     "max_quantity_per_order": {
+      "type": "integer",
+      "format": "int32",
+      "minimum": 0
+     },
+     "minimum_stock": {
+      "type": "integer",
+      "format": "int32",
+      "minimum": 0
+     },
+     "is_active": {
+      "type": "boolean"
+     },
+     "height": {
+      "type": "number",
+      "format": "double",
+      "minimum": 0
+     },
+     "width": {
+      "type": "number",
+      "format": "double",
+      "minimum": 0
+     },
+     "length": {
+      "type": "number",
+      "format": "double",
+      "minimum": 0
+     },
+     "weight": {
+      "type": "number",
+      "format": "double",
+      "minimum": 0
+     }
+    }
+   },
+   "PatchVehicleRequest": {
+    "properties": {
+     "status": {
+      "type": "string"
+     },
+     "position_x": {
+      "type": "number",
+      "format": "double"
+     },
+     "position_y": {
+      "type": "number",
+      "format": "double"
+     },
+     "battery": {
+      "type": "integer",
+      "format": "int32"
+     },
+     "current_order_id": {
+      "type": "string"
+     },
+     "last_seen_at": {
+      "type": "string",
+      "format": "date-time"
+     }
+    }
+   },
+   "ChangeOrderStatusRequest": {
+    "properties": {
+     "status": {
+      "type": "string"
+     },
+     "completed_at": {
+      "type": "string",
+      "format": "date-time"
+     }
+    }
+   },
+   "AssignVehicleRequest": {
+    "properties": {
+     "vehicle_id": {
+      "type": "string"
+     }
+    }
+   },
+   "AssignedProduct": {
+    "properties": {
+     "id": {
+      "type": "string"
+     },
+     "sku": {
+      "type": "string"
+     },
+     "name": {
+      "type": "string"
+     }
+    }
+   },
+   "PositionDetailResponse": {
+    "properties": {
+     "id_position": {
+      "type": "string"
+     },
+     "id_line": {
+      "type": "string"
+     },
+     "id_zone": {
+      "type": "string"
+     },
+     "position_name": {
+      "type": "string"
+     },
+     "is_active": {
+      "type": "boolean"
+     },
+     "maximum_capacity": {
+      "type": "integer",
+      "format": "int32"
+     },
+     "size_stock_to_save": {
+      "type": "string",
+      "enum": [
+       "CAJA",
+       "MEDIO_PALLET",
+       "PALLET"
+      ]
+     },
+     "product_id": {
+      "type": "string"
+     },
+     "qr_code": {
+      "type": "string"
+     },
+     "current_stock": {
+      "type": "integer",
+      "format": "int32"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "assigned_product": {
+      "$ref": "#/components/schemas/AssignedProduct"
+     }
+    }
+   },
+   "RestockOrderDetailResponse": {
+    "properties": {
+     "id": {
+      "type": "string"
+     },
+     "product_id": {
+      "type": "string"
+     },
+     "quantity_requested": {
+      "type": "integer",
+      "format": "int32"
+     },
+     "quantity_received_so_far": {
+      "type": "integer",
+      "format": "int32"
+     },
+     "supplier": {
+      "type": "string"
+     },
+     "requested_by_user_id": {
+      "type": "string"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time"
+     }
+    }
+   },
+   "StoredFileResponse": {
+    "properties": {
+     "path": {
+      "type": "string"
+     },
+     "filename": {
+      "type": "string"
+     },
+     "size": {
+      "type": "integer",
+      "format": "int64"
+     }
+    }
+   }
+  },
+  "securitySchemes": {
+   "bearer-jwt": {
+    "type": "http",
+    "description": "JWT token obtained from POST /auth/login",
+    "scheme": "bearer",
+    "bearerFormat": "JWT"
+   },
+   "infra-api-key": {
+    "type": "apiKey",
+    "description": "Shared key of the Infra bridge (INFRA_API_KEY)",
+    "name": "X-Api-Key",
+    "in": "header"
+   }
+  }
+ }
+}

@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router'
 import { beforeEach, describe, expect, it } from 'vitest'
 import App from './App'
 import { api, getSession, setSession } from './api/client'
-import { mockFetch } from './test/http'
+import { jsonResponse, mockFetch } from './test/http'
 
 const renderApp = (path = '/') =>
   render(
@@ -51,6 +51,16 @@ describe('App', () => {
 
     expect(screen.getByRole('heading', { name: 'Edge (prod)' })).toBeInTheDocument()
     expect(screen.getByText('Infrastructure /')).toBeInTheDocument()
+  })
+
+  it('rendersDomainsPagesAsEntityTables', async () => {
+    setSession({ token: 't', email: 'root@x.io' })
+    mockFetch(jsonResponse(200, { vehicles: [{ id: 'veh-agv-01', name: 'AGV-01' }] }))
+    renderApp('/domains/vehicles')
+
+    expect(screen.getByText('Domains /')).toBeInTheDocument()
+    expect(await screen.findByRole('cell', { name: 'veh-agv-01' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'New vehicle' })).toBeInTheDocument()
   })
 
   it('showsNotFoundInsideTheShellForUnknownPaths', () => {

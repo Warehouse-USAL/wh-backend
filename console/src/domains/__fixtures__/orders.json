@@ -1,0 +1,74 @@
+{
+  "pagination": {
+    "page": 0,
+    "size": 2,
+    "total_elements": 56579,
+    "total_pages": 28290
+  },
+  "orders": [
+    {
+      "id": "o-0026",
+      "status": "completed",
+      "requested_by_user_id": "u-system",
+      "items": [
+        {
+          "product_id": "p-TEC-003",
+          "sku": "TEC-003",
+          "quantity": 3,
+          "unit_price": null
+        }
+      ],
+      "destination_area": "Sucursal Pocitos",
+      "assigned_vehicle_id": "veh-agv-03",
+      "address": {
+        "street": "Av. Italia 4321",
+        "department": "Montevideo",
+        "floor": "3",
+        "postal_code": "11282"
+      },
+      "timestamps": {
+        "created_at": "2024-10-18T11:42:00Z",
+        "started_at": "2024-10-18T14:42:00Z",
+        "completed_at": "2024-10-18T15:42:00Z"
+      },
+      "cancel_reason": null,
+      "priority": "high",
+      "total": null
+    },
+    {
+      "id": "o-0027",
+      "status": "completed",
+      "requested_by_user_id": "u-warehouse",
+      "items": [
+        {
+          "product_id": "p-HER-004",
+          "sku": "HER-004",
+          "quantity": 3,
+          "unit_price": null
+        },
+        {
+          "product_id": "p-ALI-002",
+          "sku": "ALI-002",
+          "quantity": 4,
+          "unit_price": null
+        }
+      ],
+      "destination_area": "Sucursal Centro",
+      "assigned_vehicle_id": "veh-agv-04",
+      "address": {
+        "street": "Rambla República del Perú 800",
+        "department": "Montevideo",
+        "floor": "1",
+        "postal_code": "11289"
+      },
+      "timestamps": {
+        "created_at": "2024-10-18T11:45:00Z",
+        "started_at": "2024-10-18T15:45:00Z",
+        "completed_at": "2024-10-18T19:45:00Z"
+      },
+      "cancel_reason": null,
+      "priority": "urgent",
+      "total": null
+    }
+  ]
+}

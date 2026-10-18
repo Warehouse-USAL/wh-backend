@@ -1,0 +1,102 @@
+{
+  "pagination": {
+    "page": 0,
+    "size": 2,
+    "total_elements": 24,
+    "total_pages": 12
+  },
+  "products": [
+    {
+      "id": "p-TEC-001",
+      "sku": "TEC-001",
+      "name": "Notebook Lenovo ThinkPad E14",
+      "description": "Portátil 14\" Intel i5, 16GB RAM, 512GB SSD",
+      "category": "TECNOLOGIA",
+      "images": [
+        {
+          "url": "https://picsum.photos/seed/TEC-001/600/400",
+          "alt": "Notebook Lenovo ThinkPad E14",
+          "is_primary": true
+        }
+      ],
+      "price": {
+        "amount_cents": 50000,
+        "currency": "ARS",
+        "tax_included": true
+      },
+      "specs": [
+        {
+          "label": "Origen",
+          "value": "Importado"
+        },
+        {
+          "label": "Garantía",
+          "value": "12 meses"
+        }
+      ],
+      "stock": {
+        "available": 30,
+        "reserved": 0,
+        "physical": 30,
+        "min": 50
+      },
+      "order_constraints": {
+        "max_quantity_per_order": 20
+      },
+      "active": true,
+      "created_at": "2024-10-13T19:45:36.357Z",
+      "height": 10.0,
+      "width": 20.0,
+      "length": 30.0,
+      "weight": 1.0,
+      "volume": 6000.0,
+      "restock": null
+    },
+    {
+      "id": "p-TEC-002",
+      "sku": "TEC-002",
+      "name": "Monitor LG UltraGear 27\"",
+      "description": "Monitor 27 pulgadas 144Hz Full HD",
+      "category": "TECNOLOGIA",
+      "images": [
+        {
+          "url": "https://picsum.photos/seed/TEC-002/600/400",
+          "alt": "Monitor LG UltraGear 27\"",
+          "is_primary": true
+        }
+      ],
+      "price": {
+        "amount_cents": 75000,
+        "currency": "ARS",
+        "tax_included": true
+      },
+      "specs": [
+        {
+          "label": "Origen",
+          "value": "Importado"
+        },
+        {
+          "label": "Garantía",
+          "value": "12 meses"
+        }
+      ],
+      "stock": {
+        "available": 138,
+        "reserved": 6,
+        "physical": 144,
+        "min": 10
+      },
+      "order_constraints": {
+        "max_quantity_per_order": 30
+      },
+      "active": true,
+      "created_at": "2024-10-13T20:45:36.357Z",
+      "height": 11.0,
+      "width": 21.0,
+      "length": 31.0,
+      "weight": 1.5,
+      "volume": 7161.0,
+      "restock": null
+    }
+  ]
+}
