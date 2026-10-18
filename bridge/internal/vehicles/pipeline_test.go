@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -508,5 +509,67 @@ func TestEveryLineOfAnOrderCallbackCarriesItsRequestID(
 	}
 	if !equal(got, "backend unavailable, retrying", "delivered to backend") {
 		t.Fatalf("logged %v", got)
+	}
+}
+
+// loggedRun delivers body through a pipeline whose backend answers result and
+// returns the decoded log lines and the raw log text.
+func loggedRun(
+	t *testing.T,
+	body string,
+	result error,
+) ([]map[string]any, string) {
+	t.Helper()
+	logs := &syncBuffer{}
+	h := &harness{
+		source: &fakeSource{deliveries: make(chan vehicles.Delivery)},
+		client: &scriptedClient{results: []error{result}},
+		rec:    &fakeRecorder{},
+		done:   make(chan error, 1),
+		logger: slog.New(slog.NewJSONHandler(logs, nil)),
+	}
+	h.run(t, h.client, requestid.New())
+	d := newDelivery(body)
+	h.deliver(t, d)
+	h.waitSettled(t, d)
+	logs.mu.Lock()
+	defer logs.mu.Unlock()
+	var lines []map[string]any
+	for _, raw := range bytes.Split(bytes.TrimSpace(logs.buf.Bytes()), []byte("\n")) {
+		var line map[string]any
+		if err := json.Unmarshal(raw, &line); err != nil {
+			t.Fatalf("log line %q: %v", raw, err)
+		}
+		lines = append(lines, line)
+	}
+	return lines, logs.buf.String()
+}
+
+func TestDroppedUnclassifiableMessageIsLoggedWithoutItsPayload(
+	t *testing.T,
+) {
+	for _, body := range []string{`{"status":"PII-MARKER"}`, `PII-MARKER {`} {
+		lines, raw := loggedRun(t, body, nil)
+		if strings.Contains(raw, "PII-MARKER") {
+			t.Fatalf("log leaks the payload: %s", raw)
+		}
+		if len(lines) != 1 || lines[0]["msg"] != "dropping unclassifiable message" ||
+			lines[0]["payload_bytes"] != float64(len(body)) || lines[0]["reason"] == nil {
+			t.Fatalf("logged %v, want the size and a reason", lines)
+		}
+	}
+}
+
+func TestRejectedMessageIsLoggedWithItsStatusButNotItsPayloadOrBody(
+	t *testing.T,
+) {
+	body := `{"vehicle_id":"VHC-001","status":"idle","note":"PII-MARKER"}`
+	lines, raw := loggedRun(t, body, &backend.RejectedError{Status: 409, Body: "PII-MARKER"})
+	if strings.Contains(raw, "PII-MARKER") {
+		t.Fatalf("log leaks the payload or the backend body: %s", raw)
+	}
+	last := lines[len(lines)-1]
+	if last["msg"] != "backend rejected message, dropping" || last["status"] != float64(409) || last["body_bytes"] == nil {
+		t.Fatalf("logged %v, want the status and the size", lines)
 	}
 }

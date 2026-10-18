@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -179,6 +180,21 @@ func runLogging(
 	return rec
 }
 
+// waitFor polls cond until it holds, failing the test after a deadline.
+func waitFor(
+	t *testing.T,
+	cond func() bool,
+) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for !cond() {
+		if time.Now().After(deadline) {
+			t.Fatal("condition not met before the deadline")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
 func assertResults(
 	t *testing.T,
 	got []string,
@@ -265,7 +281,7 @@ func TestRecordIsNotCommittedWhenStoppedBeforePublishing(
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
 	go func() { done <- orders.New(consumer, publisher, fastPolicy, logger, rec, requestid.New()).Run(ctx) }()
-	time.Sleep(20 * time.Millisecond)
+	waitFor(t, func() bool { return len(rec.results()) > 0 })
 	cancel()
 	if err := <-done; err != nil {
 		t.Fatalf("Run returned %v, want nil on a clean stop", err)
@@ -341,6 +357,13 @@ func (b *syncBuffer) Write(
 	return b.buf.Write(p)
 }
 
+// count returns how many log lines were written so far.
+func (b *syncBuffer) count() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return bytes.Count(b.buf.Bytes(), []byte("\n"))
+}
+
 // lines decodes every JSON log line written so far.
 func (b *syncBuffer) lines(
 	t *testing.T,
@@ -406,15 +429,36 @@ func TestStoppingBeforePublishingIsLoggedWithTheRequestID(
 	go func() {
 		done <- orders.New(consumer, publisher, fastPolicy, logger, &fakeRecorder{}, requestid.New()).Run(ctx)
 	}()
-	time.Sleep(20 * time.Millisecond)
+	waitFor(t, func() bool { return logs.count() >= 2 })
 	cancel()
 	if err := <-done; err != nil {
 		t.Fatalf("Run returned %v", err)
 	}
 	lines := logs.lines(t)
+	if len(lines) < 3 {
+		t.Fatalf("logged %v, want the consumption, a retry and the stop", lines)
+	}
 	last := lines[len(lines)-1]
 	if last["msg"] != "stopping with an order unpublished" || last["request_id"] != "req-1" || last["order_id"] != "ORD-1" {
 		t.Fatalf("last line %v, want the stop with request_id req-1", last)
 	}
 	assertTrail(t, lines[:2], "order consumed from kafka", "rabbitmq publish failed, retrying")
+}
+
+func TestSkippedRecordIsLoggedWithoutItsPayload(
+	t *testing.T,
+) {
+	var order []string
+	value := `{"status":"PII-MARKER"}`
+	consumer := &fakeConsumer{records: []orders.Record{fakeRecord{value}}}
+	logs := &syncBuffer{}
+	runLogging(t, consumer, &fakePublisher{order: &order}, 1, requestid.New(), slog.New(slog.NewJSONHandler(logs, nil)))
+	lines := logs.lines(t)
+	if len(lines) != 1 || lines[0]["msg"] != "skipping record without a valid order_id" ||
+		lines[0]["payload_bytes"] != float64(len(value)) {
+		t.Fatalf("logged %v, want the size only", lines)
+	}
+	if strings.Contains(logs.buf.String(), "PII-MARKER") {
+		t.Fatalf("log leaks the payload: %s", logs.buf.String())
+	}
 }

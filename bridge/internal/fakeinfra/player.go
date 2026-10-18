@@ -41,11 +41,11 @@ func (p *player) play(
 ) {
 	steps, err := Script(delivery.Body(), p.vehicleID, time.Now())
 	if err != nil {
-		p.logger.Error("ignoring order", "error", err, "payload", string(delivery.Body()))
+		p.logger.Error("ignoring order", "payload_bytes", len(delivery.Body()))
 		_ = delivery.Ack()
 		return
 	}
-	p.logger.Info("order received", "payload", string(delivery.Body()))
+	p.logger.Info("order received", "payload_bytes", len(delivery.Body()))
 	if err = p.perform(ctx, steps); err != nil {
 		_ = delivery.Requeue()
 		return
@@ -78,7 +78,7 @@ func (p *player) emit(
 		return p.publisher.Publish(ctx, step.Body)
 	})
 	if err == nil {
-		p.logger.Info("published", "payload", string(step.Body))
+		p.logger.Info("published", "payload_bytes", len(step.Body))
 	}
 	return err
 }

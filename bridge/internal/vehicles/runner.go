@@ -60,7 +60,7 @@ func (r *runner) handle(
 ) {
 	req, err := classify.Classify(delivery.Body())
 	if err != nil {
-		r.logger.Error("dropping unclassifiable message", "error", err, "payload", string(delivery.Body()))
+		r.logger.Error("dropping unclassifiable message", "reason", unclassifiableReason(err), "payload_bytes", len(delivery.Body()))
 		r.rec.Message(flowVehicles, "dropped")
 		r.ack(delivery)
 		return
@@ -124,7 +124,7 @@ func (r *runner) settle(
 		return
 	}
 	if errors.Is(err, backend.ErrRejected) {
-		r.logger.Warn("backend rejected message, dropping", "kind", req.Kind, "path", req.Path, requestid.Attr(requestID), "error", err, "payload", string(req.Body))
+		r.logger.Warn("backend rejected message, dropping", "kind", req.Kind, "path", req.Path, requestid.Attr(requestID), "status", rejectedStatus(err), "body_bytes", len(req.Body))
 		r.rec.Message(flowOf(req), "dropped")
 		r.ack(delivery)
 		return
@@ -151,4 +151,27 @@ func flowOf(
 		return flowOrders
 	}
 	return flowVehicles
+}
+
+// unclassifiableReason names why a message could not be classified, without
+// echoing the message: decoder errors quote parts of their input.
+func unclassifiableReason(
+	err error,
+) string {
+	if errors.Is(err, classify.ErrUnclassifiable) {
+		return "no order_id or vehicle_id"
+	}
+	return "malformed message"
+}
+
+// rejectedStatus returns the HTTP status of a backend rejection, whose text
+// carries the response body and is therefore not logged.
+func rejectedStatus(
+	err error,
+) int {
+	var rejected *backend.RejectedError
+	if errors.As(err, &rejected) {
+		return rejected.Status
+	}
+	return 0
 }
