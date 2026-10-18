@@ -8,27 +8,17 @@ describe('useLive', () => {
   beforeEach(() => vi.useFakeTimers())
   afterEach(() => vi.useRealTimers())
 
-  it('useLiveTicksEveryFiveSecondsOnlyWhileLive', () => {
+  it('togglesLiveAndRunsNoTimer', () => {
     const { result } = renderHook(useLive, { wrapper })
-    expect(result.current).toMatchObject({ live: true, range: '15m', tick: 0 })
-
-    act(() => void vi.advanceTimersByTime(4999))
-    expect(result.current.tick).toBe(0)
-    act(() => void vi.advanceTimersByTime(1))
-    expect(result.current.tick).toBe(1)
+    expect(result.current).toMatchObject({ live: true, range: '15m' })
+    expect(result.current).not.toHaveProperty('tick')
+    // The push stream carries updates: nothing here ticks.
+    expect(vi.getTimerCount()).toBe(0)
 
     act(() => result.current.toggle())
-    act(() => void vi.advanceTimersByTime(20000))
-    expect(result.current).toMatchObject({ live: false, tick: 1 })
-
+    expect(result.current.live).toBe(false)
     act(() => result.current.toggle())
-    act(() => void vi.advanceTimersByTime(5000))
-    expect(result.current.tick).toBe(2)
-  })
-
-  it('stopsTickingOnUnmount', () => {
-    const { unmount } = renderHook(useLive, { wrapper })
-    unmount()
+    expect(result.current.live).toBe(true)
     expect(vi.getTimerCount()).toBe(0)
   })
 

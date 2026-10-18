@@ -1,32 +1,26 @@
 import { act, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import fixture from '@/api/__fixtures__/logs-query.json'
 import App from '@/App'
 import { setSession } from '@/api/client'
-import { clearMetricAnswers } from '@/api/metrics'
+import type { WireSubscription } from '@/api/stream'
 import { type OpenApiDoc, loadSpec } from '@/domains/template'
-import { jsonResponse } from '@/test/http'
+import { type Answer, fakeStream } from '@/test/stream'
 import spec from './__fixtures__/api-docs.json'
 
 vi.mock('@/domains/template', () => ({ loadSpec: vi.fn() }))
 
-type Body = { request_id?: string; text?: string; service?: string }
+const EMPTY_METRIC = { metric: 'm', unit: '', step: '15s', series: [], window: { from: '2026-10-18T11:45:15Z', to: '2026-10-18T12:00:00Z', step: '15s' } }
+const isTrail = (s: WireSubscription) => s.kind === 'logs' && s.request_id !== undefined
+const isLatest = (s: WireSubscription) => s.kind === 'logs' && s.text === 'order published to infra'
 
-/** Logs answer by filter (the latest-order probe, then one request's trail); metrics answer nothing. */
-function stubApi(answer: (b: Body) => Response) {
-  const bodies: Body[] = []
-  vi.stubGlobal(
-    'fetch',
-    vi.fn<typeof fetch>(async (input, init) => {
-      if (String(input).endsWith('/metrics/query')) return jsonResponse(200, { metric: 'm', unit: '', step: '15s', series: [] })
-      const body = JSON.parse(String(init?.body)) as Body
-      bodies.push(body)
-      return answer(body)
-    }),
-  )
-  return bodies
+/** A push backend: logs subscriptions answer through `answer`, metrics answer an empty frame. */
+function stubStream(answer: (s: WireSubscription) => Answer) {
+  return fakeStream({ answer: (s) => (s.kind === 'metric' ? { data: EMPTY_METRIC } : s.kind === 'logs' ? answer(s) : undefined) })
 }
+
+const logsSubs = (stream: ReturnType<typeof fakeStream>) => stream.opens.flatMap((c) => c.subscriptions).filter((s) => s.kind === 'logs')
 
 const renderAt = (path: string) =>
   render(
@@ -37,19 +31,19 @@ const renderAt = (path: string) =>
 
 describe('RequestTrail', () => {
   beforeEach(() => {
-    clearMetricAnswers()
     setSession({ token: 'tok', email: 'root@x.io' })
     vi.mocked(loadSpec).mockResolvedValue(spec as unknown as OpenApiDoc)
   })
+  afterEach(() => vi.useRealTimers())
 
   it('ordersPageHasTheEventTrail', async () => {
-    const bodies = stubApi((b) => jsonResponse(200, b.request_id ? { lines: fixture.lines.slice(0, 2), total: 2 } : { lines: [fixture.lines[0]], total: 1 }))
+    const stream = stubStream((s) => ({ data: isTrail(s) ? { lines: fixture.lines.slice(0, 2), total: 2 } : { lines: [fixture.lines[0]], total: 1 } }))
     renderAt('/monitoring/orders')
 
     const trail = await screen.findByRole('region', { name: 'Event trail' })
-    const rows = await within(trail).findByText('order published to infra')
-    expect(bodies[0]).toMatchObject({ service: 'bridge', text: 'order published to infra', limit: 1 })
-    expect(bodies[1]).toMatchObject({ request_id: 't23order1' })
+    const rows = await within(trail).findByText('order published to infra', {}, { timeout: 3000 })
+    expect(logsSubs(stream).find(isLatest)).toMatchObject({ service: 'bridge', text: 'order published to infra', limit: 1, range: '24h' })
+    expect(logsSubs(stream).find(isTrail)).toMatchObject({ request_id: 't23order1', limit: 500, range: '24h' })
     // Oldest first, tagged by service.
     expect(within(trail).getAllByText('bridge')).toHaveLength(2)
     expect(trail).toHaveTextContent(/rabbitmq publish failed, retrying.*order published to infra/)
@@ -67,58 +61,70 @@ describe('RequestTrail', () => {
       line('backend', 'info', 'http POST /orders 201 12ms'),
       line('backend', 'info', 'Started WhBackendApplication'),
     ]
-    stubApi((b) => jsonResponse(200, b.request_id ? { lines: trailLines, total: 6 } : { lines: [trailLines[0]], total: 1 }))
+    stubStream((s) => ({ data: isTrail(s) ? { lines: trailLines, total: 6 } : { lines: [trailLines[0]], total: 1 } }))
     renderAt('/monitoring/orders')
 
     const trail = await screen.findByRole('region', { name: 'Event trail' })
-    await within(trail).findByText('POST /orders 201 12ms')
+    await within(trail).findByText('POST /orders 201 12ms', {}, { timeout: 3000 })
     // Oldest first: the component word becomes the tag and leaves the text.
     expect(trail).toHaveTextContent(
       /backendStarted WhBackendApplication.*httpPOST \/orders 201 12ms.*kafkapublish orders ok 4ms.*mongoorders insert slow 130ms.*callbackorder o-1 status -> IN_PROGRESS.*bridgeorder published to infra/,
     )
   })
 
-  it('refreshesOnEachTickKeepingTheTrailAndAbortingASupersededRequest', async () => {
-    vi.useFakeTimers({ shouldAdvanceTime: true })
-    stubApi((b) => jsonResponse(200, b.request_id ? { lines: fixture.lines.slice(0, 2), total: 2 } : { lines: [fixture.lines[0]], total: 1 }))
+  it('aLineLoggedLaterJoinsTheTrailAndANewerOrderMovesItWithoutPolling', async () => {
+    const stream = stubStream((s) => ({ data: isTrail(s) ? { lines: [fixture.lines[0]], total: 1 } : { lines: [fixture.lines[0]], total: 1 } }))
     renderAt('/monitoring/orders')
     const trail = await screen.findByRole('region', { name: 'Event trail' })
-    await within(trail).findByText('order published to infra')
+    await within(trail).findByText('order published to infra', {}, { timeout: 3000 })
+    const opened = stream.fetch.mock.calls.length
 
-    const signals: AbortSignal[] = []
-    vi.mocked(fetch).mockImplementation(async (input, init) => {
-      if (String(input).endsWith('/metrics/query')) return jsonResponse(200, { metric: 'm', unit: '', step: '15s', series: [] })
-      signals.push(init?.signal as AbortSignal)
-      return new Promise<Response>(() => undefined)
-    })
-    await act(() => vi.advanceTimersByTimeAsync(5000))
-    expect(signals).toHaveLength(1)
-    expect(signals[0].aborted).toBe(false)
-    expect(within(trail).getByText('order published to infra')).toBeInTheDocument()
+    const later = { time: '2026-10-18T21:23:30Z', level: 'info', service: 'backend', message: 'callback order o-1 status -> DONE', request_id: 't23order1' }
+    act(() => stream.last().send(isTrail, { lines: [later], total: 1 }))
+    expect(await within(trail).findByText('order o-1 status -> DONE')).toBeInTheDocument()
+    expect(trail).toHaveTextContent(/order published to infra.*order o-1 status -> DONE/)
+    expect(stream.fetch).toHaveBeenCalledTimes(opened)
 
-    await act(() => vi.advanceTimersByTimeAsync(5000))
-    expect(signals[0].aborted).toBe(true)
-    expect(within(trail).getByText('order published to infra')).toBeInTheDocument()
-    vi.useRealTimers()
+    // A newer order: the trail follows its request id.
+    act(() => stream.last().send(isLatest, { lines: [{ ...fixture.lines[0], request_id: 'next-order' }], total: 1 }))
+    expect(await within(trail).findByRole('link', { name: 'Open in Logs' })).toHaveAttribute('href', '/infra/logs?req=next-order')
+    await vi.waitFor(() => expect(logsSubs(stream).some((s) => s.request_id === 'next-order')).toBe(true))
   })
 
   it('otherDomainPagesHaveNoTrail', async () => {
-    const bodies = stubApi(() => jsonResponse(200, fixture))
+    const stream = stubStream(() => ({ data: fixture }))
     renderAt('/monitoring/products')
     await screen.findByRole('region', { name: 'GET /products' })
+    await vi.waitFor(() => expect(stream.opens.length).toBeGreaterThan(0))
     expect(screen.queryByRole('region', { name: 'Event trail' })).toBeNull()
-    expect(bodies).toHaveLength(0)
+    expect(logsSubs(stream)).toHaveLength(0)
   })
 
   it('saysSoWhenNoOrderRequestIsLogged', async () => {
-    stubApi(() => jsonResponse(200, { lines: [], total: 0 }))
+    stubStream(() => ({ data: { lines: [], total: 0 } }))
     renderAt('/monitoring/orders')
     expect(await screen.findByText('No order request in the last 24 hours')).toBeInTheDocument()
   })
 
   it('showsTheErrorWhenTheStoreIsUnavailable', async () => {
-    stubApi(() => jsonResponse(502, { error: { code: 'LOG_STORE_UNAVAILABLE', message: 'The log store is unavailable' } }))
+    stubStream(() => ({ error: { code: 'LOG_STORE_UNAVAILABLE', message: 'The log store is unavailable' } }))
     renderAt('/monitoring/orders')
     expect(await screen.findByText('LOG_STORE_UNAVAILABLE: The log store is unavailable')).toBeInTheDocument()
+  })
+
+  it('makesNoPeriodicRequestWhileTheOrdersPageIsOpen', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true })
+    const stream = stubStream((s) => ({ data: isTrail(s) ? { lines: fixture.lines.slice(0, 2), total: 2 } : { lines: [fixture.lines[0]], total: 1 } }))
+    renderAt('/monitoring/orders')
+    const trail = await screen.findByRole('region', { name: 'Event trail' })
+    await within(trail).findByText('order published to infra', {}, { timeout: 3000 })
+    const settled = stream.fetch.mock.calls.length
+    for (let i = 0; i < 20; i++) {
+      await act(() => vi.advanceTimersByTimeAsync(15_000))
+      stream.last().write(': ping\n\n')
+    }
+    // Five minutes: no new request of any kind, and still one open stream.
+    expect(stream.fetch).toHaveBeenCalledTimes(settled)
+    expect(stream.open()).toHaveLength(1)
   })
 })

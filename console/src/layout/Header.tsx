@@ -1,6 +1,10 @@
 import type { ReactNode } from 'react'
+import { errorText } from '@/api/client'
 import { RANGES, type Range, useLive } from '@/data/live'
+import type { ConnectionState } from '@/data/stream/registry'
+import { useStreamStatus } from '@/data/stream/useStream'
 import { cn } from '@/lib/utils'
+import { formatTime } from '@/widgets/scale'
 
 const RANGE_LABEL: Record<Range, string> = {
   '5m': 'Past 5 minutes',
@@ -19,7 +23,7 @@ interface HeaderProps {
   onTab?: (tab: string) => void
   chips?: string[]
   actions?: ReactNode
-  /** Range and Live; off on pages that do not poll (Domains tables refetch after writes only). */
+  /** Range, Live and the stream's state; off on pages without live data (Domains tables refetch after writes only). */
   timeControls?: boolean
 }
 
@@ -86,6 +90,28 @@ function TimeControls() {
         <span className="size-[7px] rounded-full bg-current" aria-hidden />
         Live
       </button>
+      <StreamIndicator live={live} />
     </>
+  )
+}
+
+const STATE_TONE: Partial<Record<ConnectionState, string>> = { reconnecting: 'text-wn', stopped: 'text-er' }
+
+/** The push stream's state and when its last frame arrived; nothing while no page subscribes. */
+function StreamIndicator({ live }: { live: boolean }) {
+  const { state, updatedAt, error } = useStreamStatus()
+  const shown = live ? state : 'paused'
+  if (shown === 'idle' && updatedAt === undefined) return null
+  return (
+    <span
+      role="status"
+      aria-label="Stream status"
+      title={error ? errorText(error) : undefined}
+      className={cn('text-[13px] text-mu tabular-nums', STATE_TONE[shown])}
+    >
+      {shown !== 'idle' && shown}
+      {error && shown !== 'connected' && ` (${error.code})`}
+      {updatedAt !== undefined && <span className="text-mu">{`${shown === 'idle' ? '' : ' · '}Updated ${formatTime(updatedAt, true)}`}</span>}
+    </span>
   )
 }

@@ -1,12 +1,13 @@
 import { X } from 'lucide-react'
-import { type FormEvent, useEffect, useState } from 'react'
+import { type FormEvent, useState } from 'react'
 import { useSearchParams } from 'react-router'
 import { errorText } from '@/api/client'
-import { type LogLevel, type LogLine, type LogService, type LogsResult, queryLogs } from '@/api/logs'
-import { Button } from '@/components/ui/button'
-import { type Range, useLive } from '@/data/live'
-import { RANGE_MS, stepFor } from '@/data/useMetric'
+import type { LogLevel, LogLine, LogService } from '@/api/logs'
 import { stepMs } from '@/api/metrics'
+import { type Range, useLive } from '@/data/live'
+import { useStreamStatus } from '@/data/stream/useStream'
+import { useLogs } from '@/data/streamHooks'
+import { RANGE_MS, stepFor } from '@/data/useMetric'
 import Header from '@/layout/Header'
 import { cn } from '@/lib/utils'
 import BarsWidget from '@/widgets/BarsWidget'
@@ -24,11 +25,9 @@ const LONG = 160
 const REQUEST_ID = /^[A-Za-z0-9_-]{1,64}$/
 const FORBIDDEN_TEXT = /["{}|\\`\r\n]/
 
-type State = { key: string; data?: LogsResult & { at: number }; error?: unknown }
-
-/** Infrastructure / Logs: search, filter and follow backend and bridge log lines. */
+/** Infrastructure / Logs: search, filter and follow backend and bridge log lines (pushed, never polled). */
 export default function Logs() {
-  const { range, tick } = useLive()
+  const { range } = useLive()
   const [params, setParams] = useSearchParams()
   const rawRequest = params.get('req') ?? undefined
   const requestId = rawRequest && REQUEST_ID.test(rawRequest) ? rawRequest : undefined
@@ -37,22 +36,10 @@ export default function Logs() {
   const [level, setLevel] = useState<LogLevel>()
   const [text, setText] = useState('')
   const [draft, setDraft] = useState('')
-  const [attempt, setAttempt] = useState(0)
-  const [state, setState] = useState<State>({ key: '' })
-
-  const key = JSON.stringify([range, service, level, requestId, text, attempt])
-  useEffect(() => {
-    const controller = new AbortController()
-    const at = Date.now()
-    const query = { service, level, requestId, text: text || undefined, from: new Date(at - RANGE_MS[range]), to: new Date(at), limit: LIMIT }
-    queryLogs(query, controller.signal).then(
-      (data) => !controller.signal.aborted && setState({ key, data: { ...data, at } }),
-      (error: unknown) => !controller.signal.aborted && setState({ key, error }),
-    )
-    return () => controller.abort()
-    // `key` covers every filter; a tick refetches under the same key and the previous lines stay meanwhile.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, tick])
+  // A filter change is a new subscription: its snapshot replaces the lines, then new lines arrive.
+  const logs = useLogs({ service, level, requestId, text: text || undefined, limit: LIMIT })
+  // The volume's axis ends at the last frame received: no clock of its own, nothing ticks.
+  const at = useStreamStatus().updatedAt ?? 0
 
   const setRequest = (id?: string) => setParams(id ? { req: id } : {}, { replace: true })
   const search = (e: FormEvent) => {
@@ -62,10 +49,8 @@ export default function Logs() {
     setHint(undefined)
     setText(next)
   }
-  const retry = () => setAttempt((n) => n + 1)
-  const ready = state.key === key
-  const data = state.data
-  const capped = (data?.lines.length ?? 0) >= LIMIT
+  const lines = logs.data
+  const capped = lines.length >= LIMIT
 
   return (
     <>
@@ -101,31 +86,32 @@ export default function Logs() {
             {hint ?? 'Ignored the request id in the address: it may only hold letters, digits, - and _ (up to 64).'}
           </p>
         )}
-        {state.error && ready ? (
+        {logs.error && (
           <div role="alert" className="flex flex-col items-start gap-2 rounded-lg border border-bd bg-bg p-4 text-[13px]">
-            <p className="font-medium">{errorText(state.error)}</p>
-            <p className="text-mu">The log lines could not be loaded.</p>
-            <Button variant="outline" size="sm" onClick={retry}>
-              Retry
-            </Button>
+            <p className="font-medium">{errorText(logs.error)}</p>
+            <p className="text-mu">The log lines could not be loaded. They appear here as soon as the store answers again.</p>
           </div>
-        ) : !data || !ready ? (
+        )}
+        {logs.loading ? (
           <p role="status" className="text-[13px] text-mu">
             Loading logs
           </p>
         ) : (
-          <>
-            <BarsWidget
-              title="Log volume"
-              sub={capped ? `by level, newest ${data.lines.length} lines only` : 'by level'}
-              series={volume(data.lines, range)}
-              times={buckets(data.lines, range, data.at, capped)}
-            />
-            <div className="flex flex-wrap items-start gap-3">
-              <Facets lines={data.lines} capped={capped} />
-              <Stream lines={data.lines} onRequest={setRequest} />
-            </div>
-          </>
+          // Never an empty list in place of an error; lines already shown stay under it.
+          !(logs.error && lines.length === 0) && (
+            <>
+              <BarsWidget
+                title="Log volume"
+                sub={capped ? `by level, newest ${lines.length} lines only` : 'by level'}
+                series={volume(lines, range)}
+                times={buckets(lines, range, at, capped)}
+              />
+              <div className="flex flex-wrap items-start gap-3">
+                <Facets lines={lines} capped={capped} />
+                <Stream lines={lines} onRequest={setRequest} />
+              </div>
+            </>
+          )
         )}
       </div>
     </>

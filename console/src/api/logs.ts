@@ -1,9 +1,7 @@
-import { api } from './client'
-
 export type LogService = 'backend' | 'bridge'
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error'
 
-/** The five filters `POST /console/logs/query` takes; all optional. */
+/** The filters of `POST /console/logs/query` (and of a logs stream subscription); all optional. */
 export interface LogsQuery {
   service?: LogService
   level?: LogLevel
@@ -25,16 +23,11 @@ export interface LogLine {
   requestId: string | null
 }
 
-export interface LogsResult {
-  lines: LogLine[]
-  total: number
-}
-
 /** The backend's cap on `limit`. */
 export const MAX_LIMIT = 500
-const DAY_MS = 86_400_000
 
-interface WireLine {
+/** A line as the backend sends it (REST and stream). */
+export interface WireLine {
   time: string | null
   level: string | null
   service: string | null
@@ -42,24 +35,11 @@ interface WireLine {
   request_id: string | null
 }
 
-/** Newest first, as the backend answers. */
-export async function queryLogs(q: LogsQuery, signal?: AbortSignal): Promise<LogsResult> {
-  const body = JSON.stringify({
-    service: q.service,
-    level: q.level,
-    request_id: q.requestId,
-    text: q.text,
-    from: q.from?.toISOString(),
-    to: q.to?.toISOString(),
-    limit: q.limit,
-  })
-  const { lines, total } = (await api('/console/logs/query', { method: 'POST', body, signal })) as { lines: WireLine[]; total: number }
-  return { lines: lines.map(({ request_id, ...rest }) => ({ ...rest, requestId: request_id })), total }
+export function toLogLine({ request_id, ...rest }: WireLine): LogLine {
+  return { ...rest, requestId: request_id }
 }
 
-/** Every line of one request across services, oldest first, over the last 24 hours. */
-export async function trailFor(requestId: string, signal?: AbortSignal): Promise<LogLine[]> {
-  const now = Date.now()
-  const { lines } = await queryLogs({ requestId, from: new Date(now - DAY_MS), to: new Date(now), limit: MAX_LIMIT }, signal)
-  return lines.reverse()
+/** A logs stream subscription's filters, snake_case (`from`/`to` come from its range). */
+export function logsParams(q: Omit<LogsQuery, 'from' | 'to'>): Record<string, unknown> {
+  return { service: q.service, level: q.level, request_id: q.requestId, text: q.text, limit: q.limit }
 }

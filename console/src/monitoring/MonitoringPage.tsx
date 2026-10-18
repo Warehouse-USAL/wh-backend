@@ -167,7 +167,7 @@ const METHOD_TONE: Record<string, string> = { POST: 'text-blue', PUT: 'text-wn',
 
 /**
  * A route's group. Its widgets mount only while it is in or near the scrolled view, so a page of
- * 40 routes polls the few on screen; away from it, the group keeps its last height so nothing jumps.
+ * 40 routes subscribes to the few on screen; away from it, the group keeps its last height so nothing jumps.
  * Without IntersectionObserver every group renders.
  */
 function LazyGroup({ route }: { route: RouteInfo }) {

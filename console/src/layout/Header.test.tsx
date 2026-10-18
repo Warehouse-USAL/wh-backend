@@ -1,7 +1,11 @@
-import { render, screen } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
+import { setSession } from '@/api/client'
 import { LiveProvider } from '@/data/live'
+import { useStatus } from '@/data/streamHooks'
+import { jsonResponse } from '@/test/http'
+import { StreamWrapper, byKind, fakeStream } from '@/test/stream'
 import Header from './Header'
 
 const renderHeader = (props: Partial<Parameters<typeof Header>[0]> = {}) =>
@@ -52,6 +56,39 @@ describe('Header', () => {
     expect(range).toHaveValue('15m')
     await user.selectOptions(range, '1h')
     expect(range).toHaveValue('1h')
+  })
+
+  it('showsTheStreamStateAndTheTimeOfTheLastFrameNextToLive', async () => {
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date(2026, 9, 18, 14, 2, 11) })
+    vi.spyOn(Math, 'random').mockReturnValue(1)
+    setSession({ token: 'tok', email: 'root@x.io' })
+    let refusals = 1
+    const stream = fakeStream({ refuse: () => (refusals-- > 0 ? jsonResponse(429, { error: { code: 'STREAM_LIMIT', message: 'Hay demasiados streams abiertos' } }) : undefined) })
+    const Subscriber = () => (useStatus(), null)
+    render(
+      <StreamWrapper>
+        <Header crumb="Monitoring" title="Orders" />
+        <Subscriber />
+      </StreamWrapper>,
+    )
+    const indicator = await screen.findByRole('status', { name: 'Stream status' })
+    // The limit answer is visible, and the stream retries on its own.
+    await waitFor(() => expect(indicator).toHaveTextContent('reconnecting (STREAM_LIMIT)'))
+    expect(indicator).toHaveAttribute('title', 'STREAM_LIMIT: Hay demasiados streams abiertos')
+    expect(indicator).toHaveClass('text-wn')
+    await waitFor(() => expect(indicator).toHaveTextContent(/^connected$/), { timeout: 3000 })
+
+    act(() => stream.last().send(byKind('status'), { dev: false, services: [] }, 'snapshot'))
+    await waitFor(() => expect(indicator).toHaveTextContent(/^connected · Updated 14:02:11$/))
+
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Live updates' }))
+    expect(indicator).toHaveTextContent(/^paused · Updated 14:02:11$/)
+    vi.useRealTimers()
+  })
+
+  it('showsNoStreamStateWhileNothingIsSubscribed', () => {
+    renderHeader()
+    expect(screen.queryByRole('status', { name: 'Stream status' })).toBeNull()
   })
 
   it('showsActionsWithoutTheTimeControlsWhenTheyAreOff', () => {

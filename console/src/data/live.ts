@@ -1,34 +1,25 @@
-import { type ReactNode, createContext, createElement, useCallback, useContext, useEffect, useMemo, useState } from 'react'
+import { type ReactNode, createContext, createElement, useCallback, useContext, useMemo, useState } from 'react'
 
 export type Range = '5m' | '15m' | '1h' | '6h' | '24h'
 
 export const RANGES: readonly Range[] = ['5m', '15m', '1h', '6h', '24h']
 
-const TICK_MS = 5000
-
 export interface LiveState {
+  /** While on, the push stream stays open (see `StreamProvider`); off closes it and keeps the data. */
   live: boolean
   range: Range
   toggle(): void
   setRange(r: Range): void
-  /** Increments every 5 s while live; pages refetch when it changes. */
-  tick: number
 }
 
 const LiveContext = createContext<LiveState | null>(null)
 
-/** One live/range/tick state for the whole shell, so every page refreshes in step. */
+/** One live/range state for the whole shell. */
 export function LiveProvider({ children }: { children: ReactNode }) {
   const [live, setLive] = useState(true)
   const [range, setRange] = useState<Range>('15m')
-  const [tick, setTick] = useState(0)
-  useEffect(() => {
-    if (!live) return
-    const id = setInterval(() => setTick((t) => t + 1), TICK_MS)
-    return () => clearInterval(id)
-  }, [live])
   const toggle = useCallback(() => setLive((l) => !l), [])
-  const value = useMemo(() => ({ live, range, toggle, setRange, tick }), [live, range, toggle, tick])
+  const value = useMemo(() => ({ live, range, toggle, setRange }), [live, range, toggle])
   return createElement(LiveContext.Provider, { value }, children)
 }
 

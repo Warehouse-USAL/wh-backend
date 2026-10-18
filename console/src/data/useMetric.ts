@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react'
-import { ApiError, errorText } from '@/api/client'
-import { type MetricQuery, type TimeWindow, queryMetric, stepMs } from '@/api/metrics'
+import { useMemo } from 'react'
+import type { ApiError } from '@/api/client'
+import { type MetricQuery, type MetricsQueryResponse, type TimeWindow, stepMs, toSeries } from '@/api/metrics'
 import type { Series } from '@/widgets/scale'
 import { type Range, useLive } from './live'
+import type { Spec } from './stream/registry'
+import { useSubscriptions } from './stream/useStream'
 
 const STEP: Record<Range, string> = { '5m': '10s', '15m': '15s', '1h': '1m', '6h': '5m', '24h': '15m' }
 export const RANGE_MS: Record<Range, number> = { '5m': 300_000, '15m': 900_000, '1h': 3_600_000, '6h': 21_600_000, '24h': 86_400_000 }
@@ -18,9 +20,10 @@ export function stepFor(range: Range): string {
 }
 
 /**
- * The window ends at `now` rounded down to the step, and its buckets (`times`, epoch ms) are the
+ * The window ends at `now` rounded down to the step (the stream's metric source computes the same
+ * window server side and sends it with each frame), and its buckets (`times`, epoch ms) are the
  * points VictoriaMetrics answers for: `from`, `from + step`, ... `to`, one per step of the range,
- * each covering the step that ends there. Aligned, every tick and every query of one range share
+ * each covering the step that ends there. Aligned, every frame and every query of one range share
  * the same bucket times; widgets lay series onto `times`, so a bucket no series has stays an
  * empty slot (a gap) instead of being squeezed out of the axis. Nothing is ever zero-filled.
  *
@@ -40,44 +43,48 @@ export interface MetricState {
   series: Series[]
   /** The window's bucket times for the series shown; pass to the widgets' `times`. */
   times: number[]
-  /** Until the first answer (data or error) for this request and range. */
+  /** Until the first frame (data or error) of every subscription of this request and range. */
   loading: boolean
-  /** A refetch is in flight while the previous answer stays on screen. */
+  /** The stream is reopening; the previous series stay on screen until the fresh snapshot. */
   refreshing: boolean
   error?: ApiError
 }
 
-type Answer = { key?: string; fetchKey?: string; series: Series[]; times: number[]; error?: ApiError }
-
-/**
- * Series for one query or several (their series concatenated in order). Refetches on every live
- * tick, on a range change and when the request changes by value; the previous series stay while
- * the next ones load, and a superseded request is aborted and its answer ignored.
- */
-export function useMetric(req: MetricQuery | MetricQuery[]): MetricState {
-  const { range, tick } = useLive()
-  const json = JSON.stringify(Array.isArray(req) ? req : [req])
-  const key = `${range}|${json}`
-  const fetchKey = `${tick}|${key}`
-  const [state, setState] = useState<Answer>({ series: [], times: [] })
-
-  useEffect(() => {
-    const controller = new AbortController()
-    const { times, ...span } = windowFor(range, Date.now())
-    const queries = JSON.parse(json) as MetricQuery[]
-    Promise.all(queries.map((q) => queryMetric({ ...q, ...span }, controller.signal))).then(
-      (results) => !controller.signal.aborted && setState({ key, fetchKey, series: results.flat(), times }),
-      (error: unknown) =>
-        !controller.signal.aborted && setState((s) => ({ ...s, key, fetchKey, error: toApiError(error) })),
-    )
-    return () => controller.abort()
-  }, [fetchKey, key, range, json])
-
-  const { series, times, error } = state
-  const loading = state.key !== key
-  return { series, times, loading, refreshing: !loading && state.fetchKey !== fetchKey, ...(error && { error }) }
+/** The stream's params for one query over `range`: the step is {@link stepFor}'s. */
+export function metricSpec({ metric, agg, filters = {}, groupBy = [] }: MetricQuery, range: Range): Spec {
+  return { kind: 'metric', metric, agg, range, step: stepFor(range), filters, group_by: [...groupBy].sort() }
 }
 
-function toApiError(error: unknown): ApiError {
-  return error instanceof ApiError ? error : new ApiError(0, 'NETWORK_ERROR', errorText(error))
+/** Bucket times (epoch ms) of a frame's window: `from`, `from + step`, ... `to`. */
+export function timesOf({ from, to, step }: TimeWindow): number[] {
+  const ms = stepMs(step)
+  const start = Date.parse(from)
+  return Array.from({ length: Math.floor((Date.parse(to) - start) / ms) + 1 }, (_, i) => start + i * ms)
+}
+
+/**
+ * Series for one query or several (their series concatenated in order), pushed by the stream: one
+ * subscription per query and range, shared with every other widget asking the same. Each frame
+ * replaces the series and carries the server's window, so `times` is exactly its bucket grid.
+ * Nothing is fetched here and nothing ticks.
+ */
+export function useMetric(req: MetricQuery | MetricQuery[]): MetricState {
+  const { range } = useLive()
+  const json = JSON.stringify(Array.isArray(req) ? req : [req])
+  const queries = useMemo(() => JSON.parse(json) as MetricQuery[], [json])
+  const specs = useMemo(() => queries.map((q) => metricSpec(q, range)), [queries, range])
+  const states = useSubscriptions(specs)
+  return useMemo(() => {
+    const frames = states.map((s) => s.data as MetricsQueryResponse | undefined)
+    const window = frames.find((f) => f?.window)?.window
+    const error = states.find((s) => s.error)?.error
+    const loading = states.some((s) => !s.received && !s.error)
+    return {
+      series: frames.flatMap((f, i) => (f ? toSeries(f, queries[i]) : [])),
+      times: window ? timesOf(window) : [],
+      loading,
+      refreshing: !loading && states.some((s) => s.stale),
+      ...(error && { error }),
+    }
+  }, [states, queries])
 }

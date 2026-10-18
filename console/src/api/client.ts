@@ -73,15 +73,14 @@ export function onUnauthorized(handler: () => void): () => void {
 /** Calls the backend under `/api`, returning the parsed body (`null` when empty). */
 export async function api(path: string, init: RequestInit = {}): Promise<unknown> {
   const response = await send(path, init)
-  const body = parse(await response.text())
-  if (!response.ok) throw toApiError(response, body)
-  return body
+  if (!response.ok) throw await errorOf(response)
+  return parse(await response.text())
 }
 
 /** Downloads a binary resource with the session's token in the header, never in the URL. */
 export async function apiBlob(path: string): Promise<Blob> {
   const response = await send(path, {})
-  if (!response.ok) throw toApiError(response, parse(await response.text()))
+  if (!response.ok) throw await errorOf(response)
   return response.blob()
 }
 
@@ -93,12 +92,23 @@ async function send(path: string, init: RequestInit): Promise<Response> {
   if (typeof init.body === 'string' && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
 
   const response = await fetch(`/api${path}`, { ...init, headers })
-  // Only the session that sent the request is expired; a sign-in made meanwhile stays.
-  if (response.status === 401 && token && session?.token === token) {
-    setSession(null)
-    unauthorizedHandlers.forEach((handler) => handler())
-  }
+  if (response.status === 401) expireSession(token)
   return response
+}
+
+/**
+ * Ends the session that sent a request the backend refused as unauthenticated, and asks for a new
+ * sign-in. Only that session: a sign-in made meanwhile stays.
+ */
+export function expireSession(token: string | undefined): void {
+  if (!token || session?.token !== token) return
+  setSession(null)
+  unauthorizedHandlers.forEach((handler) => handler())
+}
+
+/** The `ApiError` for a failed response, from its standard error body when it has one. */
+export async function errorOf(response: Response): Promise<ApiError> {
+  return toApiError(response, parse(await response.text()))
 }
 
 function parse(text: string): unknown {

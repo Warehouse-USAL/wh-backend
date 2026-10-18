@@ -4,11 +4,9 @@ import type { ReactNode } from 'react'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { setSession } from '@/api/client'
-import { clearMetricAnswers } from '@/api/metrics'
-import { LiveProvider } from '@/data/live'
 import { windowFor } from '@/data/useMetric'
 import { type OpenApiDoc, loadSpec } from '@/domains/template'
-import { jsonResponse } from '@/test/http'
+import { StreamWrapper, fakeStream } from '@/test/stream'
 import spec from './__fixtures__/api-docs.json'
 import MonitoringPage from './MonitoringPage'
 import type { Domain } from './routes'
@@ -18,20 +16,28 @@ vi.mock('@/domains/template', () => ({ loadSpec: vi.fn() }))
 const doc = spec as unknown as OpenApiDoc
 
 type Body = { agg: string; filters: Record<string, string>; group_by: string[] }
-type Answer = (body: Body) => Response | { labels: Record<string, string>; points: [number, number][] }[]
+type Error = { error: { code: string; message: string } }
+type Answer = (body: Body) => Error | { labels: Record<string, string>; points: [number, number][] }[] | undefined
 
-/** Answers every metrics query through `answer`; returns the bodies it was asked. */
+/**
+ * A push backend answering each metric subscription's snapshot through `answer` (series, an error
+ * frame, or nothing); returns the distinct subscriptions it was asked for.
+ */
 function stubMetrics(answer: Answer = () => []) {
   const bodies: Body[] = []
-  vi.stubGlobal(
-    'fetch',
-    vi.fn<typeof fetch>(async (_input, init) => {
-      const body = JSON.parse(String(init?.body)) as Body
-      bodies.push(body)
+  const seen = new Set<string>()
+  const { from, to, step } = windowFor('15m', Date.now())
+  const window = { from, to, step }
+  fakeStream({
+    answer: (s) => {
+      const body = s as unknown as Body
+      if (!seen.has(s.id)) bodies.push(body)
+      seen.add(s.id)
       const out = answer(body)
-      return out instanceof Response ? out : jsonResponse(200, { metric: 'http.server.duration', unit: 'ms', step: '15s', series: out })
-    }),
-  )
+      if (!out) return undefined
+      return 'error' in out ? out : { data: { metric: 'http.server.duration', unit: 'ms', step: '15s', series: out, window } }
+    },
+  })
   return bodies
 }
 
@@ -41,12 +47,12 @@ const routeBodies = (bodies: Body[]) => bodies.filter((b) => !isOverview(b))
 function renderPage(domain: Domain, extra?: ReactNode) {
   return render(
     <MemoryRouter>
-      <LiveProvider>
+      <StreamWrapper>
         <Routes>
           <Route path="/" element={<MonitoringPage domain={domain} extra={extra} />} />
           <Route path="/infra/mongodb" element={<p>MongoDB page</p>} />
         </Routes>
-      </LiveProvider>
+      </StreamWrapper>
     </MemoryRouter>,
   )
 }
@@ -55,7 +61,6 @@ const groups = () => screen.getAllByRole('region').map((r) => within(r).getAllBy
 
 describe('MonitoringPage', () => {
   beforeEach(() => {
-    clearMetricAnswers()
     setSession({ token: 'tok', email: 'root@x.io' })
     vi.mocked(loadSpec).mockResolvedValue(doc)
   })
@@ -166,7 +171,7 @@ describe('MonitoringPage', () => {
   it('showsAWidgetErrorWithoutBreakingThePage', async () => {
     stubMetrics((b) =>
       b.agg === 'p50' && b.filters.route === '/vehicles' && b.filters.method === 'GET'
-        ? jsonResponse(400, { error: { code: 'UNKNOWN_METRIC', message: 'no such metric' } })
+        ? { error: { code: 'UNKNOWN_METRIC', message: 'no such metric' } }
         : [],
     )
     renderPage('Vehicles')
@@ -177,11 +182,8 @@ describe('MonitoringPage', () => {
   })
 
   it('showsSkeletonsUntilTheFirstAnswer', async () => {
-    // Never answers, but lets go when aborted so the metrics client's request slots free up.
-    vi.stubGlobal(
-      'fetch',
-      vi.fn<typeof fetch>((_input, init) => new Promise((_resolve, reject) => init?.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))))),
-    )
+    // The stream opens but no snapshot arrives yet.
+    stubMetrics(() => undefined)
     renderPage('Files')
     const region = await screen.findByRole('region', { name: 'GET /api/v1/files' })
     expect(within(region).getAllByRole('status', { name: 'Loading' })).toHaveLength(4)
@@ -218,7 +220,7 @@ describe('MonitoringPage', () => {
     await waitFor(() => expect(routeBodies(bodies).length).toBeGreaterThan(0))
     expect(new Set(routeBodies(bodies).map((b) => b.filters.route))).toEqual(new Set(['/infra/orders/{orderId}/status']))
 
-    // Scrolled away: the widgets unmount (polling stops) and their height is kept.
+    // Scrolled away: the widgets unmount (their subscriptions are released) and their height is kept.
     show(false)
     const region = screen.getByRole('region', { name: 'POST /infra/orders/{orderId}/status' })
     expect(within(region).queryByText('Hits')).toBeNull()

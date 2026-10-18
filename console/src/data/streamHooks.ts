@@ -1,10 +1,9 @@
 import type { ApiError } from '@/api/client'
-import type { LogLine, LogsQuery } from '@/api/logs'
 
 /*
- * CONTRACT for the live, push-fed hooks. Pages import these names from here; Task 23e replaces the
- * bodies with the SSE stream client (no polling) and moves each hook to its own module re-exported
- * from this file. Tests of pages mock this module.
+ * CONTRACT for the live, push-fed hooks. Pages import these names from here; the bodies live in
+ * `./stream/hooks` (one SSE stream for the app, see `StreamProvider`; no polling). Tests of pages
+ * mock this module.
  */
 
 export type ServiceState = 'UP' | 'DOWN' | 'UNKNOWN'
@@ -27,26 +26,13 @@ export interface WsEvent {
 
 export type WsFeed = 'orders' | 'user-orders' | 'vehicles' | 'stock-alerts'
 
-interface Live<T> {
+export interface Live<T> {
   data: T
   /** True until the first frame (snapshot) of this subscription arrived. */
   loading: boolean
   error?: ApiError
 }
 
-const idle = <T,>(data: T): Live<T> => ({ data, loading: true })
-
-/** Platform services and whether `dev` tools exist (`dev` comes from the same payload). */
-export function useStatus(): Live<{ services: ServiceStatus[]; dev: boolean }> {
-  return idle({ services: [], dev: false })
-}
-
-/** Newest first, at most `query.limit` (backend cap 500); updates arrive as the backend logs. */
-export function useLogs(_query: Omit<LogsQuery, 'from' | 'to'>): Live<LogLine[]> {
-  return idle([])
-}
-
-/** Newest first, at most 200; each event is pushed as it happens. */
-export function useWsEvents(_feed: WsFeed): Live<WsEvent[]> {
-  return idle([])
-}
+// useStatus(): services and `dev`; useLogs(query): newest first, at most `query.limit`;
+// useWsEvents(feed): newest first, at most 200.
+export { useLogs, useStatus, useWsEvents } from './stream/hooks'

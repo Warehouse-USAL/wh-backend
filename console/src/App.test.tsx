@@ -6,6 +6,7 @@ import App from './App'
 import { api, getSession, setSession } from './api/client'
 import { NAV } from './layout/nav'
 import { jsonResponse, mockFetch } from './test/http'
+import { fakeStream } from './test/stream'
 
 const renderApp = (path = '/') =>
   render(
@@ -66,11 +67,11 @@ describe('App', () => {
 
   it('rendersTheLogsPageWithTheRequestIdFromTheUrl', async () => {
     setSession({ token: 't', email: 'root@x.io' })
-    const fetchMock = mockFetch(jsonResponse(200, { lines: [], total: 0 }))
+    const stream = fakeStream({ answer: () => ({ data: { lines: [], total: 0 } }) })
     renderApp('/infra/logs?req=abc')
 
     expect(await screen.findByText('No log lines match')).toBeInTheDocument()
-    expect(JSON.parse(fetchMock.mock.calls[0][1]?.body as string)).toMatchObject({ request_id: 'abc' })
+    expect(stream.last().subscriptions).toEqual([expect.objectContaining({ kind: 'logs', request_id: 'abc' })])
   })
 
   it('rendersMonitoringPagesForTheNavDomainsAndKeepsWebSocketsAPlaceholder', async () => {
