@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Spring Boot's default console logging, unchanged, plus an OpenTelemetry appender that ships each
+  record with its request_id. The appender is inert until OtelLogsConfig installs an SDK, which it
+  only does with telemetry.enabled=true.
+-->
+<configuration>
+  <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+  <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+
+  <appender name="OTEL" class="io.opentelemetry.instrumentation.logback.appender.v1_0.OpenTelemetryAppender">
+    <captureMdcAttributes>request_id</captureMdcAttributes>
+  </appender>
+
+  <!--
+    The SDK reports export failures (collector down) through these loggers. Silenced so a missing
+    collector never spams the console or feeds back into the OTEL appender; set
+    logging.level.io.opentelemetry=DEBUG to see them.
+  -->
+  <logger name="io.opentelemetry" level="OFF"/>
+
+  <root level="INFO">
+    <appender-ref ref="CONSOLE"/>
+    <appender-ref ref="OTEL"/>
+  </root>
+</configuration>

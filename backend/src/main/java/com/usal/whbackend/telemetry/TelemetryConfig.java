@@ -37,13 +37,7 @@ public class TelemetryConfig {
    */
   @Bean(destroyMethod = "close")
   public OpenTelemetrySdk openTelemetrySdk(TelemetryProperties props) {
-    Resource resource =
-        Resource.getDefault()
-            .merge(
-                Resource.create(
-                    Attributes.of(AttributeKey.stringKey("service.name"), props.getServiceName())));
-
-    SdkMeterProviderBuilder meterProvider = SdkMeterProvider.builder().setResource(resource);
+    SdkMeterProviderBuilder meterProvider = SdkMeterProvider.builder().setResource(resource(props));
 
     if (props.isEnabled()) {
       meterProvider.registerMetricReader(
@@ -61,6 +55,14 @@ public class TelemetryConfig {
     }
 
     return OpenTelemetrySdk.builder().setMeterProvider(meterProvider.build()).build();
+  }
+
+  /** Shared by metrics and logs, so the log store can filter by the same {@code service.name}. */
+  static Resource resource(TelemetryProperties props) {
+    return Resource.getDefault()
+        .merge(
+            Resource.create(
+                Attributes.of(AttributeKey.stringKey("service.name"), props.getServiceName())));
   }
 
   @Bean
