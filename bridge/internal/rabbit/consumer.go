@@ -25,6 +25,7 @@ type consumer struct {
 	binding Binding
 	policy  retry.Policy
 	logger  *slog.Logger
+	dial    func(url string) (connection, error)
 }
 
 func (c *consumer) Deliveries(
@@ -60,7 +61,7 @@ func (c *consumer) session(
 	ctx context.Context,
 	out chan<- vehicles.Delivery,
 ) error {
-	conn, err := amqp.DialConfig(c.url, amqp.Config{Dial: amqp.DefaultDial(dialTimeout)})
+	conn, err := c.dial(c.url)
 	if err != nil {
 		return fmt.Errorf("dial rabbitmq: %w", err)
 	}
@@ -78,7 +79,7 @@ func (c *consumer) session(
 }
 
 func (c *consumer) open(
-	conn *amqp.Connection,
+	conn connection,
 ) (<-chan amqp.Delivery, error) {
 	ch, err := conn.Channel()
 	if err != nil {

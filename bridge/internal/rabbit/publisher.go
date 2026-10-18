@@ -22,10 +22,11 @@ type publisher struct {
 	url        string
 	exchange   string
 	routingKey string
+	dial       func(url string) (connection, error)
 
 	mu      sync.Mutex
-	conn    *amqp.Connection
-	ch      *amqp.Channel
+	conn    connection
+	ch      channel
 	returns chan amqp.Return
 }
 
@@ -50,7 +51,7 @@ func (p *publisher) ensure() error {
 		return nil
 	}
 	p.reset()
-	conn, err := amqp.DialConfig(p.url, amqp.Config{Dial: amqp.DefaultDial(dialTimeout)})
+	conn, err := p.dial(p.url)
 	if err != nil {
 		return fmt.Errorf("dial rabbitmq: %w", err)
 	}
@@ -79,7 +80,7 @@ func (p *publisher) send(
 	ctx context.Context,
 	body []byte,
 ) error {
-	confirmation, err := p.ch.PublishWithDeferredConfirmWithContext(
+	confirmation, err := p.ch.PublishConfirmed(
 		ctx,
 		p.exchange,
 		p.routingKey,

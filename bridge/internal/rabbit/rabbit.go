@@ -21,7 +21,7 @@ func NewConsumer(
 	policy retry.Policy,
 	logger *slog.Logger,
 ) vehicles.Source {
-	return &consumer{url: url, binding: binding, policy: policy, logger: logger}
+	return &consumer{url: url, binding: binding, policy: policy, logger: logger, dial: dial}
 }
 
 // NewPublisher returns a Publisher that sends persistent JSON messages to
@@ -36,5 +36,5 @@ func NewPublisher(
 	exchange string,
 	routingKey string,
 ) orders.Publisher {
-	return &publisher{url: url, exchange: exchange, routingKey: routingKey}
+	return &publisher{url: url, exchange: exchange, routingKey: routingKey, dial: dial}
 }
