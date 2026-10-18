@@ -3,7 +3,6 @@ package orders
 import (
 	"context"
 	"log/slog"
-	"time"
 
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/requestid"
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/retry"
@@ -29,7 +28,8 @@ type Pipeline interface {
 // attempt, dropped when invalid and error when stopped before publishing.
 //
 // A record's request id is remembered in ids under its order id, for the
-// callbacks of that order, and passed to publisher on the context.
+// callbacks of that order, and passed to publisher on the context. Every log
+// line about a record carries its order_id and request_id.
 func New(
 	consumer Consumer,
 	publisher Publisher,
@@ -38,12 +38,5 @@ func New(
 	rec telemetry.Recorder,
 	ids *requestid.Store,
 ) Pipeline {
-	policy.OnRetry = func(
-		err error,
-		delay time.Duration,
-	) {
-		logger.Warn("rabbitmq publish failed, retrying", "error", err, "retry_in", delay)
-		rec.Message(flow, "retry")
-	}
 	return &runner{consumer: consumer, publisher: publisher, policy: policy, logger: logger, rec: rec, ids: ids}
 }

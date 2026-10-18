@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"time"
 
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/requestid"
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/retry"
@@ -47,19 +48,30 @@ func (r *runner) step(
 		r.rec.Message(flow, "dropped")
 		return r.consumer.Commit(ctx, record)
 	}
+	logger := r.logger.With("order_id", orderID, requestid.Attr(requestID))
+	logger.Info("order consumed from kafka")
 	if requestID != "" {
 		r.ids.Remember(orderID, requestID)
 	}
-	err = retry.Retry(requestid.With(ctx, requestID), r.policy, func(
+	policy := r.policy
+	policy.OnRetry = func(
+		err error,
+		delay time.Duration,
+	) {
+		logger.Warn("rabbitmq publish failed, retrying", "error", err, "retry_in", delay)
+		r.rec.Message(flow, "retry")
+	}
+	err = retry.Retry(requestid.With(ctx, requestID), policy, func(
 		ctx context.Context,
 	) error {
 		return r.publisher.Publish(ctx, record.Value())
 	})
 	if err != nil {
+		logger.Info("stopping with an order unpublished", "error", err)
 		r.rec.Message(flow, "error")
 		return err
 	}
-	r.logger.Info("order published to infra", "payload", string(record.Value()), requestid.Attr(requestID))
+	logger.Info("order published to infra")
 	r.rec.Message(flow, "ok")
 	return r.consumer.Commit(ctx, record)
 }

@@ -1,7 +1,9 @@
 package orders_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -146,8 +148,18 @@ func runWith(
 	want int,
 	ids *requestid.Store,
 ) *fakeRecorder {
+	return runLogging(t, consumer, publisher, want, ids, slog.New(slog.NewTextHandler(io.Discard, nil)))
+}
+
+func runLogging(
+	t *testing.T,
+	consumer *fakeConsumer,
+	publisher *fakePublisher,
+	want int,
+	ids *requestid.Store,
+	logger *slog.Logger,
+) *fakeRecorder {
 	rec := &fakeRecorder{}
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
@@ -314,4 +326,95 @@ func TestRedeliveryWithoutRequestIDKeepsTheRememberedOne(
 	if got := ids.Lookup("ORD-1"); got != "req-1" {
 		t.Fatalf("remembered %q, want req-1 kept", got)
 	}
+}
+
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(
+	p []byte,
+) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+// lines decodes every JSON log line written so far.
+func (b *syncBuffer) lines(
+	t *testing.T,
+) []map[string]any {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	var out []map[string]any
+	for _, raw := range bytes.Split(bytes.TrimSpace(b.buf.Bytes()), []byte("\n")) {
+		var line map[string]any
+		if err := json.Unmarshal(raw, &line); err != nil {
+			t.Fatalf("log line %q: %v", raw, err)
+		}
+		out = append(out, line)
+	}
+	return out
+}
+
+func assertTrail(
+	t *testing.T,
+	lines []map[string]any,
+	want ...string,
+) {
+	t.Helper()
+	if len(lines) != len(want) {
+		t.Fatalf("logged %v, want messages %v", lines, want)
+	}
+	for i, line := range lines {
+		if line["msg"] != want[i] || line["request_id"] != "req-1" || line["order_id"] != "ORD-1" {
+			t.Fatalf("line %d is %v, want %q with request_id req-1 and order_id ORD-1", i, line, want[i])
+		}
+		if _, dumped := line["payload"]; dumped {
+			t.Fatalf("line %d dumps the payload: %v", i, line)
+		}
+	}
+}
+
+func TestEveryLineOfAnOrderCarriesItsRequestID(
+	t *testing.T,
+) {
+	var order []string
+	consumer := &fakeConsumer{records: []orders.Record{idRecord{fakeRecord{pending}, "req-1"}}}
+	publisher := &fakePublisher{failures: 2, order: &order}
+	logs := &syncBuffer{}
+	runLogging(t, consumer, publisher, 1, requestid.New(), slog.New(slog.NewJSONHandler(logs, nil)))
+	assertTrail(t, logs.lines(t),
+		"order consumed from kafka",
+		"rabbitmq publish failed, retrying",
+		"rabbitmq publish failed, retrying",
+		"order published to infra",
+	)
+}
+
+func TestStoppingBeforePublishingIsLoggedWithTheRequestID(
+	t *testing.T,
+) {
+	var order []string
+	consumer := &fakeConsumer{records: []orders.Record{idRecord{fakeRecord{pending}, "req-1"}}}
+	publisher := &fakePublisher{failures: 1 << 30, order: &order}
+	logs := &syncBuffer{}
+	logger := slog.New(slog.NewJSONHandler(logs, nil))
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() {
+		done <- orders.New(consumer, publisher, fastPolicy, logger, &fakeRecorder{}, requestid.New()).Run(ctx)
+	}()
+	time.Sleep(20 * time.Millisecond)
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("Run returned %v", err)
+	}
+	lines := logs.lines(t)
+	last := lines[len(lines)-1]
+	if last["msg"] != "stopping with an order unpublished" || last["request_id"] != "req-1" || last["order_id"] != "ORD-1" {
+		t.Fatalf("last line %v, want the stop with request_id req-1", last)
+	}
+	assertTrail(t, lines[:2], "order consumed from kafka", "rabbitmq publish failed, retrying")
 }

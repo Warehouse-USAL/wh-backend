@@ -67,7 +67,7 @@ func (r *runner) handle(
 	}
 	requestID := r.requestIDOf(req)
 	policy := r.policy
-	policy.OnRetry = r.retrying(flowOf(req))
+	policy.OnRetry = r.retrying(flowOf(req), requestID)
 	err = retry.Retry(requestid.With(ctx, requestID), policy, func(
 		ctx context.Context,
 	) error {
@@ -100,12 +100,13 @@ func (r *runner) send(
 
 func (r *runner) retrying(
 	flow string,
+	requestID string,
 ) func(error, time.Duration) {
 	return func(
 		err error,
 		delay time.Duration,
 	) {
-		r.logger.Warn("backend unavailable, retrying", "error", err, "retry_in", delay)
+		r.logger.Warn("backend unavailable, retrying", requestid.Attr(requestID), "error", err, "retry_in", delay)
 		r.rec.Message(flow, "retry")
 	}
 }

@@ -1,7 +1,9 @@
 package vehicles_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"log/slog"
@@ -158,6 +160,7 @@ type harness struct {
 	rec    *fakeRecorder
 	cancel context.CancelFunc
 	done   chan error
+	logger *slog.Logger
 }
 
 func start(
@@ -181,7 +184,10 @@ func (h *harness) run(
 ) {
 	ctx, cancel := context.WithCancel(context.Background())
 	h.cancel = cancel
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	logger := h.logger
+	if logger == nil {
+		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
 	pipeline := vehicles.New(h.source, client, fastPolicy, logger, h.rec, ids)
 	go func() { h.done <- pipeline.Run(ctx) }()
 	t.Cleanup(cancel)
@@ -454,5 +460,53 @@ func TestTelemetryCallbackNeverCarriesAnID(
 	ids.Remember("VHC-001", "req-1")
 	if got := callbackHeaders(t, ids, telemetryMsg); len(got) != 0 {
 		t.Fatalf("X-Request-Id %v, want none", got)
+	}
+}
+
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(
+	p []byte,
+) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func TestEveryLineOfAnOrderCallbackCarriesItsRequestID(
+	t *testing.T,
+) {
+	ids := requestid.New()
+	ids.Remember("ORD-1", "req-1")
+	logs := &syncBuffer{}
+	h := &harness{
+		source: &fakeSource{deliveries: make(chan vehicles.Delivery)},
+		client: &scriptedClient{results: []error{errors.New("503")}},
+		rec:    &fakeRecorder{},
+		done:   make(chan error, 1),
+		logger: slog.New(slog.NewJSONHandler(logs, nil)),
+	}
+	h.run(t, h.client, ids)
+	d := newDelivery(statusMsg)
+	h.deliver(t, d)
+	h.waitSettled(t, d)
+	logs.mu.Lock()
+	defer logs.mu.Unlock()
+	var got []string
+	for _, raw := range bytes.Split(bytes.TrimSpace(logs.buf.Bytes()), []byte("\n")) {
+		var line map[string]any
+		if err := json.Unmarshal(raw, &line); err != nil {
+			t.Fatalf("log line %q: %v", raw, err)
+		}
+		if line["request_id"] != "req-1" {
+			t.Fatalf("line %v has no request_id req-1", line)
+		}
+		got = append(got, line["msg"].(string))
+	}
+	if !equal(got, "backend unavailable, retrying", "delivered to backend") {
+		t.Fatalf("logged %v", got)
 	}
 }
