@@ -90,6 +90,11 @@ public class GlobalExceptionHandler {
           Map.entry(
               "METRICS_UNAVAILABLE", "El almacén de métricas no está disponible en este momento."),
           Map.entry(
+              "LOG_STORE_UNAVAILABLE", "El almacén de logs no está disponible en este momento."),
+          Map.entry(
+              "INVALID_TIME_RANGE",
+              "El rango de tiempo no es válido. Debe ser ascendente y de a lo sumo 7 días."),
+          Map.entry(
               "UNKNOWN_ENTITY", "La entidad solicitada no existe. Consultar GET /query/catalog."),
           Map.entry(
               "UNKNOWN_FIELD",

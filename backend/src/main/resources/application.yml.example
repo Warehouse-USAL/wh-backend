@@ -57,6 +57,10 @@ telemetry:
 victoriametrics:
   url: ${VICTORIAMETRICS_URL:http://victoriametrics:8428}
 
+# Backend console (SUPERADMIN only).
+console:
+  victorialogs-url: ${CONSOLE_VICTORIALOGS_URL:http://victorialogs:9428}
+
 # Declared @Indexed / @CompoundIndex annotations are NOT created unless this is on — Spring Data
 # MongoDB has defaulted it to false since 3.0. It was off here, so every declared index in the
 # codebase (User.email, Product.sku, Zone, Line, Position, ...) existed only in the source, and
