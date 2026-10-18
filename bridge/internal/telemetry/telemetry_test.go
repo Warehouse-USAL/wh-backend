@@ -2,13 +2,18 @@ package telemetry_test
 
 import (
 	"context"
+	"encoding/pem"
+	"errors"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
@@ -32,6 +37,18 @@ func collect(
 		}
 	}
 	return out
+}
+
+// restoreGlobals puts back the default slog logger and the otel error
+// handler that telemetry.New replaces.
+func restoreGlobals(
+	t *testing.T,
+) {
+	logger, handler := slog.Default(), otel.GetErrorHandler()
+	t.Cleanup(func() {
+		slog.SetDefault(logger)
+		otel.SetErrorHandler(handler)
+	})
 }
 
 func TestNoopRecorderNeverPanics(
@@ -132,8 +149,7 @@ func TestLagGaugeKeepsLatestValuePerFlow(
 func TestEndpointExportsMetricsAndLogsOnShutdown(
 	t *testing.T,
 ) {
-	previous := slog.Default()
-	t.Cleanup(func() { slog.SetDefault(previous) })
+	restoreGlobals(t)
 	var mu sync.Mutex
 	paths := map[string]bool{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -162,8 +178,7 @@ func TestEndpointExportsMetricsAndLogsOnShutdown(
 func TestUnreachableCollectorNeverFailsShutdownCallers(
 	t *testing.T,
 ) {
-	previous := slog.Default()
-	t.Cleanup(func() { slog.SetDefault(previous) })
+	restoreGlobals(t)
 	r, shutdown, err := telemetry.New(context.Background(), "http://127.0.0.1:1", "wh-bridge")
 	if err != nil {
 		t.Fatal(err)
@@ -172,4 +187,50 @@ func TestUnreachableCollectorNeverFailsShutdownCallers(
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	_ = shutdown(ctx)
+	if ctx.Err() != nil {
+		t.Fatal("shutdown blocked until its deadline")
+	}
+	otel.Handle(errors.New("export failed"))
+}
+
+// writeCertificate stores the certificate of a TLS test server as PEM, so an
+// OTEL_EXPORTER_OTLP_*_CERTIFICATE variable can point at it.
+func writeCertificate(
+	t *testing.T,
+) string {
+	server := httptest.NewTLSServer(http.NotFoundHandler())
+	t.Cleanup(server.Close)
+	path := filepath.Join(t.TempDir(), "ca.pem")
+	block := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: server.Certificate().Raw})
+	if err := os.WriteFile(path, block, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// certificateVariable names an environment variable that gives one exporter
+// a TLS configuration.
+type certificateVariable string
+
+func (v certificateVariable) run(
+	t *testing.T,
+) {
+	restoreGlobals(t)
+	t.Setenv(string(v), writeCertificate(t))
+	before := slog.Default()
+	r, shutdown, err := telemetry.New(context.Background(), "http://127.0.0.1:1", "wh-bridge")
+	if err == nil || r != nil || shutdown != nil {
+		t.Fatalf("got r=%v err=%v, want a setup error for an insecure endpoint with TLS", r, err)
+	}
+	if slog.Default() != before {
+		t.Fatal("default logger replaced although setup failed")
+	}
+}
+
+func TestExporterSetupErrorsReachTheCaller(
+	t *testing.T,
+) {
+	for _, v := range []certificateVariable{"OTEL_EXPORTER_OTLP_METRICS_CERTIFICATE", "OTEL_EXPORTER_OTLP_LOGS_CERTIFICATE"} {
+		t.Run(string(v), v.run)
+	}
 }

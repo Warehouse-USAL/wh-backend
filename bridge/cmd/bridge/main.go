@@ -48,14 +48,7 @@ func run() int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	rec, shutdown, err := telemetry.New(ctx, cfg.OTLPEndpoint, "wh-bridge")
-	if err != nil {
-		logger.Error("telemetry unavailable", "error", err)
-		return 2
-	}
-	if cfg.OTLPEndpoint != "" {
-		logger = slog.Default()
-	}
+	rec, shutdown, logger := startTelemetry(ctx, cfg.OTLPEndpoint, logger)
 	defer flushTelemetry(shutdown, logger)
 	if err = serve(ctx, cfg, logger, rec); err != nil {
 		logger.Error("bridge stopped", "error", err)
@@ -63,6 +56,25 @@ func run() int {
 	}
 	logger.Info("bridge stopped")
 	return 0
+}
+
+// startTelemetry builds the recorder and returns the logger to use from then
+// on. Telemetry never blocks startup: if it cannot be set up the error is
+// logged and the bridge runs with the no-op recorder and the stdout logger.
+func startTelemetry(
+	ctx context.Context,
+	endpoint string,
+	logger *slog.Logger,
+) (telemetry.Recorder, func(context.Context) error, *slog.Logger) {
+	rec, shutdown, err := telemetry.New(ctx, endpoint, "wh-bridge")
+	if err != nil {
+		logger.Error("telemetry unavailable, running without it", "error", err)
+		return telemetry.Noop(), func(context.Context) error { return nil }, logger
+	}
+	if endpoint == "" {
+		return rec, shutdown, logger
+	}
+	return rec, shutdown, slog.Default()
 }
 
 func flushTelemetry(
