@@ -200,7 +200,9 @@ public class GlobalExceptionHandler {
 
   @ExceptionHandler(HttpMessageNotReadableException.class)
   public ResponseEntity<ErrorResponse> handleMalformedRequest(HttpMessageNotReadableException ex) {
-    log.warn("Malformed request body: {}", ex.getMessage());
+    // The message can quote a fragment of the body (a password in a malformed login), so log the
+    // type.
+    log.warn("Malformed request body: {}", ex.getClass().getSimpleName());
     for (Throwable cause = ex.getCause(); cause != null; cause = cause.getCause()) {
       if (cause instanceof InvalidFormatException ife && ife.getTargetType() == StockSize.class) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
