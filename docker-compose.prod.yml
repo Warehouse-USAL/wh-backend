@@ -33,9 +33,11 @@ services:
       SPRING_DATA_MONGODB_AUTO_INDEX_CREATION: ${SPRING_DATA_MONGODB_AUTO_INDEX_CREATION:-true}
       TELEMETRY_ENABLED: ${TELEMETRY_ENABLED:-true}
       TELEMETRY_ENDPOINT: ${TELEMETRY_ENDPOINT:-http://otel-collector:4318/v1/metrics}
+      TELEMETRY_LOGS_ENDPOINT: ${TELEMETRY_LOGS_ENDPOINT:-http://otel-collector:4318/v1/logs}
       # Tomcat's ThreadPool MBean feeds the tomcat.threads/tomcat.connections gauges.
       SERVER_TOMCAT_MBEANREGISTRY_ENABLED: "true"
       VICTORIAMETRICS_URL: ${VICTORIAMETRICS_URL:-http://victoriametrics:8428}
+      CONSOLE_VICTORIALOGS_URL: ${CONSOLE_VICTORIALOGS_URL:-http://victorialogs:9428}
       INFRA_API_KEY: ${INFRA_API_KEY:-}
     restart: always
     depends_on:
@@ -59,6 +61,7 @@ services:
       AMQP_URL: ${INFRA_AMQP_URL:-}
       BACKEND_URL: http://backend:8080
       INFRA_API_KEY: ${INFRA_API_KEY:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}
     profiles: !reset []
     restart: always
 
@@ -134,8 +137,27 @@ services:
       - victoriametrics_data:/victoria-metrics-data
     ports: !override []
 
+  # Joins wh-proxy only to scrape Caddy's metrics (collector-config.prod.yml adds that job).
   otel-collector:
+    command: ["--config=/etc/otel/collector-config.yml", "--config=/etc/otel/collector-config.prod.yml"]
+    volumes:
+      - ./config/otel/collector-config.prod.yml:/etc/otel/collector-config.prod.yml:ro
     ports: !override []
+    networks:
+      - wh-network
+      - wh-proxy
+
+  victorialogs:
+    restart: always
+
+  # Prebuilt GHCR image; reached through Caddy at /console/ (docs/CONSOLE.md), so no host port.
+  console:
+    image: ghcr.io/warehouse-usal/wh-console:latest
+    ports: !override []
+    restart: always
+    networks:
+      - wh-network
+      - wh-proxy
 
   restock-cron:
     restart: always

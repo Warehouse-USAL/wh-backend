@@ -21,9 +21,12 @@ services:
       MINIO_BUCKET: ${MINIO_BUCKET:-wh-images}
       TELEMETRY_ENABLED: ${TELEMETRY_ENABLED:-true}
       TELEMETRY_ENDPOINT: http://otel-collector:4318/v1/metrics
+      TELEMETRY_LOGS_ENDPOINT: http://otel-collector:4318/v1/logs
       # Tomcat's ThreadPool MBean feeds the tomcat.threads/tomcat.connections gauges.
       SERVER_TOMCAT_MBEANREGISTRY_ENABLED: "true"
       VICTORIAMETRICS_URL: http://victoriametrics:8428
+      # Read side of the logs pipeline (the console's Logs page).
+      CONSOLE_VICTORIALOGS_URL: http://victorialogs:9428
       # Shared secret the bridge sends in X-Api-Key on /infra/**. Blank = those endpoints reject everything.
       INFRA_API_KEY: ${INFRA_API_KEY:-}
     depends_on:
@@ -46,6 +49,7 @@ services:
       AMQP_URL: ${INFRA_AMQP_URL:-}
       BACKEND_URL: http://backend:8080
       INFRA_API_KEY: ${INFRA_API_KEY:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
     depends_on:
       redpanda:
         condition: service_healthy
@@ -166,6 +170,9 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
+      # Lets the collector scrape /minio/v2/metrics/cluster without a bearer token. Anyone who
+      # reaches port 9000 can read those metrics too (counts and sizes, no object data).
+      MINIO_PROMETHEUS_AUTH_TYPE: public
     volumes:
       - ./data/minio:/data
     networks:
@@ -214,6 +221,36 @@ services:
     depends_on:
       victoriametrics:
         condition: service_started
+      victorialogs:
+        condition: service_started
+    networks:
+      - wh-network
+    restart: unless-stopped
+
+  # Log store behind the console's Logs page: the collector ships OTLP logs here. Internal only,
+  # like the other stores in prod. Same image constraints as victoriametrics (no shell, so no
+  # healthcheck) and the same pinned memory budget reasoning.
+  victorialogs:
+    image: victoriametrics/victoria-logs:v1.53.0
+    command:
+      - "-retentionPeriod=30d"
+      - "-httpListenAddr=:9428"
+      - "-storageDataPath=/victoria-logs-data"
+      - "-memory.allowedBytes=256MB"
+    volumes:
+      - victorialogs_data:/victoria-logs-data
+    networks:
+      - wh-network
+    restart: unless-stopped
+
+  # SUPERADMIN backend console (console/, served at /console/). Its nginx proxies /api to the backend.
+  console:
+    build: ./console
+    ports:
+      - "8083:80"
+    depends_on:
+      backend:
+        condition: service_started
     networks:
       - wh-network
     restart: unless-stopped
@@ -247,6 +284,8 @@ services:
       # Seconds to wait for backend readiness per run, and first-run attempts on transient errors.
       RESTOCK_READY_TIMEOUT: ${RESTOCK_READY_TIMEOUT:-900}
       RESTOCK_STARTUP_RETRIES: ${RESTOCK_STARTUP_RETRIES:-60}
+      # Where each run pushes its job.run gauge (OTLP/JSON). Blank = no push. Never fails a run.
+      RESTOCK_OTLP_URL: ${RESTOCK_OTLP_URL:-http://otel-collector:4318/v1/metrics}
     volumes:
       - ./config/restock-cron/restock-cron.sh:/opt/restock-cron/restock-cron.sh:ro
     depends_on:
@@ -259,3 +298,6 @@ services:
 networks:
   wh-network:
     driver: bridge
+
+volumes:
+  victorialogs_data:
