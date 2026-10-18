@@ -94,7 +94,8 @@ public class MetricRegistry {
           gauge(
               "minio.bucket.size",
               "minio_cluster_usage_total_bytes",
-              "MinIO usage",
+              // Cluster-wide usage: per-bucket size is not scraped, and there is one bucket.
+              "MinIO bucket size",
               "By",
               List.of()),
           gauge(
@@ -177,6 +178,9 @@ public class MetricRegistry {
               "VictoriaMetrics rows ingested",
               "1",
               List.of("type")),
+          // vm_rows_invalid_total (parse failures, by type) is intentionally not catalogued: the
+          // panel charts rows VictoriaMetrics dropped, which vm_rows_ignored_total counts by
+          // reason.
           counter(
               "vm.rows.rejected",
               "vm_rows_ignored_total",
@@ -190,12 +194,17 @@ public class MetricRegistry {
               "VictoriaMetrics cache entries",
               "1",
               List.of("type")),
-          gauge(
+          // The total spans the type series, so this gauge also offers COUNT, which here means
+          // "sum across series" (avg_over_time per series, then sum): the disk used in all.
+          new MetricDescriptor(
               "vm.disk.used",
               "vm_data_size_bytes",
               "VictoriaMetrics data size",
               "By",
-              List.of("type")),
+              MetricType.GAUGE,
+              List.of("type"),
+              List.of(Aggregation.AVG, Aggregation.MAX, Aggregation.LAST, Aggregation.COUNT),
+              SUPERADMIN_ONLY),
           gauge(
               "vm.disk.free",
               "vm_free_disk_space_bytes",

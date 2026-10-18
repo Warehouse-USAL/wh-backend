@@ -18,7 +18,8 @@ import java.util.Set;
  * @param bucketSeriesName the cumulative {@code le} series a {@link MetricType#HISTOGRAM}'s
  *     quantiles rate. Defaults to {@code <seriesName>_bucket}, the OTel convention; held explicitly
  *     only for scraped histograms stored otherwise, such as MinIO's unsuffixed {@code
- *     minio_s3_requests_ttfb_seconds_distribution}. Unused by other types.
+ *     minio_s3_requests_ttfb_seconds_distribution}. Only a histogram may set it; for other types it
+ *     is {@code null}.
  */
 public record MetricDescriptor(
     String name,
@@ -32,7 +33,13 @@ public record MetricDescriptor(
     String bucketSeriesName) {
 
   public MetricDescriptor {
-    bucketSeriesName = bucketSeriesName == null ? seriesName + "_bucket" : bucketSeriesName;
+    if (bucketSeriesName != null && type != MetricType.HISTOGRAM) {
+      throw new IllegalArgumentException(
+          "Metric %s is a %s and has no bucket series".formatted(name, type));
+    }
+    if (bucketSeriesName == null && type == MetricType.HISTOGRAM) {
+      bucketSeriesName = seriesName + "_bucket";
+    }
     dimensions = List.copyOf(dimensions);
     permittedAggregations = List.copyOf(permittedAggregations);
     requiredRoles = Set.copyOf(requiredRoles);

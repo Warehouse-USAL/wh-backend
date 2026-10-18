@@ -29,6 +29,7 @@ class MetricRegistryScrapedTest {
 
   private static final Pattern SERIES_TOKEN = Pattern.compile("`([a-z][a-z0-9_]*)[`{]");
   private static final Pattern ANY_TOKEN = Pattern.compile("`([a-z][a-z0-9_]*)");
+  private static final Pattern SELECTOR_LABEL = Pattern.compile("([a-z][a-z0-9_]*)=");
 
   /** The logical names the Infrastructure and Monitoring pages chart. */
   private static final List<String> SCRAPED =
@@ -59,7 +60,7 @@ class MetricRegistryScrapedTest {
   private static final Instant FROM = Instant.parse("2026-10-18T00:00:00Z");
   private static final Instant TO = Instant.parse("2026-10-18T01:00:00Z");
 
-  /** Series name from the doc's "Series" column, mapped to every backticked token on its row. */
+  /** Series name from the doc's "Series" column, mapped to the labels the doc gives it. */
   private static Map<String, Set<String>> documented;
 
   private final MetricRegistry registry = new MetricRegistry();
@@ -89,8 +90,10 @@ class MetricRegistryScrapedTest {
 
   /**
    * Reads the table rows of the "Scraped series" section only. Series names are the backticked
-   * tokens of the second cell; a token directly followed by a selector ({@code name{...}}) counts
-   * too. Each maps to every token on its row, which is where the doc lists the series' labels.
+   * tokens of the "Series" cell; a token directly followed by a selector ({@code name{...}}) counts
+   * too. Each maps to its labels: the backticked tokens of the "Labels" cell, the label names in
+   * its own selector braces, and the backticked tokens in a parenthesis right after it (the doc's
+   * {@code `vm_rows_ignored_total` (`reason`)} form).
    */
   static Map<String, Set<String>> parseScrapedSeries(String markdown) {
     Map<String, Set<String>> series = new HashMap<>();
@@ -107,10 +110,22 @@ class MetricRegistryScrapedTest {
       if (cells.length < 4) {
         continue;
       }
-      Set<String> rowTokens = tokens(ANY_TOKEN, line);
-      Matcher m = SERIES_TOKEN.matcher(cells[2]);
+      String cell = cells[2];
+      Set<String> labelsCell = tokens(ANY_TOKEN, cells[3]);
+      Matcher m = SERIES_TOKEN.matcher(cell);
       while (m.find()) {
-        series.computeIfAbsent(m.group(1), k -> new HashSet<>()).addAll(rowTokens);
+        Set<String> labels = new HashSet<>(labelsCell);
+        int rest = m.end();
+        if (cell.charAt(m.end() - 1) == '{') {
+          int close = cell.indexOf('}', rest);
+          labels.addAll(tokens(SELECTOR_LABEL, cell.substring(rest, close)));
+          rest = close + 1;
+        }
+        String after = cell.substring(rest).replaceFirst("^`", "").stripLeading();
+        if (after.startsWith("(") && after.indexOf(')') > 0) {
+          labels.addAll(tokens(ANY_TOKEN, after.substring(0, after.indexOf(')'))));
+        }
+        series.computeIfAbsent(m.group(1), k -> new HashSet<>()).addAll(labels);
       }
     }
     return series;
@@ -290,9 +305,38 @@ class MetricRegistryScrapedTest {
         "## Other\n| A | `not_this` | `x` |\n## Scraped series\n"
             + "| Panel | Series | Labels |\n|---|---|---|\n"
             + "| P | `a_total` (counter), `b{type=\"x\"}` | `api` |\n"
+            + "| Q | `c_total` (`reason`), `d_total` (`kind`) | |\n"
             + "short | row\n## Next\n| A | `nor_this` | |\n";
     Map<String, Set<String>> parsed = parseScrapedSeries(md);
-    assertThat(parsed).containsOnlyKeys("a_total", "b");
-    assertThat(parsed.get("a_total")).contains("api", "b");
+    assertThat(parsed).containsOnlyKeys("a_total", "b", "c_total", "d_total", "reason", "kind");
+    assertThat(parsed.get("a_total")).containsExactly("api");
+    assertThat(parsed.get("b")).containsExactlyInAnyOrder("api", "type");
+    assertThat(parsed.get("c_total")).containsExactly("reason");
+    assertThat(parsed.get("d_total")).containsExactly("kind");
+  }
+
+  @Test
+  void vmDiskUsedTotalsItsTypesWithCount() {
+    assertThat(registry.findByName("vm.disk.used").orElseThrow().permittedAggregations())
+        .containsExactly(Aggregation.AVG, Aggregation.MAX, Aggregation.LAST, Aggregation.COUNT);
+    assertThat(query("vm.disk.used", Map.of(), List.of(), "count"))
+        .isEqualTo("sum(avg_over_time(vm_data_size_bytes[30s]))");
+  }
+
+  @Test
+  void noOtherScrapedGaugeOffersCount() {
+    assertThat(SCRAPED)
+        .filteredOn(name -> !name.equals("vm.disk.used"))
+        .allSatisfy(
+            name ->
+                assertThat(registry.findByName(name).orElseThrow().permits(Aggregation.COUNT))
+                    .as(name)
+                    .isFalse());
+  }
+
+  @Test
+  void minioBucketSizeIsNamedForThePanel() {
+    assertThat(registry.findByName("minio.bucket.size").orElseThrow().displayName())
+        .isEqualTo("MinIO bucket size");
   }
 }
