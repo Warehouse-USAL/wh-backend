@@ -160,30 +160,57 @@ public class OrderRepository {
       // The MDC is per thread: read the id here, on the request thread, not on the publisher.
       String requestId = MDC.get(RequestIdFilter.MDC_KEY);
       CompletableFuture.runAsync(
-              () ->
-                  kafka
-                      .send(record(topic, key, json, requestId))
-                      .whenComplete(
-                          (result, ex) -> {
-                            telemetry.recordKafkaMessage(topic, "out", ex == null);
-                            if (ex != null) {
-                              log.error(
-                                  "Failed to publish to Kafka topic {}: {}",
-                                  topic,
-                                  ex.getMessage());
-                            }
-                          }),
+              () -> {
+                long start = System.nanoTime();
+                kafka
+                    .send(record(topic, key, json, requestId))
+                    .whenComplete(
+                        (result, ex) -> {
+                          telemetry.recordKafkaMessage(topic, "out", ex == null);
+                          long ms = (System.nanoTime() - start) / 1_000_000;
+                          withRequestId(
+                              requestId,
+                              () -> {
+                                if (ex == null) {
+                                  log.info("kafka publish {} ok {}ms", topic, ms);
+                                } else {
+                                  log.error(
+                                      "kafka publish {} failed {}ms: {}",
+                                      topic,
+                                      ms,
+                                      ex.getMessage());
+                                }
+                              });
+                        });
+              },
               KAFKA_PUBLISHER)
           // A throw from send() itself (e.g. the producer cannot be built) would otherwise vanish
           // inside the discarded future.
           .exceptionally(
               ex -> {
                 telemetry.recordKafkaMessage(topic, "out", false);
-                log.error("Failed to publish to Kafka topic {}", topic, ex);
+                withRequestId(requestId, () -> log.error("kafka publish {} failed", topic, ex));
                 return null;
               });
     } catch (JacksonException e) {
       throw new RuntimeException("Failed to serialize Kafka message for topic " + topic, e);
+    }
+  }
+
+  /**
+   * Logs on the publisher or producer thread under the request id captured on the request thread,
+   * so the line joins that request's trail.
+   */
+  private static void withRequestId(String requestId, Runnable line) {
+    if (!RequestIdFilter.isSafe(requestId)) {
+      line.run();
+      return;
+    }
+    MDC.put(RequestIdFilter.MDC_KEY, requestId);
+    try {
+      line.run();
+    } finally {
+      MDC.remove(RequestIdFilter.MDC_KEY);
     }
   }
 

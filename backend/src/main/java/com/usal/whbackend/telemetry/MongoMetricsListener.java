@@ -25,6 +25,11 @@ import org.slf4j.LoggerFactory;
  * commands carry no collection and are ignored. The driver reports the command document only on the
  * started event, so the collection is remembered per request id until the command finishes. Never
  * throws: it runs on the driver's I/O threads.
+ *
+ * <p>Slow and failed data commands are also logged, one WARN line each ({@code mongo orders insert
+ * slow 130ms}); the synchronous driver notifies on the calling thread, so the line carries the
+ * request's id when there is one. The driver's error message is left out: it can quote document
+ * values (a duplicate key error names the key). Fast commands are only counted, never logged.
  */
 public class MongoMetricsListener implements CommandListener, ConnectionPoolListener {
 
@@ -92,9 +97,17 @@ public class MongoMetricsListener implements CommandListener, ConnectionPoolList
 
   private void finish(int requestId, String command, String outcome, double durationMs) {
     String collection = collectionByRequest.remove(requestId);
-    if (collection != null) {
-      telemetry.recordMongoCommand(
-          new MongoCommandSample(collection, command, outcome, durationMs));
+    if (collection == null) {
+      return;
+    }
+    telemetry.recordMongoCommand(new MongoCommandSample(collection, command, outcome, durationMs));
+    if (!"ok".equals(outcome)) {
+      log.warn(
+          "mongo {} {} {} {}ms",
+          collection,
+          command,
+          "error".equals(outcome) ? "failed" : outcome,
+          (long) durationMs);
     }
   }
 
