@@ -70,4 +70,13 @@ public class TelemetryConfig {
     }
     return new OtelTelemetryAdapter(sdk.getMeter(INSTRUMENTATION_SCOPE), fleetStateSource);
   }
+
+  /**
+   * Registered here rather than with {@code @Component}: {@code @WebMvcTest} slices scan filters
+   * but not this class, and none of them provides a {@link TelemetryPort}.
+   */
+  @Bean
+  public HttpMetricsFilter httpMetricsFilter(TelemetryPort telemetryPort) {
+    return new HttpMetricsFilter(telemetryPort);
+  }
 }

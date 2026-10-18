@@ -19,4 +19,7 @@ public interface TelemetryPort {
    * failure-rate the dashboard derives, so re-recording an unchanged status would inflate them.
    */
   void recordStatusTransition(VehicleStatusChange change);
+
+  /** Records one finished HTTP request. Never throws. */
+  void recordHttpRequest(HttpRequestSample sample);
 }

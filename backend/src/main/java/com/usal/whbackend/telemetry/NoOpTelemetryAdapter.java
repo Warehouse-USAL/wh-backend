@@ -12,4 +12,9 @@ public class NoOpTelemetryAdapter implements TelemetryPort {
   public void recordStatusTransition(VehicleStatusChange change) {
     // intentionally empty
   }
+
+  @Override
+  public void recordHttpRequest(HttpRequestSample sample) {
+    // intentionally empty
+  }
 }

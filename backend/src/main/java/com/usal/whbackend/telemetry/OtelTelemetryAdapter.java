@@ -3,6 +3,7 @@ package com.usal.whbackend.telemetry;
 import io.opentelemetry.api.common.AttributeKey;
 import io.opentelemetry.api.common.Attributes;
 import io.opentelemetry.api.metrics.DoubleGauge;
+import io.opentelemetry.api.metrics.DoubleHistogram;
 import io.opentelemetry.api.metrics.LongCounter;
 import io.opentelemetry.api.metrics.Meter;
 import java.util.List;
@@ -30,6 +31,12 @@ public class OtelTelemetryAdapter implements TelemetryPort {
   /** Catalogue name for the status-transition counter. */
   public static final String TRANSITIONS_METRIC = "wh.vehicle.transitions";
 
+  /** Catalogue name for the HTTP server latency histogram. */
+  public static final String HTTP_METRIC = "http.server.duration";
+
+  static final AttributeKey<String> ROUTE = AttributeKey.stringKey("route");
+  static final AttributeKey<String> METHOD = AttributeKey.stringKey("method");
+  static final AttributeKey<String> STATUS_CLASS = AttributeKey.stringKey("status_class");
   static final AttributeKey<String> VEHICLE_ID = AttributeKey.stringKey("vehicle_id");
   static final AttributeKey<String> STATE = AttributeKey.stringKey("state");
   static final AttributeKey<String> FROM = AttributeKey.stringKey("from");
@@ -38,6 +45,7 @@ public class OtelTelemetryAdapter implements TelemetryPort {
 
   private final DoubleGauge batteryGauge;
   private final LongCounter transitionCounter;
+  private final DoubleHistogram httpHistogram;
 
   public OtelTelemetryAdapter(Meter meter, FleetStateSource fleetStateSource) {
     this.batteryGauge =
@@ -52,6 +60,16 @@ public class OtelTelemetryAdapter implements TelemetryPort {
             .counterBuilder(TRANSITIONS_METRIC)
             .setUnit("1")
             .setDescription("Vehicle status transitions, counted once per observed change")
+            .build();
+
+    this.httpHistogram =
+        meter
+            .histogramBuilder(HTTP_METRIC)
+            .setUnit("ms")
+            .setDescription("HTTP server request duration")
+            .setExplicitBucketBoundariesAdvice(
+                List.of(
+                    5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0))
             .build();
 
     registerStateGauge(meter, fleetStateSource);
@@ -128,6 +146,26 @@ public class OtelTelemetryAdapter implements TelemetryPort {
           "Failed to record status transition for vehicle {}: {}",
           change.vehicleId(),
           e.getMessage());
+    }
+  }
+
+  @Override
+  public void recordHttpRequest(HttpRequestSample sample) {
+    if (sample == null) {
+      return;
+    }
+    try {
+      httpHistogram.record(
+          sample.durationMs(),
+          Attributes.of(
+              ROUTE,
+              nullSafe(sample.route()),
+              METHOD,
+              nullSafe(sample.method()),
+              STATUS_CLASS,
+              (sample.status() / 100) + "xx"));
+    } catch (RuntimeException e) {
+      log.warn("Failed to record HTTP request duration: {}", e.getMessage());
     }
   }
 
