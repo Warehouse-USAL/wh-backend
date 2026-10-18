@@ -30,13 +30,15 @@ export interface NavItem {
 
 export interface NavSection {
   section: string
+  /** The first group sits under the brand without a heading, as in the mockups. */
+  hideLabel?: boolean
   items: NavItem[]
 }
 
 const item = (label: string, path: string, icon: LucideIcon): NavItem => ({ label, path, icon })
 
 export const NAV: NavSection[] = [
-  { section: 'Overview', items: [item('Overview', '/overview', LayoutGrid)] },
+  { section: 'Overview', hideLabel: true, items: [item('Overview', '/overview', LayoutGrid)] },
   {
     section: 'Monitoring',
     items: [

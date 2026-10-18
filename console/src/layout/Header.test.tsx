@@ -18,24 +18,25 @@ describe('Header', () => {
     expect(screen.getByRole('heading', { name: 'Orders' })).toBeInTheDocument()
     expect(screen.getByText('Monitoring /')).toBeInTheDocument()
     expect(screen.getByText('env staging')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Endpoints' })).toBeNull()
+    expect(screen.queryByRole('tab', { name: 'Endpoints' })).toBeNull()
   })
 
   it('marksTheFirstTabThenTheControlledOne', async () => {
     const onTab = vi.fn()
     const { rerender } = renderHeader({ tabs: ['Endpoints', 'Live feed'], onTab })
-    expect(screen.getByRole('button', { name: 'Endpoints' })).toHaveAttribute('aria-current', 'true')
+    expect(screen.getByRole('tab', { name: 'Endpoints' })).toHaveAttribute('aria-selected', 'true')
 
-    await userEvent.setup().click(screen.getByRole('button', { name: 'Live feed' }))
+    await userEvent.setup().click(screen.getByRole('tab', { name: 'Live feed' }))
     expect(onTab).toHaveBeenCalledWith('Live feed')
 
     rerender(
       <LiveProvider>
-        <Header crumb="Monitoring" title="Orders" tabs={['Endpoints', 'Live feed']} tab="Live feed" />
+        <Header crumb="Monitoring" title="Orders" tabs={['Endpoints', 'Live feed']} tab="Live feed" onTab={onTab} />
       </LiveProvider>,
     )
-    expect(screen.getByRole('button', { name: 'Live feed' })).toHaveAttribute('aria-current', 'true')
-    await userEvent.setup().click(screen.getByRole('button', { name: 'Endpoints' }))
+    expect(screen.getByRole('tab', { name: 'Live feed' })).toHaveAttribute('aria-selected', 'true')
+    await userEvent.setup().click(screen.getByRole('tab', { name: 'Endpoints' }))
+    expect(onTab).toHaveBeenLastCalledWith('Endpoints')
   })
 
   it('togglesLiveAndChangesTheRange', async () => {

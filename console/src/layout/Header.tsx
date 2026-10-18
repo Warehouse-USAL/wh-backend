@@ -58,14 +58,15 @@ export default function Header({ crumb, title, tabs, tab, onTab, chips }: Header
         </button>
       </div>
       {tabs && (
-        <div className="flex gap-[22px]">
+        <div role="tablist" className="flex gap-[22px]">
           {tabs.map((t) => (
             <button
               key={t}
               type="button"
-              aria-current={t === activeTab ? 'true' : undefined}
+              role="tab"
+              aria-selected={t === activeTab}
               onClick={() => onTab?.(t)}
-              className="border-b-2 border-transparent pt-2 pb-2.5 text-[13px] text-mu aria-[current=true]:border-tx aria-[current=true]:text-tx"
+              className="border-b-2 border-transparent pt-2 pb-2.5 text-[13px] text-mu aria-selected:border-tx aria-selected:text-tx"
             >
               {t}
             </button>

@@ -28,6 +28,8 @@ describe('Sidebar', () => {
     const onSignOut = vi.fn()
     renderAt('/overview', onSignOut)
 
+    expect(screen.getByText('wh-backend')).toBeInTheDocument()
+    expect(screen.queryByText('Overview', { selector: 'div' })).toBeNull()
     expect(screen.getByText('Dev tools')).toBeInTheDocument()
     expect(screen.getByText('root@x.io')).toBeInTheDocument()
     await userEvent.setup().click(screen.getByRole('button', { name: 'Sign out' }))
