@@ -57,6 +57,27 @@ describe('RequestTrail', () => {
     expect(within(trail).getByRole('link', { name: 'Open in Logs' })).toHaveAttribute('href', '/infra/logs?req=t23order1')
   })
 
+  it('tagsBackendLinesByTheComponentThatWroteThem', async () => {
+    const line = (service: string, level: string, message: string) => ({ time: '2026-10-18T14:02:11.204Z', level, service, message, request_id: 'req-1' })
+    const trailLines = [
+      line('bridge', 'info', 'order published to infra'),
+      line('backend', 'info', 'callback order o-1 status -> IN_PROGRESS'),
+      line('backend', 'warn', 'mongo orders insert slow 130ms'),
+      line('backend', 'info', 'kafka publish orders ok 4ms'),
+      line('backend', 'info', 'http POST /orders 201 12ms'),
+      line('backend', 'info', 'Started WhBackendApplication'),
+    ]
+    stubApi((b) => jsonResponse(200, b.request_id ? { lines: trailLines, total: 6 } : { lines: [trailLines[0]], total: 1 }))
+    renderAt('/monitoring/orders')
+
+    const trail = await screen.findByRole('region', { name: 'Event trail' })
+    await within(trail).findByText('POST /orders 201 12ms')
+    // Oldest first: the component word becomes the tag and leaves the text.
+    expect(trail).toHaveTextContent(
+      /backendStarted WhBackendApplication.*httpPOST \/orders 201 12ms.*kafkapublish orders ok 4ms.*mongoorders insert slow 130ms.*callbackorder o-1 status -> IN_PROGRESS.*bridgeorder published to infra/,
+    )
+  })
+
   it('refreshesOnEachTickKeepingTheTrailAndAbortingASupersededRequest', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true })
     stubApi((b) => jsonResponse(200, b.request_id ? { lines: fixture.lines.slice(0, 2), total: 2 } : { lines: [fixture.lines[0]], total: 1 }))

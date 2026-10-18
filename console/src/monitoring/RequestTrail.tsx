@@ -8,10 +8,22 @@ import Group from '@/widgets/Group'
 import { formatClock } from '@/widgets/scale'
 import StreamWidget from '@/widgets/StreamWidget'
 
-// Creating an order logs nothing in the backend; the bridge logs this line, with the request id,
-// when it forwards that order's Kafka message, so the newest such line names the latest order flow.
+// The bridge logs this line, with the request id, when it forwards an order's Kafka message, so the
+// newest such line names the latest order flow.
 const ORDER_MARK = 'order published to infra'
 const DAY_MS = 86_400_000
+// Backend trail lines start with the component that wrote them; that word becomes the row's tag.
+const COMPONENT = /^(http|kafka|mongo|callback) (.*)$/s
+
+function rowOf(l: LogLine) {
+  const part = l.service === 'backend' ? COMPONENT.exec(l.message ?? '') : null
+  return {
+    time: formatClock(l.time),
+    tag: part?.[1] ?? l.service ?? 'log',
+    tone: l.level === 'warn' || l.level === 'error' ? l.level : 'info',
+    text: part?.[2] ?? l.message,
+  }
+}
 
 type State = { id?: string; lines: LogLine[]; error?: string; ready: boolean }
 
@@ -48,12 +60,7 @@ export default function RequestTrail() {
           title={`Request ${id}`}
           sub="latest order, oldest line first"
           className="col-span-12"
-          rows={lines.map((l) => ({
-            time: formatClock(l.time),
-            tag: l.service ?? 'log',
-            tone: l.level === 'warn' || l.level === 'error' ? l.level : 'info',
-            text: l.message,
-          }))}
+          rows={lines.map(rowOf)}
         />
       )}
     </Group>
