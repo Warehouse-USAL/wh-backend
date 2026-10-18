@@ -75,6 +75,14 @@ jobs:
           docker push "${IMAGE}:${{ steps.tag.outputs.version }}"
           docker push "${IMAGE}:latest"
 
+      - name: Build and push console Docker image
+        run: |
+          IMAGE="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/wh-console"
+          docker build -t "${IMAGE}:${{ steps.tag.outputs.version }}" \
+                       -t "${IMAGE}:latest" ./console
+          docker push "${IMAGE}:${{ steps.tag.outputs.version }}"
+          docker push "${IMAGE}:latest"
+
       - name: Create git tag
         run: |
           git config user.name "github-actions[bot]"
