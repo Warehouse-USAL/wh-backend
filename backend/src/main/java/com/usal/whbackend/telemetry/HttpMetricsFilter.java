@@ -20,6 +20,9 @@ import org.springframework.web.servlet.HandlerMapping;
  * <p>Both tags stay bounded: the static-resource catch-all {@code /**} (what Spring reports for any
  * unknown path) counts as {@code UNMATCHED}, and a non-standard method as {@code OTHER}. Also keeps
  * the in-flight count read by the {@code http.server.active} gauge.
+ *
+ * <p>{@link OncePerRequestFilter} skips async re-dispatches, so an async endpoint's duration covers
+ * only the initial dispatch.
  */
 @Order(Ordered.HIGHEST_PRECEDENCE)
 public class HttpMetricsFilter extends OncePerRequestFilter {
@@ -55,7 +58,8 @@ public class HttpMetricsFilter extends OncePerRequestFilter {
       Object pattern = request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE);
       String route =
           pattern == null || CATCH_ALL.equals(pattern.toString()) ? UNMATCHED : pattern.toString();
-      String method = METHODS.contains(request.getMethod()) ? request.getMethod() : OTHER;
+      String requested = request.getMethod();
+      String method = requested != null && METHODS.contains(requested) ? requested : OTHER;
       // A throwing chain has not set the status yet; the container will answer 500.
       int status = completed ? response.getStatus() : 500;
       telemetry.recordHttpRequest(

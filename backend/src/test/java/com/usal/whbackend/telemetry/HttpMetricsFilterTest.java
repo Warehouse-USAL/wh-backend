@@ -24,6 +24,17 @@ class HttpMetricsFilterTest {
   private final HttpMetricsFilter filter = new HttpMetricsFilter(port);
 
   @Test
+  void nullMethodIsTaggedOtherInsteadOfThrowing() throws Exception {
+    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/x");
+    request.setMethod(null);
+
+    filter.doFilter(request, new MockHttpServletResponse(), new MockFilterChain());
+
+    assertThat(samples).hasSize(1);
+    assertThat(samples.get(0).method()).isEqualTo("OTHER");
+  }
+
+  @Test
   void filterRecordsRouteTemplateNotRawPath() throws Exception {
     MockHttpServletRequest request = new MockHttpServletRequest("GET", "/orders/o_7f3a");
     request.setQueryString("token=secret");
