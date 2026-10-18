@@ -14,6 +14,7 @@ import LinesWidget from '@/widgets/LinesWidget'
 import { PALETTE, type Series, formatCount, formatMs } from '@/widgets/scale'
 import TileWidget from '@/widgets/TileWidget'
 import TopListWidget from '@/widgets/TopListWidget'
+import { useNearView } from '@/widgets/useNearView'
 import { type Domain, type RouteInfo, loadRoutes } from './routes'
 
 /** A tab jumps to a section of the page (`section`, the `extra` slot, else the top) or opens `to`. */
@@ -169,23 +170,7 @@ const METHOD_TONE: Record<string, string> = { POST: 'text-blue', PUT: 'text-wn',
  * Without IntersectionObserver every group renders.
  */
 function LazyGroup({ route }: { route: RouteInfo }) {
-  const ref = useRef<HTMLDivElement>(null)
-  const [near, setNear] = useState(typeof IntersectionObserver === 'undefined')
-  const [minHeight, setMinHeight] = useState<number>()
-
-  useEffect(() => {
-    const el = ref.current
-    if (!el || typeof IntersectionObserver === 'undefined') return
-    const observer = new IntersectionObserver(
-      ([entry]) => {
-        if (!entry.isIntersecting) setMinHeight(el.offsetHeight)
-        setNear(entry.isIntersecting)
-      },
-      { root: el.closest('main'), rootMargin: '400px 0px' },
-    )
-    observer.observe(el)
-    return () => observer.disconnect()
-  }, [])
+  const { ref, near, minHeight } = useNearView<HTMLDivElement>()
 
   const title = (
     <>

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Navigate, Route, Routes } from 'react-router'
 import { useSession } from '@/api/auth'
 import { onUnauthorized } from '@/api/client'
+import { INFRA_PAGES, INFRA_ROUTES } from '@/data/infraPresets'
 import { DOMAIN_PAGES } from '@/domains/entities'
 import EntityPage from '@/domains/EntityPage'
 import Header from '@/layout/Header'
@@ -15,6 +16,7 @@ import Login from '@/pages/Login'
 import Logs from '@/pages/Logs'
 import Overview from '@/pages/Overview'
 import WebSockets from '@/pages/WebSockets'
+import PresetPage from '@/pages/PresetPage'
 
 // A Monitoring nav item whose label names an API domain gets that domain's page.
 const isDomain = (label: string): label is Domain => (DOMAINS as readonly string[]).includes(label)
@@ -72,6 +74,8 @@ export default function App() {
                   <WebSockets />
                 ) : path in DEV_PORTS ? (
                   <DevTool key={path} name={label} port={DEV_PORTS[path]} />
+                ) : path in INFRA_ROUTES ? (
+                  <PresetPage key={path} spec={INFRA_PAGES[INFRA_ROUTES[path]]} />
                 ) : (
                   <Placeholder crumb={section} title={label} />
                 )
