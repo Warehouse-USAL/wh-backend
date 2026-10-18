@@ -96,10 +96,13 @@ Verified with `caddy:2.10.2`.
 
    ```caddyfile
    redir /console /console/ 308
-   handle_path /console/* {
+   handle /console/* {
    	reverse_proxy console:80
    }
    ```
+
+   Use `handle`, not `handle_path`: the console image serves its files under `/console/`, so the
+   prefix must reach it (stripping it sends `/` back to `/console/` in a loop).
 
 Verify from the collector's network (the collector image is distroless, so use a curl container):
 
