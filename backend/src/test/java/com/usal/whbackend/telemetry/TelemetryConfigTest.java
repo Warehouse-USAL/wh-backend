@@ -7,6 +7,10 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springframework.boot.web.servlet.ServletContextInitializerBeans;
+import org.springframework.core.Ordered;
 
 class TelemetryConfigTest {
 
@@ -58,6 +62,31 @@ class TelemetryConfigTest {
     assertThat(config.telemetryPort(sdk, props, EMPTY_FLEET, listenerProvider()))
         .isInstanceOf(OtelTelemetryAdapter.class);
     sdk.close();
+  }
+
+  /**
+   * Boots the real configuration and asks Spring Boot how it would register the filter: it must be
+   * first in the servlet chain, ahead of security, or 401s and 403s go uncounted.
+   */
+  @Test
+  void httpMetricsFilterIsRegisteredFirstAndRuntimeGaugesAreWired() {
+    new ApplicationContextRunner()
+        .withUserConfiguration(TelemetryConfig.class)
+        .withBean(FleetStateSource.class, () -> EMPTY_FLEET)
+        .run(
+            context -> {
+              assertThat(context).hasSingleBean(HttpMetricsFilter.class);
+              assertThat(context).hasSingleBean(RuntimeGauges.class);
+              List<Integer> orders =
+                  new ServletContextInitializerBeans(context.getBeanFactory())
+                      .stream()
+                          .filter(FilterRegistrationBean.class::isInstance)
+                          .map(FilterRegistrationBean.class::cast)
+                          .filter(r -> r.getFilter() instanceof HttpMetricsFilter)
+                          .map(FilterRegistrationBean::getOrder)
+                          .toList();
+              assertThat(orders).containsExactly(Ordered.HIGHEST_PRECEDENCE);
+            });
   }
 
   @Test

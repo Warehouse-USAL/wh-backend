@@ -8,6 +8,7 @@ import io.opentelemetry.sdk.metrics.SdkMeterProvider;
 import io.opentelemetry.sdk.metrics.SdkMeterProviderBuilder;
 import io.opentelemetry.sdk.metrics.export.PeriodicMetricReader;
 import io.opentelemetry.sdk.resources.Resource;
+import java.lang.management.ManagementFactory;
 import java.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -85,5 +86,17 @@ public class TelemetryConfig {
   @Bean
   public HttpMetricsFilter httpMetricsFilter(TelemetryPort telemetryPort) {
     return new HttpMetricsFilter(telemetryPort);
+  }
+
+  /**
+   * Registered on the SDK in both modes, like the adapter's own gauges: with telemetry disabled the
+   * SDK has no reader, so the callbacks simply never run.
+   */
+  @Bean
+  public RuntimeGauges runtimeGauges(OpenTelemetrySdk sdk, HttpMetricsFilter httpMetricsFilter) {
+    return new RuntimeGauges(
+        sdk.getMeter(INSTRUMENTATION_SCOPE),
+        ManagementFactory.getPlatformMBeanServer(),
+        httpMetricsFilter::activeRequests);
   }
 }

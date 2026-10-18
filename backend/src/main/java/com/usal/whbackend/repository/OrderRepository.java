@@ -4,6 +4,7 @@ import com.usal.whbackend.domain.Order;
 import com.usal.whbackend.domain.OrderStatus;
 import com.usal.whbackend.repository.kafka.OrderCompletedMessage;
 import com.usal.whbackend.repository.kafka.OrderMessage;
+import com.usal.whbackend.telemetry.TelemetryPort;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -46,16 +47,19 @@ public class OrderRepository {
   private final KafkaTemplate<String, String> kafka;
   private final MongoTemplate mongoTemplate;
   private final ObjectMapper objectMapper;
+  private final TelemetryPort telemetry;
 
   public OrderRepository(
       OrderMongoRepository mongo,
       KafkaTemplate<String, String> kafka,
       MongoTemplate mongoTemplate,
-      ObjectMapper objectMapper) {
+      ObjectMapper objectMapper,
+      TelemetryPort telemetry) {
     this.mongo = mongo;
     this.kafka = kafka;
     this.mongoTemplate = mongoTemplate;
     this.objectMapper = objectMapper;
+    this.telemetry = telemetry;
   }
 
   public Order save(Order order) {
@@ -151,6 +155,7 @@ public class OrderRepository {
                   (key == null ? kafka.send(topic, json) : kafka.send(topic, key, json))
                       .whenComplete(
                           (result, ex) -> {
+                            telemetry.recordKafkaMessage(topic, "out", ex == null);
                             if (ex != null) {
                               log.error(
                                   "Failed to publish to Kafka topic {}: {}",
@@ -163,6 +168,7 @@ public class OrderRepository {
           // inside the discarded future.
           .exceptionally(
               ex -> {
+                telemetry.recordKafkaMessage(topic, "out", false);
                 log.error("Failed to publish to Kafka topic {}", topic, ex);
                 return null;
               });

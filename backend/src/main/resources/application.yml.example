@@ -1,5 +1,9 @@
 server:
   port: 8080
+  # Registers Tomcat's MBeans; the tomcat.threads and tomcat.connections gauges read its ThreadPool.
+  tomcat:
+    mbeanregistry:
+      enabled: true
 
 spring:
   application:

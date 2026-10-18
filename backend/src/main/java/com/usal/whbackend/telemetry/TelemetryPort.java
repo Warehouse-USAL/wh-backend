@@ -28,4 +28,19 @@ public interface TelemetryPort {
 
   /** Records how long a MongoDB connection checkout waited, in ms. Never throws. */
   void recordMongoCheckout(double durationMs);
+
+  /**
+   * Records one Kafka message on {@code topic}; {@code direction} is {@code out} or {@code in}.
+   * Never throws.
+   */
+  void recordKafkaMessage(String topic, String direction, boolean ok);
+
+  /** Moves the open-session count of a WebSocket feed by {@code delta}. Never throws. */
+  void recordWsSession(String feed, int delta);
+
+  /**
+   * Records one WebSocket message on a feed; {@code result} is {@code pushed}, {@code rejected} or
+   * {@code closed}. Never throws.
+   */
+  void recordWsMessage(String feed, String result);
 }

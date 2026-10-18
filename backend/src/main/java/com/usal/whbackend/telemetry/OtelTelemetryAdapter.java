@@ -7,6 +7,9 @@ import io.opentelemetry.api.metrics.DoubleHistogram;
 import io.opentelemetry.api.metrics.LongCounter;
 import io.opentelemetry.api.metrics.Meter;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,6 +47,15 @@ public class OtelTelemetryAdapter implements TelemetryPort {
   /** Catalogue name for the Mongo pool occupancy gauge. */
   public static final String MONGO_POOL_METRIC = "mongo.pool.connections";
 
+  /** Catalogue name for the Kafka message counter. */
+  public static final String KAFKA_METRIC = "kafka.messages";
+
+  /** Catalogue name for the open WebSocket sessions gauge. */
+  public static final String WS_SESSIONS_METRIC = "ws.sessions";
+
+  /** Catalogue name for the WebSocket message counter. */
+  public static final String WS_MESSAGES_METRIC = "ws.messages";
+
   private static final List<Double> MS_BUCKETS =
       List.of(5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0);
 
@@ -58,12 +70,19 @@ public class OtelTelemetryAdapter implements TelemetryPort {
   static final AttributeKey<String> FROM = AttributeKey.stringKey("from");
   static final AttributeKey<String> TO = AttributeKey.stringKey("to");
   static final AttributeKey<String> CATEGORY = AttributeKey.stringKey("category");
+  static final AttributeKey<String> TOPIC = AttributeKey.stringKey("topic");
+  static final AttributeKey<String> DIRECTION = AttributeKey.stringKey("direction");
+  static final AttributeKey<String> RESULT = AttributeKey.stringKey("result");
+  static final AttributeKey<String> FEED = AttributeKey.stringKey("feed");
 
   private final DoubleGauge batteryGauge;
   private final LongCounter transitionCounter;
   private final DoubleHistogram httpHistogram;
   private final DoubleHistogram mongoCommandHistogram;
   private final DoubleHistogram mongoCheckoutHistogram;
+  private final LongCounter kafkaCounter;
+  private final LongCounter wsMessageCounter;
+  private final Map<String, AtomicInteger> wsSessions = new ConcurrentHashMap<>();
   private final Meter meter;
 
   public OtelTelemetryAdapter(Meter meter, FleetStateSource fleetStateSource) {
@@ -106,7 +125,40 @@ public class OtelTelemetryAdapter implements TelemetryPort {
             .setExplicitBucketBoundariesAdvice(MS_BUCKETS)
             .build();
 
+    this.kafkaCounter =
+        meter
+            .counterBuilder(KAFKA_METRIC)
+            .setUnit("1")
+            .setDescription("Kafka messages by topic, direction and result")
+            .build();
+
+    this.wsMessageCounter =
+        meter
+            .counterBuilder(WS_MESSAGES_METRIC)
+            .setUnit("1")
+            .setDescription("WebSocket messages by feed and result")
+            .build();
+
     registerStateGauge(meter, fleetStateSource);
+    registerWsSessionsGauge(meter);
+  }
+
+  /** Observable, so a feed whose sessions all closed keeps reporting an explicit 0. */
+  private void registerWsSessionsGauge(Meter meter) {
+    meter
+        .gaugeBuilder(WS_SESSIONS_METRIC)
+        .ofLongs()
+        .setUnit("1")
+        .setDescription("Open WebSocket sessions by feed")
+        .buildWithCallback(
+            measurement -> {
+              try {
+                wsSessions.forEach(
+                    (feed, count) -> measurement.record(count.get(), Attributes.of(FEED, feed)));
+              } catch (RuntimeException e) {
+                log.warn("Failed to observe websocket sessions: {}", e.getMessage());
+              }
+            });
   }
 
   /**
@@ -251,6 +303,36 @@ public class OtelTelemetryAdapter implements TelemetryPort {
       mongoCheckoutHistogram.record(durationMs);
     } catch (RuntimeException e) {
       log.warn("Failed to record mongo checkout duration: {}", e.getMessage());
+    }
+  }
+
+  @Override
+  public void recordKafkaMessage(String topic, String direction, boolean ok) {
+    try {
+      kafkaCounter.add(
+          1,
+          Attributes.of(
+              TOPIC, nullSafe(topic), DIRECTION, nullSafe(direction), RESULT, ok ? "ok" : "error"));
+    } catch (RuntimeException e) {
+      log.warn("Failed to record kafka message: {}", e.getMessage());
+    }
+  }
+
+  @Override
+  public void recordWsSession(String feed, int delta) {
+    try {
+      wsSessions.computeIfAbsent(nullSafe(feed), f -> new AtomicInteger()).addAndGet(delta);
+    } catch (RuntimeException e) {
+      log.warn("Failed to record websocket session: {}", e.getMessage());
+    }
+  }
+
+  @Override
+  public void recordWsMessage(String feed, String result) {
+    try {
+      wsMessageCounter.add(1, Attributes.of(FEED, nullSafe(feed), RESULT, nullSafe(result)));
+    } catch (RuntimeException e) {
+      log.warn("Failed to record websocket message: {}", e.getMessage());
     }
   }
 

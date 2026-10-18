@@ -33,6 +33,8 @@ services:
       SPRING_DATA_MONGODB_AUTO_INDEX_CREATION: ${SPRING_DATA_MONGODB_AUTO_INDEX_CREATION:-true}
       TELEMETRY_ENABLED: ${TELEMETRY_ENABLED:-true}
       TELEMETRY_ENDPOINT: ${TELEMETRY_ENDPOINT:-http://otel-collector:4318/v1/metrics}
+      # Tomcat's ThreadPool MBean feeds the tomcat.threads/tomcat.connections gauges.
+      SERVER_TOMCAT_MBEANREGISTRY_ENABLED: "true"
       VICTORIAMETRICS_URL: ${VICTORIAMETRICS_URL:-http://victoriametrics:8428}
       INFRA_API_KEY: ${INFRA_API_KEY:-}
     restart: always

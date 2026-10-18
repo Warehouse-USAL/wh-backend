@@ -70,6 +70,39 @@ class HttpMetricsFilterTest {
   }
 
   @Test
+  void staticResourceCatchAllCountsAsUnmatched() throws Exception {
+    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/no/such/thing");
+    MockFilterChain chain =
+        new MockFilterChain() {
+          @Override
+          public void doFilter(
+              jakarta.servlet.ServletRequest req, jakarta.servlet.ServletResponse res) {
+            req.setAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE, "/**");
+            ((MockHttpServletResponse) res).setStatus(404);
+          }
+        };
+
+    filter.doFilter(request, new MockHttpServletResponse(), chain);
+
+    assertThat(samples)
+        .singleElement()
+        .satisfies(s -> assertThat(s.route()).isEqualTo("UNMATCHED"));
+  }
+
+  @Test
+  void nonStandardMethodsCollapseToOther() throws Exception {
+    MockHttpServletRequest request = new MockHttpServletRequest("PROPFIND", "/x");
+
+    filter.doFilter(request, new MockHttpServletResponse(), new MockFilterChain());
+    filter.doFilter(
+        new MockHttpServletRequest("PATCH", "/x"),
+        new MockHttpServletResponse(),
+        new MockFilterChain());
+
+    assertThat(samples).extracting(HttpRequestSample::method).containsExactly("OTHER", "PATCH");
+  }
+
+  @Test
   void filterRecordsEvenWhenChainThrows() {
     MockHttpServletRequest request = new MockHttpServletRequest("POST", "/boom");
     MockHttpServletResponse response = new MockHttpServletResponse();

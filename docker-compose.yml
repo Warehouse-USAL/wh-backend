@@ -21,6 +21,8 @@ services:
       MINIO_BUCKET: ${MINIO_BUCKET:-wh-images}
       TELEMETRY_ENABLED: ${TELEMETRY_ENABLED:-true}
       TELEMETRY_ENDPOINT: http://otel-collector:4318/v1/metrics
+      # Tomcat's ThreadPool MBean feeds the tomcat.threads/tomcat.connections gauges.
+      SERVER_TOMCAT_MBEANREGISTRY_ENABLED: "true"
       VICTORIAMETRICS_URL: http://victoriametrics:8428
       # Shared secret the bridge sends in X-Api-Key on /infra/**. Blank = those endpoints reject everything.
       INFRA_API_KEY: ${INFRA_API_KEY:-}

@@ -15,6 +15,7 @@ import com.usal.whbackend.domain.Address;
 import com.usal.whbackend.domain.Order;
 import com.usal.whbackend.domain.OrderItem;
 import com.usal.whbackend.domain.OrderStatus;
+import com.usal.whbackend.telemetry.NoOpTelemetryAdapter;
 import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -44,7 +45,9 @@ class OrderRepositoryTest {
 
   @BeforeEach
   void setUp() {
-    orderRepository = new OrderRepository(mongo, kafka, mongoTemplate, new ObjectMapper());
+    orderRepository =
+        new OrderRepository(
+            mongo, kafka, mongoTemplate, new ObjectMapper(), new NoOpTelemetryAdapter());
     @SuppressWarnings("unchecked")
     CompletableFuture<SendResult<String, String>> future = CompletableFuture.completedFuture(null);
     lenient().when(kafka.send(anyString(), anyString())).thenReturn(future);
@@ -279,7 +282,8 @@ class OrderRepositoryTest {
         .thenThrow(
             new tools.jackson.databind.exc.InvalidDefinitionException(
                 (tools.jackson.core.JsonGenerator) null, "boom", null) {});
-    OrderRepository repo = new OrderRepository(mongo, kafka, mongoTemplate, failing);
+    OrderRepository repo =
+        new OrderRepository(mongo, kafka, mongoTemplate, failing, new NoOpTelemetryAdapter());
     Order order = new Order();
     order.setId("ord-1");
     order.setItems(List.of());
