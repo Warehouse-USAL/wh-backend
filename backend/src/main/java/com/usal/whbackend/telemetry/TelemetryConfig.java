@@ -11,6 +11,7 @@ import io.opentelemetry.sdk.resources.Resource;
 import java.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -63,12 +64,18 @@ public class TelemetryConfig {
 
   @Bean
   public TelemetryPort telemetryPort(
-      OpenTelemetrySdk sdk, TelemetryProperties props, FleetStateSource fleetStateSource) {
+      OpenTelemetrySdk sdk,
+      TelemetryProperties props,
+      FleetStateSource fleetStateSource,
+      ObjectProvider<MongoMetricsListener> mongoListener) {
     if (!props.isEnabled()) {
       log.info("Telemetry disabled (telemetry.enabled=false) — samples are discarded");
       return new NoOpTelemetryAdapter();
     }
-    return new OtelTelemetryAdapter(sdk.getMeter(INSTRUMENTATION_SCOPE), fleetStateSource);
+    OtelTelemetryAdapter adapter =
+        new OtelTelemetryAdapter(sdk.getMeter(INSTRUMENTATION_SCOPE), fleetStateSource);
+    mongoListener.ifAvailable(listener -> adapter.registerPoolGauge(listener::poolStats));
+    return adapter;
   }
 
   /**

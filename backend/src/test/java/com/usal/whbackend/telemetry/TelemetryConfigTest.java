@@ -5,6 +5,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.opentelemetry.sdk.OpenTelemetrySdk;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.support.StaticListableBeanFactory;
 
 class TelemetryConfigTest {
 
@@ -24,6 +26,15 @@ class TelemetryConfigTest {
         }
       };
 
+  /** Hands the config a real listener, as the Mongo wiring does at runtime. */
+  private static ObjectProvider<MongoMetricsListener> listenerProvider() {
+    StaticListableBeanFactory factory = new StaticListableBeanFactory();
+    factory.addBean(
+        "listener",
+        new MongoMetricsListener(new NoOpTelemetryAdapter(), new TelemetryProperties()));
+    return factory.getBeanProvider(MongoMetricsListener.class);
+  }
+
   @Test
   void usesNoOpAdapterWhenTelemetryIsDisabled() {
     TelemetryProperties props = new TelemetryProperties();
@@ -31,7 +42,7 @@ class TelemetryConfigTest {
 
     OpenTelemetrySdk sdk = config.openTelemetrySdk(props);
 
-    assertThat(config.telemetryPort(sdk, props, EMPTY_FLEET))
+    assertThat(config.telemetryPort(sdk, props, EMPTY_FLEET, listenerProvider()))
         .isInstanceOf(NoOpTelemetryAdapter.class);
     sdk.close();
   }
@@ -44,7 +55,7 @@ class TelemetryConfigTest {
 
     OpenTelemetrySdk sdk = config.openTelemetrySdk(props);
 
-    assertThat(config.telemetryPort(sdk, props, EMPTY_FLEET))
+    assertThat(config.telemetryPort(sdk, props, EMPTY_FLEET, listenerProvider()))
         .isInstanceOf(OtelTelemetryAdapter.class);
     sdk.close();
   }

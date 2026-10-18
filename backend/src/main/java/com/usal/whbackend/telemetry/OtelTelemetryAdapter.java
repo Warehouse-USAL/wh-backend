@@ -7,6 +7,7 @@ import io.opentelemetry.api.metrics.DoubleHistogram;
 import io.opentelemetry.api.metrics.LongCounter;
 import io.opentelemetry.api.metrics.Meter;
 import java.util.List;
+import java.util.function.Supplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -34,6 +35,21 @@ public class OtelTelemetryAdapter implements TelemetryPort {
   /** Catalogue name for the HTTP server latency histogram. */
   public static final String HTTP_METRIC = "http.server.duration";
 
+  /** Catalogue name for the Mongo command latency histogram. */
+  public static final String MONGO_COMMAND_METRIC = "mongo.command.duration";
+
+  /** Catalogue name for the Mongo connection checkout wait histogram. */
+  public static final String MONGO_CHECKOUT_METRIC = "mongo.pool.checkout";
+
+  /** Catalogue name for the Mongo pool occupancy gauge. */
+  public static final String MONGO_POOL_METRIC = "mongo.pool.connections";
+
+  private static final List<Double> MS_BUCKETS =
+      List.of(5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0);
+
+  static final AttributeKey<String> COLLECTION = AttributeKey.stringKey("collection");
+  static final AttributeKey<String> COMMAND = AttributeKey.stringKey("command");
+  static final AttributeKey<String> OUTCOME = AttributeKey.stringKey("outcome");
   static final AttributeKey<String> ROUTE = AttributeKey.stringKey("route");
   static final AttributeKey<String> METHOD = AttributeKey.stringKey("method");
   static final AttributeKey<String> STATUS_CLASS = AttributeKey.stringKey("status_class");
@@ -46,8 +62,12 @@ public class OtelTelemetryAdapter implements TelemetryPort {
   private final DoubleGauge batteryGauge;
   private final LongCounter transitionCounter;
   private final DoubleHistogram httpHistogram;
+  private final DoubleHistogram mongoCommandHistogram;
+  private final DoubleHistogram mongoCheckoutHistogram;
+  private final Meter meter;
 
   public OtelTelemetryAdapter(Meter meter, FleetStateSource fleetStateSource) {
+    this.meter = meter;
     this.batteryGauge =
         meter
             .gaugeBuilder(BATTERY_METRIC)
@@ -67,9 +87,23 @@ public class OtelTelemetryAdapter implements TelemetryPort {
             .histogramBuilder(HTTP_METRIC)
             .setUnit("ms")
             .setDescription("HTTP server request duration")
-            .setExplicitBucketBoundariesAdvice(
-                List.of(
-                    5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0))
+            .setExplicitBucketBoundariesAdvice(MS_BUCKETS)
+            .build();
+
+    this.mongoCommandHistogram =
+        meter
+            .histogramBuilder(MONGO_COMMAND_METRIC)
+            .setUnit("ms")
+            .setDescription("MongoDB command duration")
+            .setExplicitBucketBoundariesAdvice(MS_BUCKETS)
+            .build();
+
+    this.mongoCheckoutHistogram =
+        meter
+            .histogramBuilder(MONGO_CHECKOUT_METRIC)
+            .setUnit("ms")
+            .setDescription("Time spent waiting for a MongoDB connection from the pool")
+            .setExplicitBucketBoundariesAdvice(MS_BUCKETS)
             .build();
 
     registerStateGauge(meter, fleetStateSource);
@@ -107,6 +141,28 @@ public class OtelTelemetryAdapter implements TelemetryPort {
                 // Runs on the SDK's export thread. Throwing here would kill the export, taking
                 // every other metric down with it.
                 log.warn("Failed to observe fleet state: {}", e.getMessage());
+              }
+            });
+  }
+
+  /**
+   * Publishes the Mongo pool occupancy as an observable gauge. Not on {@link TelemetryPort}: the
+   * stats source is the driver listener, which only exists once the Mongo client is being built, so
+   * the wiring calls this on the concrete adapter.
+   */
+  public void registerPoolGauge(Supplier<MongoMetricsListener.PoolStats> stats) {
+    meter
+        .gaugeBuilder(MONGO_POOL_METRIC)
+        .setUnit("1")
+        .setDescription("MongoDB pool connections by state")
+        .buildWithCallback(
+            measurement -> {
+              try {
+                MongoMetricsListener.PoolStats current = stats.get();
+                measurement.record(current.inUse(), Attributes.of(STATE, "in_use"));
+                measurement.record(current.available(), Attributes.of(STATE, "available"));
+              } catch (RuntimeException e) {
+                log.warn("Failed to observe mongo pool: {}", e.getMessage());
               }
             });
   }
@@ -166,6 +222,35 @@ public class OtelTelemetryAdapter implements TelemetryPort {
               (sample.status() / 100) + "xx"));
     } catch (RuntimeException e) {
       log.warn("Failed to record HTTP request duration: {}", e.getMessage());
+    }
+  }
+
+  @Override
+  public void recordMongoCommand(MongoCommandSample sample) {
+    if (sample == null) {
+      return;
+    }
+    try {
+      mongoCommandHistogram.record(
+          sample.durationMs(),
+          Attributes.of(
+              COLLECTION,
+              nullSafe(sample.collection()),
+              COMMAND,
+              nullSafe(sample.command()),
+              OUTCOME,
+              nullSafe(sample.outcome())));
+    } catch (RuntimeException e) {
+      log.warn("Failed to record mongo command duration: {}", e.getMessage());
+    }
+  }
+
+  @Override
+  public void recordMongoCheckout(double durationMs) {
+    try {
+      mongoCheckoutHistogram.record(durationMs);
+    } catch (RuntimeException e) {
+      log.warn("Failed to record mongo checkout duration: {}", e.getMessage());
     }
   }
 

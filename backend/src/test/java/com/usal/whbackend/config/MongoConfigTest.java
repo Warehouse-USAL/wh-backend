@@ -17,4 +17,21 @@ class MongoConfigTest {
     assertThat(manager).isNotNull();
     assertThat(manager.getDatabaseFactory()).isSameAs(factory);
   }
+
+  @Test
+  void customizerRegistersTheListenerForCommandsAndPool() {
+    var listener =
+        new MongoConfig()
+            .mongoMetricsListener(
+                new com.usal.whbackend.telemetry.NoOpTelemetryAdapter(),
+                new com.usal.whbackend.telemetry.TelemetryProperties());
+    var builder = com.mongodb.MongoClientSettings.builder();
+
+    new MongoConfig().mongoMetricsCustomizer(listener).customize(builder);
+
+    var settings = builder.build();
+    assertThat(settings.getCommandListeners()).containsExactly(listener);
+    assertThat(settings.getConnectionPoolSettings().getConnectionPoolListeners())
+        .containsExactly(listener);
+  }
 }

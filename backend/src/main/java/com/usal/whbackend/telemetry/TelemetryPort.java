@@ -22,4 +22,10 @@ public interface TelemetryPort {
 
   /** Records one finished HTTP request. Never throws. */
   void recordHttpRequest(HttpRequestSample sample);
+
+  /** Records one finished MongoDB command. Never throws. */
+  void recordMongoCommand(MongoCommandSample sample);
+
+  /** Records how long a MongoDB connection checkout waited, in ms. Never throws. */
+  void recordMongoCheckout(double durationMs);
 }

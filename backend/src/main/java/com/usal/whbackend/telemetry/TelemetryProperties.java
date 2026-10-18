@@ -11,6 +11,7 @@ public class TelemetryProperties {
   private String serviceName = "wh-backend";
   private long exportIntervalMs = 10000L;
   private long exportTimeoutMs = 5000L;
+  private long mongoSlowMs = 100L;
 
   public boolean isEnabled() {
     return enabled;
@@ -50,5 +51,13 @@ public class TelemetryProperties {
 
   public void setExportTimeoutMs(long exportTimeoutMs) {
     this.exportTimeoutMs = exportTimeoutMs;
+  }
+
+  public long getMongoSlowMs() {
+    return mongoSlowMs;
+  }
+
+  public void setMongoSlowMs(long mongoSlowMs) {
+    this.mongoSlowMs = mongoSlowMs;
   }
 }

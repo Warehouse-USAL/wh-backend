@@ -93,6 +93,83 @@ class OtelTelemetryAdapterHttpTest {
   }
 
   @Test
+  void mongoCommandAndCheckoutAreRecordedAsHistograms() {
+    CapturingReader reader = new CapturingReader();
+    SdkMeterProvider provider = SdkMeterProvider.builder().registerMetricReader(reader).build();
+    OtelTelemetryAdapter adapter = new OtelTelemetryAdapter(provider.get("test"), EMPTY_FLEET);
+
+    adapter.recordMongoCommand(new MongoCommandSample("orders", "find", "slow", 250.0));
+    adapter.recordMongoCheckout(3.0);
+
+    MetricData command = metric(reader, OtelTelemetryAdapter.MONGO_COMMAND_METRIC);
+    HistogramPointData point = command.getHistogramData().getPoints().iterator().next();
+    assertThat(command.getUnit()).isEqualTo("ms");
+    assertThat(point.getAttributes().get(OtelTelemetryAdapter.COLLECTION)).isEqualTo("orders");
+    assertThat(point.getAttributes().get(OtelTelemetryAdapter.COMMAND)).isEqualTo("find");
+    assertThat(point.getAttributes().get(OtelTelemetryAdapter.OUTCOME)).isEqualTo("slow");
+    MetricData checkout = metric(reader, OtelTelemetryAdapter.MONGO_CHECKOUT_METRIC);
+    assertThat(checkout.getHistogramData().getPoints().iterator().next().getCount()).isEqualTo(1);
+    provider.close();
+  }
+
+  @Test
+  void poolGaugeReportsInUseAndAvailable() {
+    CapturingReader reader = new CapturingReader();
+    SdkMeterProvider provider = SdkMeterProvider.builder().registerMetricReader(reader).build();
+    OtelTelemetryAdapter adapter = new OtelTelemetryAdapter(provider.get("test"), EMPTY_FLEET);
+
+    adapter.registerPoolGauge(() -> new MongoMetricsListener.PoolStats(2, 5));
+
+    MetricData gauge = metric(reader, OtelTelemetryAdapter.MONGO_POOL_METRIC);
+    assertThat(gauge.getDoubleGaugeData().getPoints())
+        .extracting(p -> p.getAttributes().get(OtelTelemetryAdapter.STATE) + "=" + p.getValue())
+        .containsExactlyInAnyOrder("in_use=2.0", "available=5.0");
+    provider.close();
+  }
+
+  @Test
+  void poolGaugeCallbackSwallowsFailures() {
+    CapturingReader reader = new CapturingReader();
+    SdkMeterProvider provider = SdkMeterProvider.builder().registerMetricReader(reader).build();
+    OtelTelemetryAdapter adapter = new OtelTelemetryAdapter(provider.get("test"), EMPTY_FLEET);
+    adapter.registerPoolGauge(
+        () -> {
+          throw new IllegalStateException("boom");
+        });
+
+    assertThatCode(reader::collect).doesNotThrowAnyException();
+    provider.close();
+  }
+
+  @Test
+  void mongoRecordingNeverThrows() {
+    Meter meter = mock(Meter.class, RETURNS_DEEP_STUBS);
+    DoubleHistogram histogram = mock(DoubleHistogram.class);
+    when(meter
+            .histogramBuilder(anyString())
+            .setUnit(anyString())
+            .setDescription(anyString())
+            .setExplicitBucketBoundariesAdvice(any())
+            .build())
+        .thenReturn(histogram);
+    doThrow(new IllegalStateException("down")).when(histogram).record(anyDouble(), any());
+    doThrow(new IllegalStateException("down")).when(histogram).record(anyDouble());
+    OtelTelemetryAdapter adapter = new OtelTelemetryAdapter(meter, EMPTY_FLEET);
+
+    assertThatCode(() -> adapter.recordMongoCommand(new MongoCommandSample("c", "find", "ok", 1)))
+        .doesNotThrowAnyException();
+    assertThatCode(() -> adapter.recordMongoCommand(null)).doesNotThrowAnyException();
+    assertThatCode(() -> adapter.recordMongoCheckout(1.0)).doesNotThrowAnyException();
+  }
+
+  private static MetricData metric(CapturingReader reader, String name) {
+    return reader.collect().stream()
+        .filter(m -> m.getName().equals(name))
+        .findFirst()
+        .orElseThrow();
+  }
+
+  @Test
   void adapterNeverThrows() {
     Meter meter = mock(Meter.class, RETURNS_DEEP_STUBS);
     DoubleHistogram histogram = mock(DoubleHistogram.class);

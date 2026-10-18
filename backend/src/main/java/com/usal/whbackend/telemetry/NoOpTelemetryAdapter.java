@@ -17,4 +17,14 @@ public class NoOpTelemetryAdapter implements TelemetryPort {
   public void recordHttpRequest(HttpRequestSample sample) {
     // intentionally empty
   }
+
+  @Override
+  public void recordMongoCommand(MongoCommandSample sample) {
+    // intentionally empty
+  }
+
+  @Override
+  public void recordMongoCheckout(double durationMs) {
+    // intentionally empty
+  }
 }
