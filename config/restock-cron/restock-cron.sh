@@ -132,9 +132,10 @@ case "${1:-run}" in
     if [ "${RESTOCK_RUN_ON_START:-true}" = "true" ]; then
       attempt=1
       retries=${RESTOCK_STARTUP_RETRIES:-60}
+      # duration_ms of the startup run spans every attempt, retry waits included.
+      started=$(now_ms)
       while :; do
         rc=0
-        started=$(now_ms)
         run_once || rc=$?
         [ "$rc" -eq 0 ] && break
         if [ "$rc" -eq 2 ]; then

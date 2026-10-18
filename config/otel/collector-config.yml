@@ -10,8 +10,9 @@ receivers:
         endpoint: 0.0.0.0:4318
       grpc:
         endpoint: 0.0.0.0:4317
-  # Series keep their exporter names (job label = job_name); docs/CONSOLE.md lists the ones the
-  # console charts. A target that is down only yields up=0 for its job, the others keep flowing.
+  # Series keep their exporter names (job label = job_name). Each job keeps only the series that
+  # docs/CONSOLE.md "Scraped series" lists: VictoriaMetrics retains 800d, so an unused series costs
+  # disk for that long. A target that is down only yields up=0 for its job, the others keep flowing.
   prometheus:
     config:
       scrape_configs:
@@ -34,11 +35,23 @@ receivers:
           scrape_interval: 30s
           static_configs:
             - targets: [victoriametrics:8428]
+          # Matched against "<name>;<type>;<name label>": active series is one vm_cache_entries
+          # type, retention one of the hundreds of `flag` series.
+          metric_relabel_configs:
+            - source_labels: [__name__, type, name]
+              regex: >-
+                (vm_rows_inserted_total|vm_rows_ignored_total|vm_rows_invalid_total|vm_data_size_bytes|vm_free_disk_space_bytes|vm_request_duration_seconds(_sum|_count)?|vm_http_request_duration_seconds_(bucket|sum|count)|vm_http_request_errors_total);.*|vm_cache_entries;storage/hour_metric_ids;.*|flag;.*;retentionPeriod
+              action: keep
         - job_name: minio
           scrape_interval: 30s
           metrics_path: /minio/v2/metrics/cluster
           static_configs:
             - targets: [minio:9000]
+          metric_relabel_configs:
+            - source_labels: [__name__]
+              regex: >-
+                minio_cluster_usage_total_bytes|minio_cluster_usage_object_total|minio_cluster_bucket_total|minio_cluster_capacity_usable_(total|free)_bytes|minio_s3_requests_total|minio_s3_requests_(errors|4xx_errors|5xx_errors)_total|minio_s3_requests_rejected_(auth|header|invalid|timestamp)_total|minio_s3_requests_ttfb_seconds_distribution|minio_s3_traffic_(received|sent)_bytes
+              action: keep
 
 processors:
   batch:

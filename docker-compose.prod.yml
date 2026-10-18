@@ -137,7 +137,9 @@ services:
       - victoriametrics_data:/victoria-metrics-data
     ports: !override []
 
-  # Joins wh-proxy only to scrape Caddy's metrics (collector-config.prod.yml adds that job).
+  # Joins wh-proxy to scrape Caddy's metrics (collector-config.prod.yml adds that job). Accepted
+  # risk: OTLP (4317/4318) and health (13133) listen on 0.0.0.0, so any container on the shared
+  # proxy network can also write metrics and logs into the stores (docs/CONSOLE.md).
   otel-collector:
     command: ["--config=/etc/otel/collector-config.yml", "--config=/etc/otel/collector-config.prod.yml"]
     volumes:

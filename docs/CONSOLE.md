@@ -22,20 +22,43 @@ Environment variables added for the console (default in brackets):
 | `CONSOLE_VICTORIAMETRICS_URL` | backend | `http://victoriametrics:8428` |
 | `CONSOLE_COLLECTOR_URL` | backend | `http://otel-collector:13133` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | bridge | `http://otel-collector:4318` (blank = no export) |
-| `MINIO_PROMETHEUS_AUTH_TYPE` | minio | `public` (collector scrapes `/minio/v2/metrics/cluster` without a token) |
+| `MINIO_PROMETHEUS_AUTH_TYPE` | minio | `public` (collector scrapes `/minio/v2/metrics/cluster` without a token; anyone reaching port 9000, host-published in prod too, can read these counts and sizes) |
 | `RESTOCK_OTLP_URL` | restock-cron | `http://otel-collector:4318/v1/metrics` (blank = no push) |
 
 Scrape jobs (`job` label = job name, every 30s): `otel-collector` (`localhost:8888`),
 `victoriametrics` (`victoriametrics:8428`), `minio` (`minio:9000/minio/v2/metrics/cluster`), and
 in prod only `caddy` (`caddy:2019/metrics`, every 60s). A down target only sets `up{job=...}=0`
 and logs one `Failed to scrape Prometheus endpoint` warning per interval; the other jobs and OTLP
-keep flowing.
+keep flowing. The `victoriametrics`, `minio` and `otel-collector` jobs keep only the series listed
+under "Scraped series" (`metric_relabel_configs`): VictoriaMetrics retains 800 days, so every
+unused series costs disk for that long. Adding a chart means adding its series to the keep-list.
 
 restock-cron pushes `job.run` (OTLP/JSON gauge) after each run, twice: `field=duration_ms` and
 `field=suggestions` (rows in the apply response; `0` when the run fails), both with `job=restock`
-and `result=ok|error`. The startup run counts once, whatever its retries. The push has a 5 s cap
+and `result=ok|error`. The startup run counts once: its `duration_ms` spans every attempt, retry
+waits included. The push has a 5 s cap
 and never changes the run's exit status. The payload has no `service.name` on purpose: the
 remote-write exporter would map it onto the `job` label and overwrite `job=restock`.
+
+**Accepted risk (prod):** the collector joins `wh-proxy` to scrape Caddy, and its OTLP receivers
+(4317/4318) and health check (13133) listen on `0.0.0.0`. Any container on the shared proxy network
+can therefore write metrics and logs into VictoriaMetrics and VictoriaLogs (it cannot read them:
+neither store is on `wh-proxy`). Accepted for now; the fix would be a dedicated scrape-only network
+shared with Caddy.
+
+## Rollout (prod, one-time and on config change)
+
+```sh
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps victorialogs otel-collector minio
+```
+
+- MinIO is recreated for `MINIO_PROMETHEUS_AUTH_TYPE`, so it restarts briefly (uploads fail for
+  a few seconds).
+- The collector config is a bind mount: when only `collector-config*.yml` changed, compose sees no
+  change, so add `--force-recreate` (or run `docker compose restart otel-collector`).
+- Order: the collector must have the logs pipeline before the new backend and bridge are deployed;
+  otherwise their log export gets 404s and warns on stdout until it does.
+- Then deploy backend, bridge and console as usual, and apply the Caddy step below.
 
 ## Caddy (manual step, shared proxy)
 
@@ -79,6 +102,10 @@ docker run --rm --network wh-proxy curlimages/curl:8.11.1 -s caddy:2019/metrics 
 ```
 
 Then `up{job="caddy"}` turns 1 within a minute.
+
+Moving the admin address: the running Caddy still listens on the old one, so the first apply must
+target it, `caddy reload --config /etc/caddy/Caddyfile --address localhost:2019` (or restart the
+Caddy container). Later reloads read `localhost:2020` from the Caddyfile.
 
 ## Scraped series
 
@@ -167,7 +194,9 @@ Also present: `scope.name` (logger), `scope.version`, `telemetry.sdk.*`. There i
 `severity` field**: `"severity":i("warn")` matches nothing, `"severity_text":i("warn")` matches.
 `"service.name":="wh-backend" "request_id":="t15abc" | sort by (_time) desc` returns the line, and
 RFC 3339 `start`/`end` with fractional seconds are accepted. A bare phrase filter is
-case-sensitive (`"malformed"` does not match `Malformed request body`).
+case-sensitive (`"malformed"` does not match `Malformed request body`); `i("malformed")` and
+`i("MALFORMED REQUEST")` do. `VictoriaLogsRepository` uses exactly these: `severity_text` with
+`i(...)` for the level (returned lower case), `i("...")` for the free text.
 
 ## Rollback
 
@@ -178,6 +207,8 @@ case-sensitive (`"malformed"` does not match `Malformed request body`).
   `--config`). OTLP metrics are unaffected.
 - Console: `docker compose stop console` and remove the Caddy `/console/*` route. The Caddy
   metrics options are independent and can stay.
+- MinIO metrics: remove `MINIO_PROMETHEUS_AUTH_TYPE` from the `minio` service (back to token
+  auth) and drop the `minio` scrape job, then `up -d --no-deps minio otel-collector`.
 - `victorialogs` and its `victorialogs_data` volume can be removed once nothing points at them.
 
 ## Metrics notes
