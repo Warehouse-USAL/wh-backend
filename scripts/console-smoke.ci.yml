@@ -6,15 +6,16 @@ services:
   backend:
     build:
       context: ./backend
-      cache_from: [type=gha,scope=smoke-backend]
-      cache_to: [type=gha,scope=smoke-backend,mode=max]
+      # Each spec must be one quoted string: an unquoted flow sequence splits on the commas.
+      cache_from: ["type=gha,scope=smoke-backend"]
+      cache_to: ["type=gha,scope=smoke-backend,mode=max"]
   bridge:
     build:
       context: ./bridge
-      cache_from: [type=gha,scope=smoke-bridge]
-      cache_to: [type=gha,scope=smoke-bridge,mode=max]
+      cache_from: ["type=gha,scope=smoke-bridge"]
+      cache_to: ["type=gha,scope=smoke-bridge,mode=max"]
   console:
     build:
       context: ./console
-      cache_from: [type=gha,scope=smoke-console]
-      cache_to: [type=gha,scope=smoke-console,mode=max]
+      cache_from: ["type=gha,scope=smoke-console"]
+      cache_to: ["type=gha,scope=smoke-console,mode=max"]
