@@ -246,7 +246,7 @@ Se evaluó resolver ambos listados registrando `restock_orders`/`receptions` en 
 
 ### 6.6. Acceso del proveedor (`PROVIDER`)
 
-Cada usuario `PROVIDER` está vinculado a su proveedor por `User.supplier`, el mismo texto que llevan `RestockOrder.supplier` y `Reception.supplier`. Un admin lo define al crear o editar el usuario (`supplier` en `POST /users` y `PATCH /users/:id`); es obligatorio para el rol `PROVIDER` (`400 SUPPLIER_REQUIRED`) y se descarta para cualquier otro rol. Un proveedor sin vínculo recibe `403 PROVIDER_WITHOUT_SUPPLIER`.
+Cada usuario `PROVIDER` puede vincularse a su proveedor por `User.supplier`, el mismo texto que llevan `RestockOrder.supplier` y `Reception.supplier`. Un admin puede definirlo al crear o editar el usuario (`supplier` en `POST /users` y `PATCH /users/:id`); es opcional para permitir crear la cuenta antes de asignarla y se descarta para cualquier otro rol. Un proveedor sin vínculo recibe `403 PROVIDER_WITHOUT_SUPPLIER` y no puede usar operaciones de pedidos o recepciones hasta que se lo vincule.
 
 | Endpoint | Qué puede hacer el `PROVIDER` |
 |---|---|

@@ -151,16 +151,15 @@ class UserServiceTest {
   }
 
   @Test
-  void createUser_providerWithoutSupplier_throwsBadRequest() {
+  void createUser_providerWithoutSupplier_savesUnlinkedProvider() {
     when(userRepository.findByEmail("prov@test.com")).thenReturn(Optional.empty());
+    when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-    assertThatThrownBy(
-            () ->
-                userService.createUser(
-                    new CreateUserRequest("prov@test.com", "Prov", "PROVIDER", "pw")))
-        .isInstanceOf(ResponseStatusException.class)
-        .hasMessageContaining("SUPPLIER_REQUIRED");
-    verify(userRepository, never()).save(any());
+    User result =
+        userService.createUser(new CreateUserRequest("prov@test.com", "Prov", "PROVIDER", "pw"));
+
+    assertThat(result.getSupplier()).isNull();
+    verify(userRepository).save(any());
   }
 
   @Test
@@ -176,13 +175,16 @@ class UserServiceTest {
   }
 
   @Test
-  void updateUser_toProviderWithoutSupplier_throwsBadRequest() {
+  void updateUser_toProviderWithoutSupplier_savesUnlinkedProvider() {
     when(userRepository.findById("USR-001")).thenReturn(Optional.of(sample("USR-001")));
+    when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-    assertThatThrownBy(
-            () -> userService.updateUser("USR-001", new UpdateUserRequest(null, "PROVIDER", null)))
-        .isInstanceOf(ResponseStatusException.class)
-        .hasMessageContaining("SUPPLIER_REQUIRED");
+    User result =
+        userService.updateUser("USR-001", new UpdateUserRequest(null, "PROVIDER", null));
+
+    assertThat(result.getRole()).isEqualTo(UserRole.PROVIDER);
+    assertThat(result.getSupplier()).isNull();
+    verify(userRepository).save(any());
   }
 
   @Test

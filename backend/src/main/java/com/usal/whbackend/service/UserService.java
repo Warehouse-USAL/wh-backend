@@ -60,7 +60,7 @@ public class UserService {
     user.setName(request.name());
     user.setRole(UserRole.valueOf(request.role()));
     user.setSupplier(request.supplier());
-    requireSupplierForProvider(user);
+    normalizeSupplierForRole(user);
     user.setPasswordHash(passwordEncoder.encode(request.initialPassword()));
     user.setActive(true);
     user.setCreatedAt(Instant.now());
@@ -73,23 +73,21 @@ public class UserService {
     if (request.role() != null) user.setRole(UserRole.valueOf(request.role()));
     if (request.active() != null) user.setActive(request.active());
     if (request.supplier() != null) user.setSupplier(request.supplier());
-    requireSupplierForProvider(user);
+    normalizeSupplierForRole(user);
     return userRepository.save(user);
   }
 
   /**
-   * A PROVIDER only ever sees and delivers for its own supplier, so it cannot exist without one;
-   * any other role has none.
+   * A PROVIDER may exist before it is linked to a supplier, but supplier-scoped operations reject
+   * unlinked providers in {@link #supplierOf(String)}. Any other role has no supplier.
    */
-  private static void requireSupplierForProvider(User user) {
+  private static void normalizeSupplierForRole(User user) {
     if (user.getRole() != UserRole.PROVIDER) {
       user.setSupplier(null);
       return;
     }
-    if (user.getSupplier() == null || user.getSupplier().isBlank()) {
-      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "SUPPLIER_REQUIRED");
-    }
-    user.setSupplier(user.getSupplier().trim());
+    String supplier = user.getSupplier();
+    user.setSupplier(supplier == null || supplier.isBlank() ? null : supplier.trim());
   }
 
   /** The supplier a PROVIDER user delivers for; a provider not linked to one may do nothing. */

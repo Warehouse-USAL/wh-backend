@@ -2,7 +2,7 @@ package com.usal.whbackend.api.user;
 
 public record UpdateUserRequest(String name, String role, Boolean active, String supplier) {
 
-  /** Leaves the supplier unchanged. */
+  /** Null leaves the supplier unchanged; a blank value clears it. */
   public UpdateUserRequest(String name, String role, Boolean active) {
     this(name, role, active, null);
   }
