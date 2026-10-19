@@ -465,7 +465,11 @@ t_stream_expiry() {
 # The per-user cap: ten open streams; an eleventh is admitted and the oldest one ends with `limit`.
 t_stream_cap() {
 	local i hit reason ok=1
-	for i in $(seq 1 10); do stream_wait "cap$i" snapshot st 15 >/dev/null || ok=0; done
+	# One at a time, each after its snapshot: the server registers them in this order, so cap1 is the oldest.
+	for i in $(seq 1 10); do
+		stream_open "cap$i" "$CAP_TOKEN" '{"subscriptions":[{"id":"st","kind":"status"}]}' 60
+		stream_wait "cap$i" snapshot st 15 >/dev/null || ok=0
+	done
 	if [ "$ok" = 0 ]; then record FAIL stream-limit "the first ten streams did not all open"; return; fi
 	stream_open cap11 "$CAP_TOKEN" '{"subscriptions":[{"id":"st","kind":"status"}]}' 60
 	if stream_wait cap11 snapshot st 15 >/dev/null; then record PASS stream-limit "11th stream of one user is admitted"
@@ -564,7 +568,6 @@ main() {
 	CAP_TOKEN=$(jwt_mint "$JWT_SECRET" "$(jq -nc --arg s "smoke-cap-$$" '{sub:$s,role:"SUPERADMIN",iat:(now|floor),exp:((now|floor)+300)}')")
 	TOKENS="$TOKENS expiring=$EXP_TOKEN cap=$CAP_TOKEN"
 	stream_open s2 "$EXP_TOKEN" '{"subscriptions":[{"id":"st","kind":"status"}]}' 60
-	for i in $(seq 1 10); do stream_open "cap$i" "$CAP_TOKEN" '{"subscriptions":[{"id":"st","kind":"status"}]}' 60; done
 	t_stream_cap
 	t_stream_main
 	t_stream_expiry
