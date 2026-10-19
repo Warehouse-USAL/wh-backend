@@ -8,9 +8,12 @@ import static org.mockito.Mockito.verify;
 import com.usal.whbackend.service.console.WsEventBuffer;
 import com.usal.whbackend.telemetry.NoOpTelemetryAdapter;
 import com.usal.whbackend.telemetry.TelemetryPort;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
@@ -91,23 +94,28 @@ class WsActivityTest {
     int sessions = 500;
     ExecutorService pool = Executors.newFixedThreadPool(threads);
     CountDownLatch go = new CountDownLatch(1);
+    List<Future<?>> futures = new ArrayList<>();
     try {
       for (int t = 0; t < threads; t++) {
-        pool.submit(
-            () -> {
-              go.await();
-              for (int i = 0; i < sessions; i++) {
-                concurrent.connected(FEED, "session opened");
-                concurrent.closed(FEED, "session closed");
-              }
-              return null;
-            });
+        futures.add(
+            pool.submit(
+                () -> {
+                  go.await();
+                  for (int i = 0; i < sessions; i++) {
+                    concurrent.connected(FEED, "session opened");
+                    concurrent.closed(FEED, "session closed");
+                  }
+                  return null;
+                }));
       }
       go.countDown();
     } finally {
       pool.shutdown();
     }
     assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+    for (Future<?> future : futures) {
+      future.get();
+    }
 
     // Every close matched a connect, so no decrement was dropped and none was invented.
     assertThat(gauge).hasValue(0);

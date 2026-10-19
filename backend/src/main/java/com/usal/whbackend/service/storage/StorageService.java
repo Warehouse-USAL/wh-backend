@@ -24,7 +24,11 @@ public interface StorageService {
 
   record StoredFile(String path, String filename, long size) {}
 
-  record Listing(List<StoredFile> files, boolean truncated) {}
+  record Listing(List<StoredFile> files, boolean truncated) {
+    public Listing {
+      files = List.copyOf(files);
+    }
+  }
 
   record StoredObject(java.io.InputStream inputStream, String contentType, long contentLength) {}
 }
