@@ -92,7 +92,9 @@ function LazyGroup({ group, anchor, ...shared }: Shared & { group: GroupSpec; an
   )
 }
 
-function Widget({ spec, ...shared }: Shared & { spec: WidgetSpec }) {
+function Widget({ spec, ctx, empty }: Shared & { spec: WidgetSpec }) {
+  // A widget with a fixed window reads it as its range (labels, per-minute rates).
+  const shared = { ctx: 'range' in spec && spec.range ? { ...ctx, range: spec.range } : ctx, empty }
   switch (spec.kind) {
     case 'bars':
     case 'lines':
@@ -135,7 +137,7 @@ function EmptyCard({ title, sub, span, message, tile }: { title: string; sub?: s
 }
 
 function ChartPanel({ spec, ctx, empty }: Shared & { spec: ChartSpec }) {
-  const state = useMetric(spec.query)
+  const state = useMetric(spec.query, spec.range)
   const series = spec.select ? spec.select(state.series, ctx) : state.series
   const sub = text(spec.sub, ctx, state.series)
   const props = { title: spec.title, sub, series, times: state.times, className: SPAN[spec.span] }
@@ -153,7 +155,7 @@ function ChartPanel({ spec, ctx, empty }: Shared & { spec: ChartSpec }) {
 }
 
 function MetricTile({ spec, ...shared }: Shared & { spec: TileSpec }) {
-  const state = useMetric(spec.query)
+  const state = useMetric(spec.query, spec.range)
   return (
     <Panel state={state} title={spec.title} span={spec.span}>
       <TileView spec={spec} value={spec.value(state.series, shared.ctx)} {...shared} />
@@ -167,7 +169,7 @@ function TileView({ spec, value, ctx, empty }: Shared & { spec: TileSpec | Statu
 }
 
 function ToplistPanel({ spec, ctx, empty }: Shared & { spec: ToplistSpec }) {
-  const state = useMetric(spec.query)
+  const state = useMetric(spec.query, spec.range)
   const rows = spec.rows(state.series, ctx)
   const sub = text(spec.sub, ctx, state.series)
   return (
@@ -182,7 +184,7 @@ function ToplistPanel({ spec, ctx, empty }: Shared & { spec: ToplistSpec }) {
 }
 
 function MetricStream({ spec, ctx, empty }: Shared & { spec: MetricStreamSpec }) {
-  const state = useMetric(spec.query)
+  const state = useMetric(spec.query, spec.range)
   const rows = spec.rows(state.series, ctx)
   const sub = text(spec.sub, ctx, state.series)
   return (

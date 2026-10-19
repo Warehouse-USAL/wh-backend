@@ -190,15 +190,23 @@ const backend: PageSpec = {
             const [used, free] = [lastValue(s, 'in_use'), lastValue(s, 'available')]
             return used === undefined || free === undefined ? 'in use' : `in use of ${used + free} open`
           },
-          span: 6,
+          span: 4,
           query: [m('mongo.pool.connections', 'max', {}, ['state'])],
           select: pick(['in_use', 'in use', blue]),
         },
-        { kind: 'lines', title: 'Checkout wait', sub: 'p50 / p95 / p99', span: 6, query: quantiles('mongo.pool.checkout'), format: formatMs },
+        { kind: 'lines', title: 'Checkout wait', sub: 'p50 / p95 / p99', span: 4, query: quantiles('mongo.pool.checkout'), format: formatMs },
+        {
+          kind: 'bars',
+          title: 'Checkouts failed',
+          sub: 'by reason, timeout is a pool wait timeout',
+          span: 4,
+          query: [m('mongo.pool.checkout.failed', 'increase', {}, ['reason'])],
+          select: pick(['timeout', 'timeout', amber], ['pool_closed', 'pool closed', gray], ['connection_error', 'connection error', red], ['unknown', 'unknown', gray]),
+        },
       ],
     },
   ],
-  note: 'Not shown, no series exists: GC pause quantiles (the JVM reports total GC time, shown instead), Tomcat rejected connections (Tomcat has no such counter; saturation stands in) and Mongo wait queue timeouts (the driver pool reports none).',
+  note: 'Not shown, no series exists: GC pause quantiles (the JVM reports total GC time, shown instead) and Tomcat rejected connections (Tomcat has no such counter; saturation stands in).',
 }
 
 // ---------------------------------------------------------------- Bridge
@@ -222,6 +230,15 @@ const resultBars = (flow: string, okAs: string, sub: string, span: 4 | 8): Chart
   select: pick(['ok', okAs, blue], ['retry', 'retry', amber], ['dropped', 'dropped', gray], ['error', 'failed', red]),
 })
 
+const processing = (flow: string, sub: string): ChartSpec => ({
+  kind: 'lines',
+  title: 'Processing time',
+  sub: `p50 / p95 / p99, ${sub}`,
+  span: 12,
+  query: quantiles('bridge.processing.duration', { flow }),
+  format: formatMs,
+})
+
 function callbackGroup(flow: string, path: string, what: string): GroupSpec {
   const messages = [m(BM, 'increase', { flow }, ['result'])]
   return {
@@ -234,6 +251,7 @@ function callbackGroup(flow: string, path: string, what: string): GroupSpec {
       { kind: 'lines', title: 'Callback latency', sub: 'p50 / p95 / p99, per attempt', span: 4, query: quantiles(CALLBACK, { flow }), format: formatMs },
       errorRate(messages, FAILED, SETTLED),
       { kind: 'tile', title: 'Delivered', span: 2, query: messages, value: goodTile(FAILED, SETTLED) },
+      processing(flow, 'AMQP delivery to ack or requeue, including retry waits'),
     ],
   }
 }
@@ -262,9 +280,11 @@ const bridge: PageSpec = {
       tag: 'Kafka orders, republished to RabbitMQ amq.topic, flow orders_out',
       tab: 'Backend to Infra',
       widgets: [
-        resultBars('orders_out', 'confirmed', 'by publish result', 8),
+        resultBars('orders_out', 'confirmed', 'by publish result', 4),
+        { kind: 'lines', title: 'Publish latency', sub: 'p50 / p95 / p99, per attempt including its confirm', span: 4, query: quantiles('bridge.publish.duration', { flow: 'orders_out' }), format: formatMs },
         errorRate([m(BM, 'increase', { flow: 'orders_out' }, ['result'])], FAILED, SETTLED),
         { kind: 'tile', title: 'Confirmed', span: 2, query: [m(BM, 'increase', { flow: 'orders_out' }, ['result'])], value: goodTile(FAILED, SETTLED) },
+        processing('orders_out', 'Kafka record to commit, including retry waits'),
       ],
     },
     { ...callbackGroup('orders_in', '/infra/orders/{orderId}/status', 'order status'), tab: 'Infra to backend' },
@@ -292,7 +312,7 @@ const bridge: PageSpec = {
       ],
     },
   ],
-  note: 'Retry policy: 2xx acked, 4xx dropped, 408, 429, 5xx and network errors retried with backoff from 1 s to 30 s. Not shown, no series exists: publish latency to RabbitMQ (the bridge times only its callbacks) and retries in flight (retries are counted as they happen).',
+  note: 'Retry policy: 2xx acked, 4xx dropped, 408, 429, 5xx and network errors retried with backoff from 1 s to 30 s. Not shown, no series exists: retries in flight (retries are counted as they happen).',
 }
 
 // ---------------------------------------------------------------- Kafka
@@ -306,7 +326,8 @@ function topicGroup(topic: string, desc: string): GroupSpec {
     mono: true,
     tag: desc,
     widgets: [
-      { kind: 'bars', title: 'Messages', sub: 'by publish result', span: 8, query: published, select: pick(['ok', 'published', blue], ['error', 'failed', red]) },
+      { kind: 'bars', title: 'Messages', sub: 'by publish result', span: 4, query: published, select: pick(['ok', 'published', blue], ['error', 'failed', red]) },
+      { kind: 'lines', title: 'Publish latency', sub: 'p50 / p95 / p99, send to broker acknowledgement', span: 4, query: quantiles('kafka.publish.duration', { topic }), format: formatMs },
       errorRate(published, ['error']),
       { kind: 'tile', title: 'Published OK', span: 2, query: published, value: goodTile(['error']) },
     ],
@@ -351,19 +372,20 @@ const kafka: PageSpec = {
       tag: 'consumer group on orders',
       tab: 'Consumer groups',
       widgets: [
-        { kind: 'bars', title: 'Consumer lag', sub: 'messages behind', span: 6, query: [m(LAG, 'max', { flow: 'orders_out' }, [], 'lag')], select: pick(['lag', 'lag', gray]) },
+        { kind: 'bars', title: 'Consumer lag', sub: 'messages behind', span: 4, query: [m(LAG, 'max', { flow: 'orders_out' }, [], 'lag')], select: pick(['lag', 'lag', gray]) },
         {
           kind: 'bars',
           title: 'Consumed',
           sub: 'messages per min',
-          span: 6,
+          span: 4,
           query: [m(BM, 'rate', { flow: 'orders_out' }, ['result'])],
           select: (s) => scale(60)(pick(['consumed', 'consumed', blue])([sumAll(s.filter((x) => SETTLED.includes(x.label)), 'consumed')])),
         },
+        { ...processing('orders_out', 'consume to RabbitMQ confirm and commit'), span: 4 },
       ],
     },
   ],
-  note: 'Publishing is asynchronous and a failure is only logged, there is no outbox. Not shown, no series exists: publish latency per topic and the group’s processing time (consume to RabbitMQ confirm).',
+  note: 'Publishing is asynchronous and a failure is only logged, there is no outbox; a send that throws before reaching the broker is counted in the messages but has no latency.',
 }
 
 function sumAll(series: Series[], label: string): Series {
@@ -389,18 +411,19 @@ const minio: PageSpec = {
         status('MinIO', 'minio'),
         numberTile('Bucket size', [m('minio.bucket.size', 'last')], (s) => lastValue(s), { format: formatBytes, label: () => 'Bucket size, cluster total (one bucket)' }),
         numberTile('Objects', [m('minio.objects', 'last')], (s) => lastValue(s)),
-        numberTile('Errors', [m('minio.errors', 'increase')], sumIfAny, { tone: countTone, label: lastRange('Errors') }),
+        numberTile('Errors', [m('minio.errors', 'increase')], sumIfAny, { tone: countTone, label: lastRange('Errors, 4xx and 5xx') }),
         {
           kind: 'bars',
           title: 'Requests',
-          sub: 'by result, errors are 4xx and 5xx',
+          sub: 'by result',
           span: 4,
-          query: [m('minio.requests', 'increase', {}, [], 'requests'), m('minio.errors', 'increase', {}, [], 'errors')],
+          query: [m('minio.requests', 'increase', {}, [], 'requests'), m('minio.errors', 'increase', {}, ['class'], 'errors')],
           select: (s) => {
-            const errors = new Map(s.find((x) => x.label === 'errors')?.points.map((p) => [p.t, p.v]))
+            const errors = new Map<number, number>()
+            for (const p of s.filter((x) => x.label !== 'requests').flatMap((x) => x.points)) errors.set(p.t, (errors.get(p.t) ?? 0) + p.v)
             const requests = s.find((x) => x.label === 'requests')
             const ok = requests && { label: 'ok', color: blue, points: requests.points.map((p) => ({ t: p.t, v: Math.max(0, p.v - (errors.get(p.t) ?? 0)) })) }
-            return [...(ok ? [ok] : []), ...pick(['errors', 'errors', red])(s)]
+            return [...(ok ? [ok] : []), ...pick(['errors 4xx', '4xx', amber], ['errors 5xx', '5xx', red])(s)]
           },
         },
         { kind: 'lines', title: 'Latency', sub: 'time to first byte, p50 / p95 / p99', span: 4, query: quantiles('minio.latency'), select: scale(1000), format: formatMs },
@@ -424,11 +447,28 @@ const RUN = (field: string, label?: string) => m('job.run', 'last', { job: 'rest
 const DURATION = RUN('duration_ms')
 const RESULT: Record<string, [string, Tone]> = { ok: ['OK', 'ok'], error: ['Failed', 'error'] }
 const DAY = 86_400_000
+/**
+ * Last run, last duration and the list read 2 days at a 1 m step, so each run lands in its own
+ * bucket; a bucket covers the minute before its time, so the run started in the minute one step
+ * earlier, shown to the minute. The history reads 30 days at a 1 d step, a bar per day.
+ */
+const RECENT = '2d'
+const HISTORY = '30d'
+const runTime = (bucket: number) => bucket - 60_000
 
 const startOfDay = (t: number) => new Date(t).setHours(0, 0, 0, 0)
 function dayWord(t: number, now: number): string {
   const days = Math.round((startOfDay(t) - startOfDay(now)) / DAY)
   return days === 0 ? 'today' : days === 1 ? 'tomorrow' : days === -1 ? 'yesterday' : new Date(t).toLocaleDateString()
+}
+
+/** The next run of a daily schedule; unknown for any other form (the console cannot evaluate it). */
+export function nextRunValue(schedule: string, offsetMin: number): TileSpec['value'] {
+  return (_, { now }) => {
+    const next = nextDailyRun(schedule, now, offsetMin)
+    const label = `Next run, schedule ${schedule} in UTC (RESTOCK_SCHEDULE default)`
+    return next === undefined ? { value: 'Unknown', tone: 'warn', label: `${label}, not a daily time` } : { value: `${formatTime(next, false)} ${dayWord(next, now)}`, tone: 'ok', label }
+  }
 }
 
 function lastRun(read: (run: NonNullable<ReturnType<typeof newest>>) => TileValue): TileSpec['value'] {
@@ -446,9 +486,9 @@ const runRows = (series: Series[], ctx: Ctx): StreamRow[] => {
     .sort((a, b) => b.t - a.t)
     .map(({ t, v, result }) => {
       const n = suggestions.get(t)
-      const day = dayWord(t, ctx.now)
+      const day = dayWord(runTime(t), ctx.now)
       return {
-        time: `${day === 'today' ? '' : `${day} `}${formatTime(t, false)}`,
+        time: `${day === 'today' ? '' : `${day} `}${formatTime(runTime(t), false)}`,
         tag: result === 'ok' ? 'ok' : 'failed',
         tone: result === 'ok' ? 'ok' : 'error',
         text: n === undefined ? formatMs(v) : `${n} suggestions, ${formatMs(v)}`,
@@ -468,22 +508,21 @@ const cron: PageSpec = {
       tag: 'scheduled run that asks the backend for restock suggestions',
       tab: 'Runs',
       widgets: [
-        { kind: 'tile', title: 'Last run', span: 3, query: [DURATION], value: lastRun(({ t, label }) => ({ value: RESULT[label]?.[0] ?? label, tone: RESULT[label]?.[1] ?? 'warn', label: `Last run, ${formatTime(t, false)}` })) },
-        { kind: 'tile', title: 'Last duration', span: 3, query: [DURATION], value: lastRun(({ v }) => ({ value: formatMs(v), tone: 'ok' })) },
         {
           kind: 'tile',
-          title: 'Next run',
+          title: 'Last run',
           span: 3,
-          query: [],
-          value: (_, { now }) => {
-            const next = nextDailyRun(RESTOCK_SCHEDULE, now, RESTOCK_SCHEDULE_OFFSET_MIN) as number
-            return { value: `${formatTime(next, false)} ${dayWord(next, now)}`, tone: 'ok', label: `Next run, schedule ${RESTOCK_SCHEDULE} in UTC (RESTOCK_SCHEDULE default)` }
-          },
+          range: RECENT,
+          query: [DURATION],
+          value: (series, ctx) => lastRun(({ t, label }) => ({ value: RESULT[label]?.[0] ?? label, tone: RESULT[label]?.[1] ?? 'warn', label: `Last run, ${dayWord(runTime(t), ctx.now)} ${formatTime(runTime(t), false)}` }))(series, ctx),
         },
+        { kind: 'tile', title: 'Last duration', span: 3, range: RECENT, query: [DURATION], value: lastRun(({ v }) => ({ value: formatMs(v), tone: 'ok' })) },
+        { kind: 'tile', title: 'Next run', span: 3, query: [], value: nextRunValue(RESTOCK_SCHEDULE, RESTOCK_SCHEDULE_OFFSET_MIN) },
         {
           kind: 'tile',
           title: 'Runs ok',
           span: 3,
+          range: HISTORY,
           query: [DURATION],
           value: (series, ctx) => {
             const runs = series.flatMap((s) => s.points.map(() => s.label))
@@ -495,23 +534,32 @@ const cron: PageSpec = {
         {
           kind: 'bars',
           title: 'Runs',
-          sub: 'by result, in range',
+          sub: 'by result, per day, last 30 days',
           span: 4,
+          range: HISTORY,
           query: [DURATION],
           select: (s) => mapPoints(pick(['ok', 'ok', blue], ['error', 'failed', red])(s), () => 1),
         },
-        { kind: 'lines', title: 'Duration', sub: 'per run', span: 4, query: [DURATION], select: pick(['ok', 'ok', blue], ['error', 'failed', red]), format: formatMs },
-        { kind: 'bars', title: 'Suggestions', sub: 'rows applied per run', span: 4, query: [m('job.run', 'last', { job: 'restock', field: 'suggestions' }, [], 'suggestions')], select: pick(['suggestions', 'suggestions', gray]) },
+        { kind: 'lines', title: 'Duration', sub: 'per day’s last run, last 30 days', span: 4, range: HISTORY, query: [DURATION], select: pick(['ok', 'ok', blue], ['error', 'failed', red]), format: formatMs },
+        {
+          kind: 'bars',
+          title: 'Suggestions',
+          sub: 'rows applied, per day’s last run',
+          span: 4,
+          range: HISTORY,
+          query: [m('job.run', 'last', { job: 'restock', field: 'suggestions' }, [], 'suggestions')],
+          select: pick(['suggestions', 'suggestions', gray]),
+        },
       ],
     },
     {
       title: 'recent runs',
       mono: true,
-      tag: 'newest first',
-      widgets: [{ kind: 'stream', source: 'metrics', title: 'Runs', sub: 'from the job.run samples the cron pushes after each run', span: 12, query: [RUN('duration_ms', 'duration'), RUN('suggestions', 'suggestions')], rows: runRows }],
+      tag: 'newest first, last 2 days',
+      widgets: [{ kind: 'stream', source: 'metrics', title: 'Runs', sub: 'from the job.run samples the cron pushes after each run', span: 12, range: RECENT, query: [RUN('duration_ms', 'duration'), RUN('suggestions', 'suggestions')], rows: runRows }],
     },
   ],
-  note: `The schedule is not readable by the console: it shows the default RESTOCK_SCHEDULE "${RESTOCK_SCHEDULE}" from docker-compose.yml, evaluated in UTC (the cron image has no tzdata). Runs are what the cron pushed within the selected range, which reaches back 24 hours at most; a failed run reports 0 suggestions.`,
+  note: `The schedule is not readable by the console: it shows the default RESTOCK_SCHEDULE "${RESTOCK_SCHEDULE}" from docker-compose.yml, evaluated in UTC (the cron image has no tzdata). Runs are what the cron pushed: the history over the last 30 days, a day per bar (a day with more than one run shows its last), the last run and the list over the last 2 days, to the minute. They do not follow the range picker. A failed run reports 0 suggestions.`,
 }
 
 // ---------------------------------------------------------------- Edge
@@ -539,7 +587,16 @@ const edge: PageSpec = {
       tag: 'prod proxy in front of the backend',
       tab: 'Requests',
       widgets: [
-        numberTile('Caddy', [m('edge.requests', 'increase')], sumIfAny, { format: () => 'Scraped', label: lastRange('Caddy metrics scraped') }),
+        {
+          kind: 'tile',
+          title: 'Caddy',
+          span: 3,
+          query: [m('edge.up', 'last')],
+          value: (series) => {
+            const up = lastValue(series)
+            return up === undefined ? undefined : up >= 1 ? { value: 'UP', tone: 'ok', label: 'Caddy, last metrics scrape succeeded' } : { value: 'DOWN', tone: 'error', label: 'Caddy, last metrics scrape failed' }
+          },
+        },
         {
           kind: 'tile',
           title: 'Upstream errors',
@@ -589,34 +646,41 @@ const edge: PageSpec = {
     },
   ],
   empty: 'Only exists in production, once Caddy’s metrics are scraped (docs/CONSOLE.md, Caddy step)',
+  note: 'Caddy’s health is whether the collector’s last scrape of its metrics succeeded, not a probe of the proxy itself. Upstream errors are Caddy’s handler errors: it counts no failures per upstream.',
 }
 
 // ---------------------------------------------------------------- Telemetry
 
-/** One gauge per source that reports on its own (counters and histograms have no `last`). */
-const FRESHNESS: [source: string, metric: string][] = [
-  ['backend', 'jvm.heap.used'],
-  ['backend', 'http.server.active'],
-  ['backend', 'mongo.pool.connections'],
-  ['vehicles', 'wh.vehicle.battery'],
-  ['bridge', 'bridge.consumer.lag'],
-  ['minio', 'minio.objects'],
-  ['otel-collector', 'collector.queue.size'],
-  ['victoriametrics', 'vm.series.active'],
+/** Older than this, a source counts as stopped: pushed every 10 s, scraped every 30 s. */
+const PUSHED_MS = 60_000
+const SCRAPED_MS = 120_000
+
+/**
+ * One gauge per source that reports on its own (counters and histograms have no `last`). Vehicle
+ * battery only exists while a vehicle reports, so its absence says nothing about the pipeline.
+ */
+const FRESHNESS: { source: string; metric: string; staleMs: number; optional?: boolean }[] = [
+  { source: 'backend', metric: 'jvm.heap.used', staleMs: PUSHED_MS },
+  { source: 'backend', metric: 'http.server.active', staleMs: PUSHED_MS },
+  { source: 'backend', metric: 'mongo.pool.connections', staleMs: PUSHED_MS },
+  { source: 'vehicles', metric: 'wh.vehicle.battery', staleMs: PUSHED_MS, optional: true },
+  { source: 'bridge', metric: 'bridge.consumer.lag', staleMs: PUSHED_MS },
+  { source: 'minio', metric: 'minio.objects', staleMs: SCRAPED_MS },
+  { source: 'otel-collector', metric: 'collector.queue.size', staleMs: SCRAPED_MS },
+  { source: 'victoriametrics', metric: 'vm.series.active', staleMs: SCRAPED_MS },
 ]
-/** Older than this, a source counts as stopped. */
-const STALE_MS = 60_000
 
 const freshnessRows = (series: Series[], ctx: Ctx): StreamRow[] =>
-  FRESHNESS.map(([source, metric]) => {
+  FRESHNESS.map(({ source, metric, staleMs, optional }) => {
     const t = newest(series.filter((s) => s.label === metric))?.t
-    // No sample in the whole range: the source is down or never reported.
-    if (t === undefined) return { time: source, tag: 'none', tone: 'error', text: metric }
+    // No sample in the window: the source is down or never reported (no vehicle reporting is normal).
+    if (t === undefined) return { time: source, tag: 'none', ...(!optional && { tone: 'error' as const }), text: metric }
     const age = ctx.now - t
-    return { time: source, tag: formatAge(age), tone: age > STALE_MS ? 'warn' : 'ok', text: metric }
+    return { time: source, tag: formatAge(age), tone: age > staleMs ? 'warn' : 'ok', text: metric }
   })
 
-const vmQuantile = (q: string, label: string) => m('vm.query.duration', 'max', { path: '/api/v1/query_range', quantile: q }, [], label)
+const VM_RANGE = '/api/v1/query_range'
+const vmQuantile = (q: string, label: string) => m('vm.query.duration', 'max', { path: VM_RANGE, quantile: q }, [], label)
 
 const telemetry: PageSpec = {
   crumb: 'Infrastructure',
@@ -632,7 +696,7 @@ const telemetry: PageSpec = {
       widgets: [
         status('Collector', 'otel-collector'),
         numberTile('Metric points refused', [m('collector.refused', 'increase')], sumIfAny, { tone: countTone, label: lastRange('Metric points refused') }),
-        numberTile('Metric points failed to export', [m('collector.export.failed', 'increase')], sumIfAny, { tone: countTone, label: lastRange('Metric points failed to export') }),
+        numberTile('Metric points dropped', [m('collector.dropped', 'increase')], sumIfAny, { tone: countTone, label: lastRange('Metric points dropped, export queue full') }),
         numberTile('Export queue size', [m('collector.queue.size', 'last')], (s) => lastValue(s)),
         {
           kind: 'bars',
@@ -678,7 +742,7 @@ const telemetry: PageSpec = {
           kind: 'bars',
           title: 'Ingest',
           sub: 'rows per min',
-          span: 6,
+          span: 4,
           query: [m('vm.rows.ingested', 'rate', {}, [], 'ingested'), m('vm.rows.rejected', 'rate', {}, [], 'rejected')],
           select: (s) => scale(60)(pick(['ingested', 'ingested', blue], ['rejected', 'rejected', red])(s)),
         },
@@ -686,10 +750,23 @@ const telemetry: PageSpec = {
           kind: 'lines',
           title: 'Query latency',
           sub: 'range queries, p50 / p90 / p99',
-          span: 6,
+          span: 4,
           query: [vmQuantile('0.5', 'p50'), vmQuantile('0.9', 'p90'), vmQuantile('0.99', 'p99')],
           select: (s) => scale(1000)(pick(['p50', 'p50', blue], ['p90', 'p90', amber], ['p99', 'p99', red])(s)),
           format: formatMs,
+        },
+        {
+          kind: 'bars',
+          title: 'Range queries',
+          sub: 'by result, every caller (the console’s stream and anyone else)',
+          span: 4,
+          query: [m('vm.requests', 'increase', { path: VM_RANGE }, [], 'requests'), m('vm.errors', 'increase', { path: VM_RANGE }, [], 'errors')],
+          select: (s) => {
+            const errors = new Map(s.find((x) => x.label === 'errors')?.points.map((p) => [p.t, p.v]))
+            const requests = s.find((x) => x.label === 'requests')
+            const ok = requests && { label: 'ok', color: blue, points: requests.points.map((p) => ({ t: p.t, v: Math.max(0, p.v - (errors.get(p.t) ?? 0)) })) }
+            return [...(ok ? [ok] : []), ...pick(['errors', 'errors', red])(s)]
+          },
         },
       ],
     },
@@ -703,15 +780,16 @@ const telemetry: PageSpec = {
           kind: 'stream',
           source: 'metrics',
           title: 'Latest sample per metric',
-          sub: 'age of the newest step with a sample; a growing value means that source stopped reporting',
+          sub: 'age of the newest sample in the last 5 minutes, whatever the range; stale after 60 s when pushed, 120 s when scraped',
           span: 12,
-          query: FRESHNESS.map(([, metric]) => m(metric, 'last', {}, [], metric)),
+          range: '5m',
+          query: FRESHNESS.map(({ metric }) => m(metric, 'last', {}, [], metric)),
           rows: freshnessRows,
         },
       ],
     },
   ],
-  note: 'Retention is VictoriaMetrics’ -retentionPeriod=800d in docker-compose.yml, a flag rather than a series. Disk used is the data size against data plus free space on its volume. Not shown, no series exists: points dropped by the collector (its version has no such counter; failed exports stand in) and the console’s own queries by result (they run inside the backend’s push stream).',
+  note: 'Retention is VictoriaMetrics’ -retentionPeriod=800d in docker-compose.yml, a flag rather than a series. Disk used is the data size against data plus free space on its volume. Range queries and their latency count every caller of VictoriaMetrics, not only the console; the console’s own share is not told apart.',
 }
 
 export const INFRA_PAGES: Record<InfraPage, PageSpec> = { mongo, backend, bridge, kafka, minio, cron, edge, telemetry }

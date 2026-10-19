@@ -69,6 +69,15 @@ describe('useMetric', () => {
     expect(sub).toEqual({ kind: 'metric', metric: 'm', agg: 'p95', range: '15m', step: '15s', filters: { route: '/a' }, group_by: ['method', 'route'] })
   })
 
+  it('aFixedLookbackIgnoresTheShellRangeAndTakesItsOwnStep', async () => {
+    const stream = fakeStream()
+    renderHook(() => useMetric({ metric: 'job.run', agg: 'last' }, '30d'), { wrapper })
+    await waitFor(() => expect(stream.opens).toHaveLength(1))
+    expect(stream.last().subscriptions[0]).toMatchObject({ range: '30d', step: '1d' })
+    expect([stepFor('2d'), stepFor('7d')]).toEqual(['1m', '1h'])
+    expect(windowFor('2d', Date.UTC(2026, 9, 18)).times).toHaveLength(2880)
+  })
+
   it('useMetricUpdatesWhenAFrameArrivesWithoutAnyRequest', async () => {
     const stream = fakeStream()
     const { result } = renderHook(() => useBoth(hits), { wrapper })

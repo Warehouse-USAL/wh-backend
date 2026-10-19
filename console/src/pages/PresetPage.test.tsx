@@ -195,7 +195,7 @@ describe('PresetPage', () => {
     renderSpec(INFRA_PAGES.backend)
     expect(screen.getByRole('img', { name: 'Active requests in flight: active requests 6' })).toBeInTheDocument()
     expect(within(card('Uptime')).getByText('2d 4h')).toBeInTheDocument()
-    expect(useMetric).toHaveBeenCalledWith([{ metric: 'http.server.active', agg: 'max', filters: {}, groupBy: [], label: 'active requests' }])
+    expect(useMetric).toHaveBeenCalledWith([{ metric: 'http.server.active', agg: 'max', filters: {}, groupBy: [], label: 'active requests' }], undefined)
     expect(screen.getByText(/no rejected-connections count/)).toBeInTheDocument()
   })
 
@@ -206,7 +206,10 @@ describe('PresetPage', () => {
       return [gen(q.label ? `${q.label} ok` : 'ok', 1400)]
     })
     renderSpec(INFRA_PAGES.cron)
-    expect(screen.getByRole('img', { name: 'Suggestions rows applied per run: suggestions 16' })).toBeInTheDocument()
+    expect(screen.getByRole('img', { name: 'Suggestions rows applied, per day’s last run: suggestions 16' })).toBeInTheDocument()
+    // The history and the last runs keep their own windows, whatever the picker says.
+    expect(useMetric).toHaveBeenCalledWith(expect.anything(), '30d')
+    expect(useMetric).toHaveBeenCalledWith(expect.anything(), '2d')
     expect(within(screen.getByRole('region', { name: 'recent runs' })).getAllByText(/^\d+ suggestions, 1\.4 s$/)).toHaveLength(4)
     expect(screen.getByText(/^\d\d:\d\d (today|tomorrow)$/)).toBeInTheDocument()
   })

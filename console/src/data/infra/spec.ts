@@ -1,6 +1,6 @@
 import type { LogLine, LogsQuery } from '@/api/logs'
 import type { MetricQuery } from '@/api/metrics'
-import type { Range } from '@/data/live'
+import type { Lookback } from '@/data/useMetric'
 import type { Series, Tone } from '@/widgets/scale'
 
 /*
@@ -13,7 +13,8 @@ export type Span = 2 | 3 | 4 | 6 | 8 | 12
 
 /** What a widget's pure steps may depend on besides the answered series. */
 export interface Ctx {
-  range: Range
+  /** The widget's window: its fixed `range`, else the shell's. */
+  range: Lookback
   /** Epoch ms, refreshed by the page's UI clock. */
   now: number
 }
@@ -48,9 +49,14 @@ interface Base {
   span: Span
 }
 
-export interface ChartSpec extends Base {
-  kind: 'bars' | 'lines'
+/** A widget of metric queries; `range` fixes its window instead of following the shell's picker. */
+interface MetricBase extends Base {
   query: MetricQuery[]
+  range?: Lookback
+}
+
+export interface ChartSpec extends MetricBase {
+  kind: 'bars' | 'lines'
   /** From the answered series to the plotted ones (order, labels, units); as answered when absent. */
   select?: (series: Series[], ctx: Ctx) => Series[]
   /** Lines only: value format (counts by default). */
@@ -58,7 +64,7 @@ export interface ChartSpec extends Base {
   area?: boolean
 }
 
-export interface TileSpec extends Base {
+export interface TileSpec extends MetricBase {
   kind: 'tile'
   /** Empty for a tile computed from `ctx` alone (the cron's next run). */
   query: MetricQuery[]
@@ -66,9 +72,8 @@ export interface TileSpec extends Base {
   value: (series: Series[], ctx: Ctx) => TileValue | undefined
 }
 
-export interface ToplistSpec extends Base {
+export interface ToplistSpec extends MetricBase {
   kind: 'toplist'
-  query: MetricQuery[]
   rows: (series: Series[], ctx: Ctx) => { name: string; value: number }[]
   color: string
   format: (v: number) => string
@@ -82,10 +87,9 @@ export interface LogStreamSpec extends Base {
 }
 
 /** Rows derived from metric samples (freshness per metric, runs of a job). */
-export interface MetricStreamSpec extends Base {
+export interface MetricStreamSpec extends MetricBase {
   kind: 'stream'
   source: 'metrics'
-  query: MetricQuery[]
   rows: (series: Series[], ctx: Ctx) => StreamRow[]
 }
 

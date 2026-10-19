@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import catalog from '@/api/__fixtures__/metrics-catalog.json'
 import type { MetricQuery } from '@/api/metrics'
-import type { Series } from '@/widgets/scale'
+import { type Series, formatTime } from '@/widgets/scale'
 import { type ChartSpec, type Ctx, type MetricStreamSpec, type PageSpec, type TileSpec, type WidgetSpec, metricQueries } from './infra/spec'
-import { INFRA_PAGES, INFRA_ROUTES, MONGO_COLLECTIONS } from './infraPresets'
+import { INFRA_PAGES, INFRA_ROUTES, MONGO_COLLECTIONS, nextRunValue } from './infraPresets'
 
 const T0 = Date.parse('2026-10-18T14:00:00Z')
 const ctx: Ctx = { range: '15m', now: T0 }
@@ -23,6 +23,8 @@ const VALUES: Record<string, string[]> = {
   collection: ['orders', 'users'],
   gc: ['G1 Young Generation'],
   topic: ['orders', 'order.completed'],
+  reason: ['timeout', 'connection_error'],
+  class: ['4xx', '5xx'],
 }
 
 /** What the backend would answer for a query: one seeded series per group, labelled as `queryMetric` does. */
@@ -110,7 +112,8 @@ describe('INFRA_PAGES', () => {
         if (w.kind === 'bars' || w.kind === 'lines') expect((w.select?.([], ctx) ?? []).flatMap((s) => s.points), where).toEqual([])
         if (w.kind === 'tile' && w.query.length) expect(w.value([], ctx), where).toBeUndefined()
         if (w.kind === 'toplist') expect(w.rows([], ctx), where).toEqual([])
-        if (w.kind === 'stream' && w.source === 'metrics') expect(w.rows([], ctx).every((r) => r.tag === 'none' && r.tone === 'error'), where).toBe(true)
+        // A source that may legitimately be silent (no vehicle reporting) is neutral, never red.
+        if (w.kind === 'stream' && w.source === 'metrics') expect(w.rows([], ctx).every((r) => r.tag === 'none' && (r.tone === 'error' || (r.tone === undefined && r.text === 'wh.vehicle.battery'))), where).toBe(true)
         if (w.kind === 'stream' && w.source === 'logs') expect(w.rows([]), where).toEqual([])
       }
     }
@@ -152,7 +155,7 @@ describe('INFRA_PAGES', () => {
     const flows = new Set(metricQueries(INFRA_PAGES.bridge).flatMap((q) => (q.filters?.flow ? [q.filters.flow] : [])))
     expect([...flows].sort()).toEqual(['orders_in', 'orders_out', 'vehicles_in'])
     const metrics = new Set(metricQueries(INFRA_PAGES.bridge).map((q) => q.metric))
-    expect([...metrics].sort()).toEqual(['bridge.callback.duration', 'bridge.consumer.lag', 'bridge.messages'])
+    expect([...metrics].sort()).toEqual(['bridge.callback.duration', 'bridge.consumer.lag', 'bridge.messages', 'bridge.processing.duration', 'bridge.publish.duration'])
     // One group per flow, and the exchanges stream reads the bridge's own logs.
     const titles = INFRA_PAGES.bridge.groups.map((g) => g.title)
     expect(titles).toEqual(['Link health', 'Backend to Infra', 'POST /infra/orders/{orderId}/status', 'POST /infra/vehicles/{vehicleId}/telemetry', 'Exchanges'])
@@ -254,15 +257,17 @@ describe('INFRA_PAGES', () => {
   it('cronPageDerivesNextRunFromTheSchedule', () => {
     const next = find<TileSpec>(INFRA_PAGES.cron, 'Next run')
     expect(next.query).toEqual([])
-    const local = new Date(2026, 9, 18, 14, 2)
-    const value = next.value([], { ...ctx, now: local.getTime() })
-    // The tile shows the run in the browser's time; the schedule itself is UTC.
+    // 14:02 UTC: the next 06:00 UTC run is 15 h 58 min away, whatever the browser's zone.
+    const now = Date.UTC(2026, 9, 18, 14, 2)
+    const value = next.value([], { ...ctx, now })
+    // The tile shows the run in the browser's time (today or tomorrow there); the schedule is UTC.
     const run = new Date(Date.UTC(2026, 9, 19, 6, 0))
-    const sameDay = run.getDate() === local.getDate()
+    const sameDay = run.getDate() === new Date(now).getDate()
     const hhmm = `${String(run.getHours()).padStart(2, '0')}:${String(run.getMinutes()).padStart(2, '0')}`
-    if (local.getTimezoneOffset() === 0) expect(value?.value).toBe('06:00 tomorrow')
     expect(value).toMatchObject({ value: `${hhmm} ${sameDay ? 'today' : 'tomorrow'}`, tone: 'ok' })
     expect(value?.label).toMatch(/0 6 \* \* \*.*UTC/)
+    // A schedule the console cannot evaluate says so instead of guessing.
+    expect(nextRunValue('*/15 * * * *', 0)([], ctx)).toMatchObject({ value: 'Unknown', tone: 'warn', label: expect.stringMatching(/not a daily time$/) })
   })
 
   it('cronPageShowsSuggestionsPerRun', () => {
@@ -277,7 +282,11 @@ describe('INFRA_PAGES', () => {
     expect(find<TileSpec>(page, 'Last run').value(runs, ctx)).toMatchObject({ value: 'OK', tone: 'ok' })
     expect(find<TileSpec>(page, 'Last run').value([seq('error', [120])], ctx)).toMatchObject({ value: 'Failed', tone: 'error' })
     expect(find<TileSpec>(page, 'Last duration').value(runs, ctx)).toMatchObject({ value: '1.4 s' })
-    expect(find<TileSpec>(page, 'Runs ok').value(runs, ctx)).toMatchObject({ value: '50%', tone: 'error', label: 'Runs ok, last 15m' })
+    expect(find<TileSpec>(page, 'Runs ok').value(runs, { ...ctx, range: '30d' })).toMatchObject({ value: '50%', tone: 'error', label: 'Runs ok, last 30d' })
+    // History over 30 days a day per bucket, the last runs over 2 days to the minute: not the picker's range.
+    expect(['Runs ok', 'Runs', 'Duration', 'Suggestions'].map((t) => find<TileSpec>(page, t).range)).toEqual(['30d', '30d', '30d', '30d'])
+    expect(['Last run', 'Last duration'].map((t) => find<TileSpec>(page, t).range)).toEqual(['2d', '2d'])
+    expect(find<MetricStreamSpec>(page, 'Runs', 'recent runs').range).toBe('2d')
     expect(find<TileSpec>(page, 'Last run').value([], ctx)).toBeUndefined()
     // One bar per run, whatever its duration.
     const bars = find<ChartSpec>(page, 'Runs').select?.(runs, ctx) ?? []
@@ -299,6 +308,9 @@ describe('INFRA_PAGES', () => {
       ['failed', 'error', '0 suggestions, 120 ms'],
     ])
     expect(rows[1].time).toMatch(/^yesterday \d\d:\d\d$/)
+    // A 1 m bucket ends a minute after the run started in it: the run's own minute is shown.
+    expect(rows[0].time.endsWith(formatTime(T0 - 120_000, false))).toBe(true)
+    expect(find<TileSpec>(page, 'Last run').value(runs, ctx)?.label).toMatch(new RegExp(`${formatTime(T0 - 120_000, false)}$`))
     expect(recent.rows([seq('duration ok', [5])], ctx)[0].text).toBe('5 ms')
   })
 
@@ -313,9 +325,17 @@ describe('INFRA_PAGES', () => {
     // A metric without a sample in the range is flagged too, never shown as fresh.
     expect(row('minio.objects')).toMatchObject({ time: 'minio', tag: 'none', tone: 'error' })
     expect(rows).toHaveLength(fresh.query.length)
-    // Exactly 60 s is still current; the age keeps growing with the clock.
+    // No vehicle reporting is normal: neutral, not red.
+    expect(row('wh.vehicle.battery')).toMatchObject({ time: 'vehicles', tag: 'none' })
+    expect(row('wh.vehicle.battery')?.tone).toBeUndefined()
+    // Exactly 60 s is still current for a pushed source; the age keeps growing with the clock.
     expect(fresh.rows([seq('jvm.heap.used', [1], T0 - 60_000)], ctx)[0].tone).toBe('ok')
     expect(fresh.rows([seq('jvm.heap.used', [1], T0 - 60_000)], { ...ctx, now: T0 + 1000 })[0].tone).toBe('warn')
+    // A scraped source gets 120 s (scraped every 30 s).
+    const minio = (age: number) => fresh.rows([seq('minio.objects', [1], T0 - age)], ctx).find((r) => r.text === 'minio.objects')?.tone
+    expect([minio(90_000), minio(121_000)]).toEqual(['ok', 'warn'])
+    // Whatever the page range, freshness reads a fixed 5 minutes (step 10 s).
+    expect(fresh.range).toBe('5m')
   })
 
   it('telemetryDiskAndQueryLatencyReadTheScrapedSeries', () => {
