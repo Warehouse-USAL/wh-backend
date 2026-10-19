@@ -3,27 +3,53 @@
 SUPERADMIN-only console for the backend, served at `/console/`. This file records what the
 platform side needs and what was verified against a running stack.
 
+## Run locally
+
+```sh
+cp .env.example .env            # ADMIN_EMAIL / ADMIN_PASSWORD become the bootstrap SUPERADMIN
+docker compose --profile dev up -d --build
+open http://localhost:8083/console/
+```
+
+Sign in with the SUPERADMIN account (`ADMIN_EMAIL` / `ADMIN_PASSWORD`, or `admin@smartwarehouse.local`
+/ `Demo1234!` with `SEED_DEMO=true` on a fresh database, see `docs/demo-credentials.md`). Any other
+role is refused. For console development, `cd console && npm ci && npm run dev` serves
+`http://localhost:5173/console/` and proxies `/api` to `localhost:8080` (`console/README.md`).
+
 ## Overview
 
 | Service | Port | Notes |
 |---|---|---|
-| `console` | host `8083:80` (dev only) | nginx serving `console/`; in prod `ghcr.io/warehouse-usal/wh-console:latest` on `wh-network` + `wh-proxy`, reached through Caddy at `/console/` |
+| `console` | host `8083:80` (dev only) | nginx serving `console/`; in prod `ghcr.io/warehouse-usal/wh-console:${WH_IMAGE_TAG:-latest}` on `wh-network` + `wh-proxy`, no host port, reached through Caddy at `/console/`. Healthcheck: `wget` on `/console/` |
+| console dev-tools proxies | host `8091` (mongo-express), `8092` (redpanda-console), dev only | frame-safe proxies (`console/nginx.dev-tools.conf`, mounted only by `docker-compose.yml`); the tools themselves run only under `--profile dev` (host `8081`, `8082`). Prod mounts nothing, so neither port is served there |
 | `victorialogs` | `9428` internal | `victoriametrics/victoria-logs:v1.53.0`, named volume `victorialogs_data`, `-retentionPeriod=30d` |
 | `otel-collector` | `4317`/`4318` (dev host only), `13133` health, `8888` own metrics (localhost) | metrics pipeline `[otlp, prometheus]` → VictoriaMetrics; logs pipeline `[otlp]` → VictoriaLogs. Prod adds `collector-config.prod.yml` (Caddy scrape) and joins `wh-proxy` |
 
-Environment variables added for the console (default in brackets):
+Environment variables the console and its telemetry use. The default is the code's when the
+variable is unset; "compose" marks values the compose files set. The backend image ships no
+`application.yml`, so these env vars (and the code defaults) are its whole configuration.
 
-| Variable | Service | Default |
-|---|---|---|
-| `TELEMETRY_LOGS_ENDPOINT` | backend | `http://otel-collector:4318/v1/logs` |
-| `CONSOLE_VICTORIALOGS_URL` | backend | `http://victorialogs:9428` |
-| `CONSOLE_BRIDGE_URL` | backend | `http://bridge:8081` |
-| `CONSOLE_MINIO_URL` | backend | `http://minio:9000` |
-| `CONSOLE_VICTORIAMETRICS_URL` | backend | `http://victoriametrics:8428` |
-| `CONSOLE_COLLECTOR_URL` | backend | `http://otel-collector:13133` |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | bridge | `http://otel-collector:4318` (blank = no export) |
-| `MINIO_PROMETHEUS_AUTH_TYPE` | minio | `public` (collector scrapes `/minio/v2/metrics/cluster` without a token; anyone reaching port 9000, host-published in prod too, can read these counts and sizes) |
-| `RESTOCK_OTLP_URL` | restock-cron | `http://otel-collector:4318/v1/metrics` (blank = no push) |
+| Variable | Service | Default | Meaning |
+|---|---|---|---|
+| `TELEMETRY_ENABLED` | backend | `false`; compose `true` | master switch for metric **and** log export. `false` = nothing exported, the backend runs normally |
+| `TELEMETRY_ENDPOINT` | backend | `http://otel-collector:4318/v1/metrics` | OTLP metrics |
+| `TELEMETRY_LOGS_ENDPOINT` | backend | `http://otel-collector:4318/v1/logs` | OTLP logs (the Logs page's source) |
+| `TELEMETRY_EXPORT_INTERVAL_MS` | backend | `10000` | metric export period; bounds how fresh every backend chart is |
+| `TELEMETRY_EXPORT_TIMEOUT_MS` | backend | `5000` | per export |
+| `TELEMETRY_MONGO_SLOW_MS` | backend | `100` | `mongo.command.duration{outcome="slow"}` threshold |
+| `SERVER_TOMCAT_MBEANREGISTRY_ENABLED` | backend | compose `true` | Tomcat MBeans; without it the `tomcat.*` series are absent |
+| `VICTORIAMETRICS_URL` | backend | `http://victoriametrics:8428` | read side of the metrics (`/metrics/query`, the stream) |
+| `CONSOLE_VICTORIALOGS_URL` | backend | `http://victorialogs:9428` | read side of the logs |
+| `CONSOLE_BRIDGE_URL` | backend | `http://bridge:8081` | status probe (blank = `UNKNOWN`) |
+| `CONSOLE_MINIO_URL` | backend | `http://minio:9000` | status probe |
+| `CONSOLE_VICTORIAMETRICS_URL` | backend | `http://victoriametrics:8428` | status probe |
+| `CONSOLE_COLLECTOR_URL` | backend | `http://otel-collector:13133` | status probe (collector health extension) |
+| `CONSOLE_STREAM_*` | backend | the `console.stream.` table below | e.g. `CONSOLE_STREAM_MAX_STREAMS=50`, `CONSOLE_STREAM_HEARTBEAT=15s` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | bridge | `http://otel-collector:4318` | blank = no export |
+| `MINIO_PROMETHEUS_AUTH_TYPE` | minio | `public` | collector scrapes `/minio/v2/metrics/cluster` without a token; anyone reaching port 9000, host-published in prod too, can read these counts and sizes |
+| `RESTOCK_OTLP_URL` | restock-cron | `http://otel-collector:4318/v1/metrics` | `job.run` push; blank = no push |
+| `RESTOCK_SCHEDULE` | restock-cron | `0 6 * * *` | crond expression in **UTC** (the image has no tzdata; do not set `TZ`). The console's "Next run" tile assumes this default |
+| `WH_IMAGE_TAG` | prod overlay | `latest` | GHCR tag of `wh-backend`, `wh-bridge` and `wh-console` (a release tags all three) |
 
 Scrape jobs (`job` label = job name, every 30s): `otel-collector` (`localhost:8888`),
 `victoriametrics` (`victoriametrics:8428`), `minio` (`minio:9000/minio/v2/metrics/cluster`), and
@@ -46,7 +72,33 @@ can therefore write metrics and logs into VictoriaMetrics and VictoriaLogs (it c
 neither store is on `wh-proxy`). Accepted for now; the fix would be a dedicated scrape-only network
 shared with Caddy.
 
-## Rollout (prod)
+## Production rollout
+
+No data migration: nothing in MongoDB changes. The only new persistent state is the
+`victorialogs_data` volume (30 days of logs, disposable) and new series in VictoriaMetrics.
+
+### Before the first deploy
+
+1. `.env` on the server (`/opt/wh/wh-backend/.env`): `JWT_SECRET` (at least 32 random chars),
+   `SPRING_DATA_MONGODB_URI`, `MONGO_ROOT_USER` and `MONGO_ROOT_PASSWORD` must be set; the prod
+   overlay refuses to start without them. `ADMIN_EMAIL` / `ADMIN_PASSWORD` create the first
+   SUPERADMIN only when none exists yet (`DataInitializer`); an existing SUPERADMIN keeps its
+   password. That account is the console login. `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` still fall
+   back to `minioadmin` when unset: set them. Leave `COMPOSE_PROFILES` unset (the `dev` profile
+   would start mongo-express without auth and redpanda-console).
+2. Images: the Stable Release workflow publishes `ghcr.io/warehouse-usal/wh-console:<version>` and
+   `:latest` next to the backend and bridge. Its first push creates the package; check on the
+   server that it pulls with the deploy credentials before the first deploy (otherwise give the
+   package the same visibility and Actions access as `wh-bridge`):
+
+   ```sh
+   docker pull ghcr.io/warehouse-usal/wh-console:latest
+   ```
+
+3. The `wh-proxy` network already exists (the backend uses it); the console and the collector
+   join it.
+
+### Deploy order
 
 `make deploy` (run by the Deploy workflow) does these steps on every deploy, in this order:
 
@@ -58,13 +110,51 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps 
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps backend bridge console restock-cron
 ```
 
-- MinIO is recreated for `MINIO_PROMETHEUS_AUTH_TYPE`, so it restarts briefly (uploads fail for
-  a few seconds).
+- `--no-deps` everywhere: MongoDB, its init containers and Redpanda are never recreated by a
+  deploy. The others are recreated only when their compose config or image changed.
+- MinIO is recreated once for `MINIO_PROMETHEUS_AUTH_TYPE`, so it restarts briefly (uploads fail
+  for a few seconds).
 - The collector config is a bind mount: when only `collector-config*.yml` changed, compose sees no
-  change, hence `--force-recreate` (the collector restarts on every deploy).
+  change, hence `--force-recreate` (the collector restarts on every deploy; a few seconds of
+  telemetry are lost, the senders retry).
 - Order: the collector must have the logs pipeline before the new backend and bridge are deployed;
   otherwise their log export gets 404s and warns on stdout until it does.
-- Then backend, bridge and console are deployed; apply the Caddy step below once.
+- The Deploy workflow then waits for the backend's start line, the bridge's healthcheck, and the
+  console's healthcheck plus one request through its `/api` proxy.
+
+### Caddy (once, by the proxy's owner)
+
+Apply "Caddy (manual step, shared proxy)" below: the `/console/*` route, `metrics { per_host }`,
+the admin API moved to `localhost:2020` (first reload with `--address localhost:2019`), the
+`:2019 { metrics }` listener the collector scrapes on `wh-proxy`, and `flush_interval -1` on the
+route to the backend ("Push stream"). Until then the console is unreachable from outside and the
+Edge page has no data; nothing else is affected, so it can come before or after the deploy.
+
+### Verify
+
+```sh
+cd /opt/wh/wh-backend
+C="docker compose -f docker-compose.yml -f docker-compose.prod.yml"
+$C ps console victorialogs otel-collector victoriametrics     # console "healthy", the rest "Up"
+docker exec wh-backend-console-1 wget -qO- http://127.0.0.1/api/actuator/health   # {"status":"UP"...}
+
+# Through Caddy, as the SUPERADMIN (the password is read, never put in the shell history):
+H=https://<public-host>
+read -rs P
+TOKEN=$(jq -nc --arg e "$ADMIN_EMAIL" --arg p "$P" '{email:$e,password:$p}' \
+  | curl -fsS "$H/api/auth/login" -H 'Content-Type: application/json' -d @- | jq -r .token); unset P
+curl -sS -o /dev/null -w '%{http_code}\n' "$H/console/"                          # 200
+curl -fsS -H "Authorization: Bearer $TOKEN" "$H/api/console/status" | jq -c '.services[] | [.name, .state]'
+curl -fsS -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  "$H/api/console/logs/query" -d '{"service":"backend","limit":5}' | jq .total   # > 0 after a minute
+curl -sSN -m 20 -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  "$H/api/console/stream" -d '{"subscriptions":[{"id":"s","kind":"status"}]}'    # "event: snapshot" at once
+unset TOKEN
+```
+
+A non-SUPERADMIN token gets `403` from every `/console/*` endpoint (`@PreAuthorize` on each
+controller), and the console UI refuses it at login. A stream whose snapshot shows up only after
+many seconds is being buffered by a proxy.
 
 ## Caddy (manual step, shared proxy)
 
@@ -316,16 +406,70 @@ case-sensitive (`"malformed"` does not match `Malformed request body`); `i("malf
 
 ## Rollback
 
-- Logs: drop the `logs` pipeline and `otlphttp/victorialogs` from `collector-config.yml`, then
-  `docker compose up -d otel-collector`. The backend keeps running; its log exporter only warns
-  on stdout.
+- **App images:** set `WH_IMAGE_TAG=<previous release>` (e.g. `v1.4.0`; every Stable Release tags
+  backend, bridge and console with its version) in the server's `.env`, then `make deploy`. Remove
+  it to go back to `latest`. While it is set, a manual Deploy run deploys that tag too. A release
+  that predates the console has no `wh-console:<tag>`: stop the console (below) instead of pulling.
+- **Compose and config changes** (collector pipelines, new services): put the previous release back
+  in `/opt/wh/wh-backend` (`git reset --hard <tag>`) and `make deploy`. That leaves `victorialogs`
+  running; stop it by hand if wanted.
+- **Telemetry off, app untouched:** `TELEMETRY_ENABLED=false` (backend: no metrics, no logs),
+  `OTEL_EXPORTER_OTLP_ENDPOINT=` (bridge), `RESTOCK_OTLP_URL=` (cron) in `.env`, then
+  `up -d --no-deps backend bridge restock-cron`. The console keeps working on the data it has.
+- Logs only: drop the `logs` pipeline and `otlphttp/victorialogs` from `collector-config.yml`, then
+  `up -d --no-deps --force-recreate otel-collector`. The backend keeps running; its log exporter
+  only warns on stdout.
 - Scrapes: remove the `prometheus` receiver from the metrics pipeline (and in prod the second
   `--config`). OTLP metrics are unaffected.
-- Console: `docker compose stop console` and remove the Caddy `/console/*` route. The Caddy
-  metrics options are independent and can stay.
+- Console: `docker compose -f docker-compose.yml -f docker-compose.prod.yml stop console` and
+  remove the Caddy `/console/*` route. The Caddy metrics options are independent and can stay.
 - MinIO metrics: remove `MINIO_PROMETHEUS_AUTH_TYPE` from the `minio` service (back to token
   auth) and drop the `minio` scrape job, then `up -d --no-deps minio otel-collector`.
 - `victorialogs` and its `victorialogs_data` volume can be removed once nothing points at them.
+
+## Operations
+
+- **Volumes and backup.** Prod named volumes are `wh-backend_<name>` (compose project
+  `wh-backend`). `mongo_data` and `minio_data` hold business data: back them up as before.
+  `victoriametrics_data` (800 days of metrics, the seeded history included) is worth a snapshot
+  (`POST /snapshot/create` on `victoriametrics:8428` from `wh-network`, then copy
+  `snapshots/<name>` out of the volume). `victorialogs_data` is 30 days of logs and can be lost.
+  VictoriaMetrics, VictoriaLogs and the collector run as root, MinIO is forced to `0:0`; the
+  backend and console write no volume.
+- **Container logs.** The prod overlay rotates json-file logs at 10 MB x 3 for the console,
+  VictoriaLogs, the collector and the cron; the older services keep the daemon's setting.
+- **Resources.** VictoriaMetrics `-memory.allowedBytes=512MB`, VictoriaLogs `256MB`. No container
+  memory limits, like the rest of the stack.
+- **Exposure.** Everything the console added is internal: VictoriaLogs `9428` has no host port,
+  prod clears the collector's and VictoriaMetrics' host ports, and the console has no host port
+  (Caddy reaches it on `wh-proxy`).
+- **Tokens in logs.** The console sends the JWT only in the `Authorization` header (the stream is
+  a `POST`), so the console nginx's access log (`$request`: method, path and query) never holds a
+  token, and the backend logs no request lines. The console opens no `?token=` WebSocket. If Caddy
+  access logs are on, other clients' `/ws/v1/...?token=` URLs land there; filter the query
+  (`format filter { request>uri query { delete token } }`).
+- **CORS.** Not needed: the browser talks to one origin (Caddy, or the console nginx in dev) and
+  the backend has no CORS configuration. The WebSocket handlers' `setAllowedOrigins("*")` predates
+  the console and is not used by it.
+- **Headers.** The console nginx sends a `Content-Security-Policy` (self only; frames limited to
+  the dev-tools ports), `X-Frame-Options: DENY`, `nosniff` and a strict referrer policy. HSTS is
+  Caddy's.
+
+## Known limitations
+
+- No `tomcat.connections.rejected`: Tomcat has no such attribute (see Metrics notes).
+- Backend charts are up to `TELEMETRY_EXPORT_INTERVAL_MS` (10 s) old, plus the stream's 5 s
+  evaluation. Scraped targets refresh every 30 s (Caddy 60 s); MinIO usage lags by minutes.
+- A client whose network vanishes without closing holds a stream slot until TCP gives up (about
+  15 minutes on Linux), its send buffer fills, or its token expires; a user has 5 slots.
+- A stream ends when its JWT expires (`JWT_EXPIRATION_MS`, 24 h); the console then asks to sign in
+  again.
+- The restock "Next run" tile shows the default `RESTOCK_SCHEDULE` in UTC; an override in `.env`
+  is not visible to the console.
+- The Edge page is empty until the Caddy step is applied, and the collector logs one scrape
+  warning a minute until then.
+- Collector "dropped", MinIO per-bucket size and VictoriaMetrics retention as a number have no
+  series (see Scraped series).
 
 ## Metrics notes
 

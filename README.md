@@ -37,6 +37,10 @@ The stack will be available at:
 | Health check | http://localhost:8080/actuator/health |
 | MongoDB Express | http://localhost:8081 |
 | Redpanda Console | http://localhost:8082 |
+| Backend console (SUPERADMIN) | http://localhost:8083/console/ |
+
+The backend console, its telemetry services, environment variables, production rollout and
+rollback are documented in [docs/CONSOLE.md](docs/CONSOLE.md).
 
 ---
 
