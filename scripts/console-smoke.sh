@@ -462,15 +462,18 @@ t_stream_expiry() {
 	else record FAIL stream-expiry "got '${hit#*	}' at ${hit%%	*}"; fi
 }
 
-# The per-user cap: five open streams, the sixth is refused before it starts.
+# The per-user cap: ten open streams; an eleventh is admitted and the oldest one ends with `limit`.
 t_stream_cap() {
-	local i c ok=1
-	for i in 1 2 3 4 5; do stream_wait "cap$i" snapshot st 15 >/dev/null || ok=0; done
-	if [ "$ok" = 0 ]; then record FAIL stream-limit "the first five streams did not all open"; return; fi
-	c=$(HC_TIMEOUT=10 hc "$W/cap6" POST /api/console/stream -H "$(auth "$CAP_TOKEN")" -H "$(json)" \
-		-d '{"subscriptions":[{"id":"st","kind":"status"}]}')
-	check stream-limit "6th stream of one user: HTTP + code" "$c $(jq -r '.error.code // empty' "$W/cap6" 2>/dev/null)" "429 STREAM_LIMIT"
-	for i in 1 2 3 4 5; do stream_stop "cap$i"; done
+	local i hit reason ok=1
+	for i in $(seq 1 10); do stream_wait "cap$i" snapshot st 15 >/dev/null || ok=0; done
+	if [ "$ok" = 0 ]; then record FAIL stream-limit "the first ten streams did not all open"; return; fi
+	stream_open cap11 "$CAP_TOKEN" '{"subscriptions":[{"id":"st","kind":"status"}]}' 60
+	if stream_wait cap11 snapshot st 15 >/dev/null; then record PASS stream-limit "11th stream of one user is admitted"
+	else record FAIL stream-limit "11th stream of one user got no snapshot"; fi
+	hit=$(stream_wait cap1 end "" 15)
+	reason=$(printf '%s' "${hit#*	}" | jq -r '.reason // empty' 2>/dev/null)
+	check stream-evict "oldest stream of one user ends with limit" "$reason" "limit"
+	for i in $(seq 1 11); do stream_stop "cap$i"; done
 }
 
 t_devtools() {
@@ -561,7 +564,7 @@ main() {
 	CAP_TOKEN=$(jwt_mint "$JWT_SECRET" "$(jq -nc --arg s "smoke-cap-$$" '{sub:$s,role:"SUPERADMIN",iat:(now|floor),exp:((now|floor)+300)}')")
 	TOKENS="$TOKENS expiring=$EXP_TOKEN cap=$CAP_TOKEN"
 	stream_open s2 "$EXP_TOKEN" '{"subscriptions":[{"id":"st","kind":"status"}]}' 60
-	for i in 1 2 3 4 5; do stream_open "cap$i" "$CAP_TOKEN" '{"subscriptions":[{"id":"st","kind":"status"}]}' 60; done
+	for i in $(seq 1 10); do stream_open "cap$i" "$CAP_TOKEN" '{"subscriptions":[{"id":"st","kind":"status"}]}' 60; done
 	t_stream_cap
 	t_stream_main
 	t_stream_expiry
