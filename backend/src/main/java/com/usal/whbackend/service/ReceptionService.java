@@ -80,6 +80,11 @@ public class ReceptionService {
       if (!order.getProductId().equals(product.getId())) {
         throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "RESTOCK_ORDER_PRODUCT_MISMATCH");
       }
+      // #137 — once an order is cancelled, no new receptions may link to it. Existing receptions
+      // registered before the cancellation stay as they are (RN-04 is irreversible by design).
+      if (order.isCancelled()) {
+        throw new ResponseStatusException(HttpStatus.CONFLICT, "RESTOCK_ORDER_CANCELLED");
+      }
     }
 
     if (request.assignments() != null) {

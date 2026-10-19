@@ -3,6 +3,7 @@ package com.usal.whbackend.service;
 import com.usal.whbackend.api.restock.order.CreateRestockOrderRequest;
 import com.usal.whbackend.domain.Product;
 import com.usal.whbackend.domain.RestockOrder;
+import com.usal.whbackend.domain.RestockOrderStatus;
 import com.usal.whbackend.repository.ProductRepository;
 import com.usal.whbackend.repository.RestockOrderRepository;
 import com.usal.whbackend.service.exception.RestockOrderNotFoundException;
@@ -45,17 +46,60 @@ public class RestockOrderService {
             .orElseThrow(
                 () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "PRODUCT_NOT_FOUND"));
 
+    Instant createdAt = Instant.now();
+    if (request.expectedDeliveryDate() != null
+        && !request.expectedDeliveryDate().isAfter(createdAt)) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "INVALID_EXPECTED_DELIVERY_DATE");
+    }
+
     RestockOrder order = new RestockOrder();
     order.setProductId(product.getId());
     order.setQuantityRequested(request.quantityRequested());
     order.setSupplier(request.supplier());
     order.setRequestedByUserId(userId);
-    order.setCreatedAt(Instant.now());
+    order.setExpectedDeliveryDate(request.expectedDeliveryDate());
+    order.setStatus(RestockOrderStatus.PENDING);
+    order.setCreatedAt(createdAt);
+    return restockOrderRepository.save(order);
+  }
+
+  /**
+   * Cancels an order. The RFC marks restock cancellation as fuera de alcance del milestone inicial;
+   * #137 adds it with these rules:
+   *
+   * <ul>
+   *   <li>An order that already has receptions against it cannot be cancelled — stock has already
+   *       moved for it and the cancellation would read as contradictory.
+   *   <li>An already-cancelled order is a no-op from the client's point of view and we return 409
+   *       so the caller notices the race rather than assuming it just happened.
+   * </ul>
+   */
+  public RestockOrder cancelRestockOrder(String id, String reason, String userId) {
+    RestockOrder order =
+        restockOrderRepository.findById(id).orElseThrow(() -> new RestockOrderNotFoundException(id));
+
+    if (order.isCancelled()) {
+      throw new ResponseStatusException(
+          HttpStatus.CONFLICT, "RESTOCK_ORDER_ALREADY_CANCELLED");
+    }
+    if (computeReceivedSoFar(id) > 0) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "RESTOCK_ORDER_HAS_RECEPTIONS");
+    }
+
+    order.setStatus(RestockOrderStatus.CANCELLED);
+    order.setCancelledAt(Instant.now());
+    order.setCancelledByUserId(userId);
+    order.setCancellationReason(reason);
     return restockOrderRepository.save(order);
   }
 
   public Page<RestockOrder> getRestockOrders(
-      String productId, String supplier, String from, String to, Pageable pageable) {
+      String productId,
+      String supplier,
+      String from,
+      String to,
+      boolean includeCancelled,
+      Pageable pageable) {
     Instant fromInstant = parseInstant(from, "INVALID_DATE_FORMAT");
     Instant toInstant = parseInstant(to, "INVALID_DATE_FORMAT");
 
@@ -65,6 +109,14 @@ public class RestockOrderService {
     }
     if (supplier != null) {
       query.addCriteria(Criteria.where("supplier").is(supplier));
+    }
+    if (!includeCancelled) {
+      // Match documents saved before #137 (status unset) alongside explicit PENDING.
+      query.addCriteria(
+          new Criteria()
+              .orOperator(
+                  Criteria.where("status").is(RestockOrderStatus.PENDING),
+                  Criteria.where("status").exists(false)));
     }
     if (fromInstant != null || toInstant != null) {
       Criteria createdAt = Criteria.where("createdAt");
