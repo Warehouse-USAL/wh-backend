@@ -18,8 +18,20 @@ const ALLOWED = [
   '__fixtures__/',
 ]
 
+const NAMED = '(?:white|black|red|green|blue|gray|grey|orange|yellow|purple|pink|teal|cyan|magenta|silver|navy|maroon|lime|olive|aqua|fuchsia|brown|gold|indigo|violet)'
+
+/** Code part of a line: URLs and comments cannot hold a colour, so `see issue #bad` or `//x.y/#fff` are not offences. */
+const code = (line: string) =>
+  line
+    .replace(/[a-z][a-z0-9+.-]*:\/\/\S*/gi, '')
+    .replace(/\/\*.*?\*\//g, '')
+    .replace(/(^|\s)\/\/.*$/, '')
+    .replace(/^\s*\*.*$/, '')
+
 const FORBIDDEN = [
-  /#[0-9a-fA-F]{3,8}\b/,
+  /(?<=[:'"`\[(,=]\s*)#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})\b/,
+  new RegExp(`\\b(?:color|background|backgroundColor|borderColor|fill|stroke|outlineColor)\\s*[:=]\\s*\\{?\\s*['"\`]${NAMED}\\b`, 'i'),
+  new RegExp(`\\b(?:bg|text|border|ring|fill|stroke|outline|shadow)-\\[${NAMED}\\]`),
   /\brgba?\(/,
   /\bhsla?\(/,
   /\boklch\(/,
@@ -34,15 +46,16 @@ describe('colour guard', () => {
       .map(([path, text]) => [path.replace('/src/', ''), text] as const)
       .filter(([file]) => !ALLOWED.some((a) => file === a || file.startsWith(a)))
       .flatMap(([file, text]) =>
-        text.split('\n').flatMap((line, i) => (FORBIDDEN.some((re) => re.test(line)) ? [`${file}:${i + 1}: ${line.trim()}`] : [])),
+        text.split('\n').flatMap((line, i) => (FORBIDDEN.some((re) => re.test(code(line))) ? [`${file}:${i + 1}: ${line.trim()}`] : [])),
       )
     expect(Object.keys(FILES).length).toBeGreaterThan(50)
     expect(offences).toEqual([])
   })
 
   it('theGuardCatchesTheLiteralsItIsMeantTo', () => {
-    const samples = ['#fff', 'color: #0070F3', 'rgb(0 0 0)', 'rgba(0,0,0,.5)', 'bg-white', 'text-black', 'bg-[#fff]', 'text-red-500']
-    for (const s of samples) expect(FORBIDDEN.some((re) => re.test(s)), s).toBe(true)
-    for (const s of ['bg-bg', 'text-mu', 'var(--s-blue)', 'border-bd2', 'bg-er/10']) expect(FORBIDDEN.some((re) => re.test(s)), s).toBe(false)
+    const samples = ["fill: '#fff'", 'color: #0070F3', 'rgb(0 0 0)', 'rgba(0,0,0,.5)', 'bg-white', 'text-black', 'bg-[#fff]', 'text-red-500', "color: 'white'", "style={{ background: 'black' }}", 'fill="red"', 'bg-[red]', 'text-[white]']
+    for (const s of samples) expect(FORBIDDEN.some((re) => re.test(code(s))), s).toBe(true)
+    for (const s of ['bg-bg', 'text-mu', 'var(--s-blue)', 'border-bd2', 'bg-er/10', 'see issue #bad', 'https://x.y/#fff', '// #fff in a comment', "color: 'var(--tx)'", 'id="#main"', "foo#abc", "contrast: 'redundant'"])
+      expect(FORBIDDEN.some((re) => re.test(code(s))), s).toBe(false)
   })
 })

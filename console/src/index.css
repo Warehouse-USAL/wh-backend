@@ -27,6 +27,8 @@
   --bd2: #d9d9d9;
   --tx: #171717;
   --mu: #666;
+  /* Row hover; --accent/--secondary (active) are one step darker so the two states differ. */
+  --hover: #f7f7f7;
   /* Status colours are the mockup's, darkened just enough for 4.5:1 as text on --bg2. */
   --blue: #0068de;
   --ok: #087f45;
@@ -49,7 +51,8 @@
   --accent-foreground: var(--tx);
   --border: var(--bd);
   --input: var(--bd2);
-  --ring: var(--bd2);
+  /* Focus ring: the accent blue, >= 3:1 against --bg in both themes (the old --bd2 was ~1.4:1). */
+  --ring: var(--blue);
   --destructive: var(--er);
   --destructive-foreground: var(--er);
   --info: var(--blue);
@@ -83,6 +86,7 @@
   --bd2: #3a3a3a;
   --tx: #ededed;
   --mu: #a1a1a1;
+  --hover: #181818;
   --blue: #3291ff;
   --ok: #00c98d;
   --wn: #f5a623;
@@ -107,6 +111,7 @@
     --bd2: #3a3a3a;
     --tx: #ededed;
     --mu: #a1a1a1;
+  --hover: #181818;
     --blue: #3291ff;
     --ok: #00c98d;
     --wn: #f5a623;
@@ -134,6 +139,7 @@
   --color-bd2: var(--bd2);
   --color-tx: var(--tx);
   --color-mu: var(--mu);
+  --color-hover: var(--hover);
   --color-blue: var(--blue);
   --color-ok: var(--ok);
   --color-wn: var(--wn);

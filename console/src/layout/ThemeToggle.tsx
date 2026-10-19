@@ -21,8 +21,8 @@ export default function ThemeToggle({ className }: { className?: string }) {
           aria-pressed={theme === value}
           onClick={() => setTheme(value)}
           className={cn(
-            'flex flex-1 items-center justify-center rounded-[5px] px-2 py-1 text-mu outline-none hover:text-tx focus-visible:ring-2 focus-visible:ring-blue',
-            theme === value && 'bg-bg text-tx shadow-xs',
+            'flex flex-1 items-center justify-center rounded-[5px] border border-transparent px-2 py-1.5 text-mu outline-none hover:text-tx focus-visible:ring-2 focus-visible:ring-blue',
+            theme === value && 'border-tx/60 bg-bg text-tx shadow-xs',
           )}
         >
           <Icon className="size-3.5" strokeWidth={1.5} aria-hidden />

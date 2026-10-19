@@ -25,7 +25,7 @@ export default function Sidebar({ onSignOut }: { onSignOut: () => void }) {
             <NavLink
               key={path}
               to={path}
-              className="flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] text-tx hover:bg-accent aria-[current=page]:bg-secondary aria-[current=page]:font-medium"
+              className="flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-[13px] text-tx hover:bg-hover aria-[current=page]:bg-secondary aria-[current=page]:font-medium"
             >
               <Icon className="size-4 shrink-0 text-mu" strokeWidth={1.5} aria-hidden />
               {label}
