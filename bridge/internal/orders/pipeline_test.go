@@ -110,8 +110,36 @@ func (p *fakePublisher) bodies() []string {
 }
 
 type fakeRecorder struct {
-	mu       sync.Mutex
-	messages []string
+	mu          sync.Mutex
+	messages    []string
+	publishes   []string
+	processings []string
+}
+
+func (r *fakeRecorder) Publish(
+	flow string,
+	result string,
+	_ time.Duration,
+) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.publishes = append(r.publishes, flow+":"+result)
+}
+
+func (r *fakeRecorder) Processing(
+	flow string,
+	result string,
+	_ time.Duration,
+) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.processings = append(r.processings, flow+":"+result)
+}
+
+func (r *fakeRecorder) durations() ([]string, []string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.publishes...), append([]string(nil), r.processings...)
 }
 
 func (r *fakeRecorder) Message(
@@ -225,6 +253,9 @@ func TestOrderIsPublishedUnchangedThenCommitted(
 		t.Fatalf("published %v", got)
 	}
 	assertResults(t, rec.results(), "orders_out:ok")
+	publishes, processings := rec.durations()
+	assertResults(t, publishes, "orders_out:ok")
+	assertResults(t, processings, "orders_out:ok")
 }
 
 func TestPublishFailureIsRetriedBeforeCommitting(
@@ -238,6 +269,9 @@ func TestPublishFailureIsRetriedBeforeCommitting(
 		t.Fatalf("published %v", got)
 	}
 	assertResults(t, rec.results(), "orders_out:retry", "orders_out:retry", "orders_out:retry", "orders_out:ok")
+	publishes, processings := rec.durations()
+	assertResults(t, publishes, "orders_out:error", "orders_out:error", "orders_out:error", "orders_out:ok")
+	assertResults(t, processings, "orders_out:ok")
 }
 
 func TestOrdersKeepTheirOrder(
@@ -268,6 +302,8 @@ func TestInvalidRecordsAreSkippedButCommitted(
 		t.Fatalf("published %v", got)
 	}
 	assertResults(t, rec.results(), "orders_out:dropped", "orders_out:dropped", "orders_out:ok")
+	_, processings := rec.durations()
+	assertResults(t, processings, "orders_out:dropped", "orders_out:dropped", "orders_out:ok")
 }
 
 func TestRecordIsNotCommittedWhenStoppedBeforePublishing(
@@ -293,6 +329,8 @@ func TestRecordIsNotCommittedWhenStoppedBeforePublishing(
 	if len(got) < 2 || got[0] != "orders_out:retry" || got[len(got)-1] != "orders_out:error" {
 		t.Fatalf("recorded %v, want retries then orders_out:error", got)
 	}
+	_, processings := rec.durations()
+	assertResults(t, processings, "orders_out:error")
 }
 
 func TestRequestIDIsRememberedAndForwarded(

@@ -26,7 +26,9 @@ type Pipeline interface {
 // Every message is counted on rec under orders_in (order statuses) or
 // vehicles_in (telemetry, and anything unclassifiable): ok once accepted,
 // retry per transient failure, dropped when unclassifiable or rejected, and
-// error when stopped with the message in flight. Each POST is timed.
+// error when stopped with the message in flight. Each POST is timed, and so
+// is each message from its receipt to its ack or requeue (retries included),
+// with result ok, dropped or error.
 //
 // An order status is sent with the request id ids remembers for its order,
 // if any; telemetry carries none.

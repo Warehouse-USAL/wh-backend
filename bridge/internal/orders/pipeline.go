@@ -26,6 +26,9 @@ type Pipeline interface {
 // retrying failed publishes according to policy. Every record is counted on
 // rec under the orders_out flow: ok once published, retry per failed
 // attempt, dropped when invalid and error when stopped before publishing.
+// Each publish attempt is timed on rec with result ok or error, and each
+// record from its poll to its commit (retries included) with result ok,
+// dropped or error.
 //
 // A record's request id is remembered in ids under its order id, for the
 // callbacks of that order, and passed to publisher on the context. Every log

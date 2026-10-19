@@ -107,9 +107,10 @@ func (c *scriptedClient) paths() []string {
 }
 
 type fakeRecorder struct {
-	mu        sync.Mutex
-	messages  []string
-	callbacks []string
+	mu          sync.Mutex
+	messages    []string
+	callbacks   []string
+	processings []string
 }
 
 func (r *fakeRecorder) Message(
@@ -133,6 +134,35 @@ func (r *fakeRecorder) Callback(
 }
 
 func (r *fakeRecorder) Lag(string, int64) {}
+
+func (r *fakeRecorder) Publish(string, string, time.Duration) {}
+
+func (r *fakeRecorder) Processing(
+	flow string,
+	result string,
+	_ time.Duration,
+) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.processings = append(r.processings, flow+":"+result)
+}
+
+func (r *fakeRecorder) awaitProcessings(
+	t *testing.T,
+	n int,
+) []string {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		r.mu.Lock()
+		got := append([]string(nil), r.processings...)
+		r.mu.Unlock()
+		if len(got) >= n || time.Now().After(deadline) {
+			return got
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
 
 func (r *fakeRecorder) recorded() ([]string, []string) {
 	r.mu.Lock()
@@ -336,6 +366,7 @@ type recordingCase struct {
 	results   []error
 	messages  []string
 	callbacks []string
+	processed string
 }
 
 func (c recordingCase) run(
@@ -352,6 +383,9 @@ func (c recordingCase) run(
 	if !equal(callbacks, c.callbacks...) {
 		t.Fatalf("callbacks %v, want %v", callbacks, c.callbacks)
 	}
+	if got := h.rec.awaitProcessings(t, 1); !equal(got, c.processed) {
+		t.Fatalf("processings %v, want %v", got, c.processed)
+	}
 }
 
 func TestDeliveriesAreRecordedPerFlowAndAttempt(
@@ -363,6 +397,7 @@ func TestDeliveriesAreRecordedPerFlowAndAttempt(
 			body:      statusMsg,
 			messages:  []string{"orders_in:ok"},
 			callbacks: []string{"orders_in"},
+			processed: "orders_in:ok",
 		},
 		{
 			name:      "telemetry 503 then 200",
@@ -370,6 +405,7 @@ func TestDeliveriesAreRecordedPerFlowAndAttempt(
 			results:   []error{errors.New("backend answered status 503")},
 			messages:  []string{"vehicles_in:retry", "vehicles_in:ok"},
 			callbacks: []string{"vehicles_in", "vehicles_in"},
+			processed: "vehicles_in:ok",
 		},
 		{
 			name:      "status 422",
@@ -377,11 +413,13 @@ func TestDeliveriesAreRecordedPerFlowAndAttempt(
 			results:   []error{&backend.RejectedError{Status: 422, Body: "INVALID"}},
 			messages:  []string{"orders_in:dropped"},
 			callbacks: []string{"orders_in"},
+			processed: "orders_in:dropped",
 		},
 		{
-			name:     "unclassifiable",
-			body:     `{"status":"idle"}`,
-			messages: []string{"vehicles_in:dropped"},
+			name:      "unclassifiable",
+			body:      `{"status":"idle"}`,
+			messages:  []string{"vehicles_in:dropped"},
+			processed: "vehicles_in:dropped",
 		},
 	}
 	for _, c := range cases {
@@ -404,6 +442,9 @@ func TestCancellationWithAMessageInFlightRecordsAnError(
 	}
 	if len(callbacks) != len(messages)-1 {
 		t.Fatalf("%d callbacks for %d attempts", len(callbacks), len(messages)-1)
+	}
+	if got := h.rec.awaitProcessings(t, 1); !equal(got, "vehicles_in:error") {
+		t.Fatalf("processings %v, want vehicles_in:error", got)
 	}
 }
 

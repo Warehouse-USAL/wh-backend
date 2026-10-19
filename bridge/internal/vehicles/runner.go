@@ -58,12 +58,21 @@ func (r *runner) handle(
 	ctx context.Context,
 	delivery Delivery,
 ) {
+	start := time.Now()
+	flow, result := r.process(ctx, delivery)
+	r.rec.Processing(flow, result, time.Since(start))
+}
+
+func (r *runner) process(
+	ctx context.Context,
+	delivery Delivery,
+) (string, string) {
 	req, err := classify.Classify(delivery.Body())
 	if err != nil {
 		r.logger.Error("dropping unclassifiable message", "reason", unclassifiableReason(err), "payload_bytes", len(delivery.Body()))
 		r.rec.Message(flowVehicles, "dropped")
 		r.ack(delivery)
-		return
+		return flowVehicles, "dropped"
 	}
 	requestID := r.requestIDOf(req)
 	policy := r.policy
@@ -73,7 +82,7 @@ func (r *runner) handle(
 	) error {
 		return r.send(ctx, req)
 	})
-	r.settle(delivery, req, requestID, err)
+	return flowOf(req), r.settle(delivery, req, requestID, err)
 }
 
 func (r *runner) requestIDOf(
@@ -116,24 +125,25 @@ func (r *runner) settle(
 	req classify.Request,
 	requestID string,
 	err error,
-) {
+) string {
 	if err == nil {
 		r.logger.Info("delivered to backend", "kind", req.Kind, "path", req.Path, requestid.Attr(requestID))
 		r.rec.Message(flowOf(req), "ok")
 		r.ack(delivery)
-		return
+		return "ok"
 	}
 	if errors.Is(err, backend.ErrRejected) {
 		r.logger.Warn("backend rejected message, dropping", "kind", req.Kind, "path", req.Path, requestid.Attr(requestID), "status", rejectedStatus(err), "body_bytes", len(req.Body))
 		r.rec.Message(flowOf(req), "dropped")
 		r.ack(delivery)
-		return
+		return "dropped"
 	}
 	r.logger.Info("stopping with a message in flight, requeueing", "kind", req.Kind, "path", req.Path, requestid.Attr(requestID))
 	r.rec.Message(flowOf(req), "error")
 	if requeueErr := delivery.Requeue(); requeueErr != nil {
 		r.logger.Error("requeue failed", "error", requeueErr)
 	}
+	return "error"
 }
 
 func (r *runner) ack(

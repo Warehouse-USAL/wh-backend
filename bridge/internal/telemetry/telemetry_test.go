@@ -60,6 +60,38 @@ func TestNoopRecorderNeverPanics(
 	r.Message("orders_out", "ok")
 	r.Callback("orders_out", time.Millisecond)
 	r.Lag("orders_out", 3)
+	r.Publish("orders_out", "ok", time.Millisecond)
+	r.Processing("orders_out", "ok", time.Millisecond)
+}
+
+func TestPublishAndProcessingHistogramsCarryFlowAndResult(
+	t *testing.T,
+) {
+	reader := sdkmetric.NewManualReader()
+	r, err := telemetry.NewWithReader(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Publish("orders_out", "error", 40*time.Millisecond)
+	r.Processing("vehicles_in", "dropped", 2*time.Second)
+	metrics := collect(t, reader)
+	want := map[string][3]any{
+		"bridge.publish.duration":    {"orders_out", "error", 40.0},
+		"bridge.processing.duration": {"vehicles_in", "dropped", 2000.0},
+	}
+	for name, w := range want {
+		m := metrics[name]
+		h, ok := m.Data.(metricdata.Histogram[float64])
+		if m.Unit != "ms" || !ok || len(h.DataPoints) != 1 {
+			t.Fatalf("%s = %+v", name, m)
+		}
+		dp := h.DataPoints[0]
+		flow, _ := dp.Attributes.Value(attribute.Key("flow"))
+		result, _ := dp.Attributes.Value(attribute.Key("result"))
+		if flow.AsString() != w[0] || result.AsString() != w[1] || dp.Sum != w[2] || len(dp.Bounds) != 11 {
+			t.Fatalf("%s point = %+v", name, dp)
+		}
+	}
 }
 
 func TestEmptyEndpointReturnsNoop(

@@ -72,6 +72,10 @@ func (r *lagRecorder) Message(string, string) {}
 
 func (r *lagRecorder) Callback(string, time.Duration) {}
 
+func (r *lagRecorder) Publish(string, string, time.Duration) {}
+
+func (r *lagRecorder) Processing(string, string, time.Duration) {}
+
 func (r *lagRecorder) Lag(
 	flow string,
 	n int64,

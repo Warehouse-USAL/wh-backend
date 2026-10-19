@@ -20,6 +20,13 @@ type Recorder interface {
 	Callback(flow string, d time.Duration)
 	// Lag sets the number of messages waiting to be consumed on flow.
 	Lag(flow string, n int64)
+	// Publish records how long one RabbitMQ publish attempt took, broker
+	// confirm included, with result ok or error.
+	Publish(flow, result string, d time.Duration)
+	// Processing records how long one message took from its receipt to its
+	// outcome (commit, ack or requeue), retries included, with result ok,
+	// dropped or error.
+	Processing(flow, result string, d time.Duration)
 }
 
 // Noop returns a Recorder that does nothing.
@@ -29,17 +36,21 @@ func Noop() Recorder {
 
 type noop struct{}
 
-func (noop) Message(string, string)         {}
-func (noop) Callback(string, time.Duration) {}
-func (noop) Lag(string, int64)              {}
+func (noop) Message(string, string)                   {}
+func (noop) Callback(string, time.Duration)           {}
+func (noop) Lag(string, int64)                        {}
+func (noop) Publish(string, string, time.Duration)    {}
+func (noop) Processing(string, string, time.Duration) {}
 
 // durationBuckets match the backend's http.server.duration, in milliseconds.
 var durationBuckets = []float64{5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000}
 
 type recorder struct {
-	messages metric.Int64Counter
-	duration metric.Float64Histogram
-	lag      metric.Int64Gauge
+	messages   metric.Int64Counter
+	duration   metric.Float64Histogram
+	lag        metric.Int64Gauge
+	publish    metric.Float64Histogram
+	processing metric.Float64Histogram
 }
 
 func newRecorder(
@@ -52,19 +63,33 @@ func newRecorder(
 	if err != nil {
 		return nil, nil, err
 	}
-	duration, err := meter.Float64Histogram(
-		"bridge.callback.duration",
-		metric.WithUnit("ms"),
-		metric.WithExplicitBucketBoundaries(durationBuckets...),
-	)
-	if err != nil {
-		return nil, nil, err
-	}
 	lag, err := meter.Int64Gauge("bridge.consumer.lag")
 	if err != nil {
 		return nil, nil, err
 	}
-	return &recorder{messages: messages, duration: duration, lag: lag}, provider, nil
+	r := &recorder{messages: messages, lag: lag}
+	histograms := map[string]*metric.Float64Histogram{
+		"bridge.callback.duration":   &r.duration,
+		"bridge.publish.duration":    &r.publish,
+		"bridge.processing.duration": &r.processing,
+	}
+	for name, target := range histograms {
+		if *target, err = milliseconds(meter, name); err != nil {
+			return nil, nil, err
+		}
+	}
+	return r, provider, nil
+}
+
+func milliseconds(
+	meter metric.Meter,
+	name string,
+) (metric.Float64Histogram, error) {
+	return meter.Float64Histogram(
+		name,
+		metric.WithUnit("ms"),
+		metric.WithExplicitBucketBoundaries(durationBuckets...),
+	)
 }
 
 func (r *recorder) Message(
@@ -81,7 +106,7 @@ func (r *recorder) Callback(
 	flow string,
 	d time.Duration,
 ) {
-	r.duration.Record(context.Background(), float64(d)/float64(time.Millisecond),
+	r.duration.Record(context.Background(), ms(d),
 		metric.WithAttributes(attribute.String("flow", flow)))
 }
 
@@ -90,4 +115,32 @@ func (r *recorder) Lag(
 	n int64,
 ) {
 	r.lag.Record(context.Background(), n, metric.WithAttributes(attribute.String("flow", flow)))
+}
+
+func (r *recorder) Publish(
+	flow string,
+	result string,
+	d time.Duration,
+) {
+	r.publish.Record(context.Background(), ms(d), metric.WithAttributes(
+		attribute.String("flow", flow),
+		attribute.String("result", result),
+	))
+}
+
+func (r *recorder) Processing(
+	flow string,
+	result string,
+	d time.Duration,
+) {
+	r.processing.Record(context.Background(), ms(d), metric.WithAttributes(
+		attribute.String("flow", flow),
+		attribute.String("result", result),
+	))
+}
+
+func ms(
+	d time.Duration,
+) float64 {
+	return float64(d) / float64(time.Millisecond)
 }
