@@ -19,6 +19,9 @@ while IFS= read -r f; do
 	bridge/* | e2e/*) bridge=true ;;
 	# The bridge job runs the coverage gate, so it re-runs when the gate changes.
 	scripts/go-coverage.sh | scripts/go-coverage.test.sh) bridge=true platform=true ;;
+	# Backend tests read these: the catalogue contract and the verified scraped series names.
+	console/src/api/__fixtures__/metrics-catalog.json) backend=true console=true ;;
+	docs/CONSOLE.md) backend=true ;;
 	console/*) console=true ;;
 	docker-compose*.yml | .env.example | config/* | .github/workflows/* | scripts/*) platform=true ;;
 	esac
