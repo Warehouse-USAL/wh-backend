@@ -236,7 +236,7 @@ collector's own `otelcol_*`). Every series also carries `job` and `instance`.
 | Object count | `minio_cluster_usage_object_total` | — |
 | Buckets | `minio_cluster_bucket_total` | — |
 | Requests | `minio_s3_requests_total` (counter) | `api` |
-| Errors | `minio_s3_requests_errors_total`, `minio_s3_requests_4xx_errors_total` (`_5xx_` appears once one happens) | `api` |
+| Errors | `minio_s3_requests_errors_by_class_total`: MinIO's `_4xx_errors_total` and `_5xx_errors_total` (`_5xx_` appears once one happens) renamed by `metric_relabel_configs` with `class` = `4xx` or `5xx`; their sum is `minio_s3_requests_errors_total`, not kept | `api`, `class` |
 | Rejected | `minio_s3_requests_rejected_auth_total`, `_header_total`, `_invalid_total`, `_timestamp_total` | — |
 | Latency | `minio_s3_requests_ttfb_seconds_distribution` (TYPE gauge, cumulative `le` buckets in seconds; use `histogram_quantile` over `rate`) | `api`, `le` |
 | Traffic | `minio_s3_traffic_received_bytes`, `minio_s3_traffic_sent_bytes` (counters) | — |
@@ -252,6 +252,7 @@ Usage values come from MinIO's background scanner, so they lag uploads by minute
 | Refused | `otelcol_receiver_refused_metric_points`, `otelcol_receiver_refused_log_records` | `receiver`, `transport` |
 | Exported | `otelcol_exporter_sent_metric_points`, `otelcol_exporter_sent_log_records` | `exporter` |
 | Export failed | `otelcol_exporter_send_failed_metric_points`, `otelcol_exporter_send_failed_log_records` | `exporter` |
+| Dropped | `otelcol_exporter_enqueue_failed_metric_points`, `otelcol_exporter_enqueue_failed_log_records` (points an exporter could not queue because its queue was full; absent until the first one) | `exporter` |
 | Queue size | `otelcol_exporter_queue_size` (vs `otelcol_exporter_queue_capacity`) | `exporter`, `data_type` |
 | Export latency | `otelcol_exporter_http_duration_bucket` / `_sum` / `_count` (ms) | `net_peer_name` (`victoriametrics`, `victorialogs`), `http_status_code`, `le` |
 
@@ -271,6 +272,7 @@ drops the collector's `http_server_*`, which would otherwise mix into the backen
 | Disk free | `vm_free_disk_space_bytes` | `path` |
 | Retention | `flag{name="retentionPeriod"}` (value in the `value` label, e.g. `800d`) | `name`, `value`, `is_set` |
 | Query latency | `vm_request_duration_seconds` (summary) | `path`, `quantile` |
+| Requests | `vm_request_duration_seconds_count` (the summary's count: every request, errors included; there is no status label) | `path` |
 | HTTP latency | `vm_http_request_duration_seconds_bucket` (VictoriaMetrics `vmrange` buckets, not `le`) | `path`, `vmrange` |
 | HTTP errors | `vm_http_request_errors_total` | `path`, `protocol`, `reason` |
 
@@ -278,6 +280,7 @@ drops the collector's `http_server_*`, which would otherwise mix into the backen
 
 | Panel | Series | Labels |
 |---|---|---|
+| Scrape health | `up{job="caddy"}` (written by the collector's scrape: 1 scraped, 0 down) | — |
 | Requests | `caddy_http_requests_total` (no status label) | `server`, `handler`, `host` |
 | Requests by status class, 401/403 | `caddy_http_request_duration_seconds_count` (group `code` by its first digit) | `server`, `handler`, `host`, `code`, `method` |
 | Latency | `caddy_http_request_duration_seconds_bucket` (seconds) | as above + `le` |
@@ -285,8 +288,7 @@ drops the collector's `http_server_*`, which would otherwise mix into the backen
 | Upstream health | `caddy_reverse_proxy_upstreams_healthy` (stays 1 without active health checks) | `upstream` |
 | In flight | `caddy_http_requests_in_flight` | `server`, `handler` |
 
-**Mockup panels with no series:** collector "dropped" (0.115 has no dropped counter; the batch
-processor never drops and the exporters report failures as `send_failed`). MinIO per-bucket size
+**Mockup panels with no series:** MinIO per-bucket size
 and object count exist only on `/minio/v2/metrics/bucket`, which is not scraped; the cluster totals
 above stand in (one bucket, `wh-images`). VictoriaMetrics "retention" is a label value, not a
 number.
@@ -341,5 +343,18 @@ case-sensitive (`"malformed"` does not match `Malformed request body`); `i("malf
   are absent, not zero.
 - **401s carry `route=UNMATCHED`.** Security rejects before handler mapping runs, so there is no
   route template yet. Spring's static-resource catch-all `/**` is also reported as `UNMATCHED`.
+- **Latency and failure series for the Infrastructure boards** (OTLP, histograms in ms with the
+  usual `_bucket`/`_sum`/`_count`):
+
+  | Metric | Type | Dimensions | Recorded |
+  |---|---|---|---|
+  | `mongo.pool.checkout.failed` | counter | `reason` (`timeout`, `pool_closed`, `connection_error`, `unknown`) | backend, the driver's `connectionCheckOutFailed`; `timeout` is a pool wait timeout |
+  | `kafka.publish.duration` | histogram | `topic` (`orders`, `order.completed`, else `other`), `result` (`ok`, `error`) | backend, from `send()` to the broker's acknowledgement (a `send()` that throws is only counted in `kafka.messages`) |
+  | `bridge.publish.duration` | histogram | `flow` (`orders_out`), `result` (`ok`, `error`) | bridge, each RabbitMQ publish attempt including its confirm |
+  | `bridge.processing.duration` | histogram | `flow` (`orders_out`, `orders_in`, `vehicles_in`), `result` (`ok`, `dropped`, `error`) | bridge, from receiving a message (Kafka record or AMQP delivery) to its outcome: commit, ack or requeue; includes retry waits |
+
+  Rollout: the collector's MinIO relabel takes effect on the next deploy (the collector is always
+  recreated); `minio.errors` before that is stored as `minio_s3_requests_errors_total` and is not
+  migrated, so its chart starts empty.
 - **No `kafka.messages{direction="in"}`.** The backend consumes no Kafka topic; it only
   publishes `orders` and `order.completed` (`direction="out"`).

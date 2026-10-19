@@ -73,6 +73,7 @@ public class MetricRegistry {
               "Mongo command duration",
               List.of("collection", "command", "outcome")),
           counter("kafka.messages", "Kafka messages", List.of("topic", "direction", "result")),
+          histogram("kafka.publish.duration", "Kafka publish duration", List.of("topic", "result")),
           gauge("ws.sessions", "WebSocket sessions", "1", List.of("feed")),
           counter("ws.messages", "WebSocket messages", List.of("feed", "result")),
           gauge("jvm.heap.used", "JVM heap used", "By", List.of()),
@@ -83,8 +84,15 @@ public class MetricRegistry {
           gauge("http.server.active", "HTTP requests in flight", "1", List.of()),
           gauge("mongo.pool.connections", "Mongo pool connections", "1", List.of("state")),
           histogram("mongo.pool.checkout", "Mongo pool checkout time", List.of()),
+          counter("mongo.pool.checkout.failed", "Mongo pool checkouts failed", List.of("reason")),
           counter("bridge.messages", "Bridge messages", List.of("flow", "result")),
           histogram("bridge.callback.duration", "Bridge callback duration", List.of("flow")),
+          histogram(
+              "bridge.publish.duration", "Bridge publish duration", List.of("flow", "result")),
+          histogram(
+              "bridge.processing.duration",
+              "Bridge processing duration",
+              List.of("flow", "result")),
           gauge("bridge.consumer.lag", "Bridge consumer lag", "1", List.of("flow")),
           gauge("job.run", "Cron job run", "1", List.of("job", "result", "field")),
           // Scraped series (docs/CONSOLE.md, "Scraped series"): the targets name them, so each
@@ -106,12 +114,14 @@ public class MetricRegistry {
               "MinIO S3 requests",
               "1",
               List.of("api")),
+          // MinIO counts 4xx and 5xx under two series names; the collector folds them into one
+          // series with a class label (collector-config.yml), so summing over class is the total.
           counter(
               "minio.errors",
-              "minio_s3_requests_errors_total",
+              "minio_s3_requests_errors_by_class_total",
               "MinIO S3 errors",
               "1",
-              List.of("api")),
+              List.of("api", "class")),
           // Stored as cumulative le buckets under the bare name, with no _count to rate, so it
           // offers quantiles only; minio.requests counts the same requests.
           new MetricDescriptor(
@@ -166,6 +176,14 @@ public class MetricRegistry {
               "Collector export duration",
               "ms",
               List.of("net_peer_name", "http_status_code")),
+          // Points an exporter could not queue (queue full): the collector's only drop. The series
+          // only appears after the first one.
+          counter(
+              "collector.dropped",
+              "otelcol_exporter_enqueue_failed_metric_points",
+              "Collector points dropped",
+              "1",
+              List.of("exporter")),
           gauge(
               "collector.queue.size",
               "otelcol_exporter_queue_size",
@@ -218,6 +236,22 @@ public class MetricRegistry {
               "VictoriaMetrics request duration",
               "s",
               List.of("path", "quantile")),
+          // VictoriaMetrics has no status label: requests (errors included) and errors are two
+          // series, so the error ratio is vm.errors over vm.requests, by path.
+          counter(
+              "vm.requests",
+              "vm_request_duration_seconds_count",
+              "VictoriaMetrics requests",
+              "1",
+              List.of("path")),
+          counter(
+              "vm.errors",
+              "vm_http_request_errors_total",
+              "VictoriaMetrics request errors",
+              "1",
+              List.of("path")),
+          // up is one series per scrape job; the selector pins Caddy's (1 scraped, 0 down).
+          gauge("edge.up", "up{job=\"caddy\"}", "Edge scrape up", "1", List.of()),
           counter(
               "edge.requests",
               "caddy_http_requests_total",

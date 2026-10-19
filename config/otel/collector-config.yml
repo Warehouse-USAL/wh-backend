@@ -50,8 +50,18 @@ receivers:
           metric_relabel_configs:
             - source_labels: [__name__]
               regex: >-
-                minio_cluster_usage_total_bytes|minio_cluster_usage_object_total|minio_cluster_bucket_total|minio_cluster_capacity_usable_(total|free)_bytes|minio_s3_requests_total|minio_s3_requests_(errors|4xx_errors|5xx_errors)_total|minio_s3_requests_rejected_(auth|header|invalid|timestamp)_total|minio_s3_requests_ttfb_seconds_distribution|minio_s3_traffic_(received|sent)_bytes
+                minio_cluster_usage_total_bytes|minio_cluster_usage_object_total|minio_cluster_bucket_total|minio_cluster_capacity_usable_(total|free)_bytes|minio_s3_requests_total|minio_s3_requests_(4xx|5xx)_errors_total|minio_s3_requests_rejected_(auth|header|invalid|timestamp)_total|minio_s3_requests_ttfb_seconds_distribution|minio_s3_traffic_(received|sent)_bytes
               action: keep
+            # The 4xx and 5xx error counters become one series with a class label (minio.errors);
+            # their sum is what minio_s3_requests_errors_total counts, so that one is not kept.
+            - source_labels: [__name__]
+              regex: minio_s3_requests_(4xx|5xx)_errors_total
+              target_label: class
+              replacement: $$1
+            - source_labels: [__name__]
+              regex: minio_s3_requests_(4xx|5xx)_errors_total
+              target_label: __name__
+              replacement: minio_s3_requests_errors_by_class_total
 
 processors:
   batch:

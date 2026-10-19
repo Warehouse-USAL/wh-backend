@@ -55,9 +55,20 @@ class MetricRegistryTest {
           Map.entry("http.server.active", new Expected(MetricType.GAUGE, List.of())),
           Map.entry("mongo.pool.connections", new Expected(MetricType.GAUGE, List.of("state"))),
           Map.entry("mongo.pool.checkout", new Expected(MetricType.HISTOGRAM, List.of())),
+          Map.entry(
+              "mongo.pool.checkout.failed", new Expected(MetricType.COUNTER, List.of("reason"))),
+          Map.entry(
+              "kafka.publish.duration",
+              new Expected(MetricType.HISTOGRAM, List.of("topic", "result"))),
           Map.entry("bridge.messages", new Expected(MetricType.COUNTER, List.of("flow", "result"))),
           Map.entry(
               "bridge.callback.duration", new Expected(MetricType.HISTOGRAM, List.of("flow"))),
+          Map.entry(
+              "bridge.publish.duration",
+              new Expected(MetricType.HISTOGRAM, List.of("flow", "result"))),
+          Map.entry(
+              "bridge.processing.duration",
+              new Expected(MetricType.HISTOGRAM, List.of("flow", "result"))),
           Map.entry("bridge.consumer.lag", new Expected(MetricType.GAUGE, List.of("flow"))),
           Map.entry("job.run", new Expected(MetricType.GAUGE, List.of("job", "result", "field"))));
 
@@ -75,6 +86,9 @@ class MetricRegistryTest {
         .containsExactly(Aggregation.RATE, Aggregation.INCREASE);
     assertThat(registry.findByName("jvm.threads").orElseThrow().permittedAggregations())
         .containsExactly(Aggregation.AVG, Aggregation.MAX, Aggregation.LAST);
+    assertThat(registry.findByName("kafka.publish.duration").orElseThrow().unit()).isEqualTo("ms");
+    assertThat(registry.findByName("bridge.processing.duration").orElseThrow().unit())
+        .isEqualTo("ms");
   }
 
   @Test

@@ -45,6 +45,7 @@ class MetricRegistryScrapedTest {
           "collector.refused",
           "collector.exported",
           "collector.export.failed",
+          "collector.dropped",
           "collector.export.duration",
           "collector.queue.size",
           "vm.rows.ingested",
@@ -53,6 +54,9 @@ class MetricRegistryScrapedTest {
           "vm.disk.used",
           "vm.disk.free",
           "vm.query.duration",
+          "vm.requests",
+          "vm.errors",
+          "edge.up",
           "edge.requests",
           "edge.duration",
           "edge.errors");
@@ -140,10 +144,13 @@ class MetricRegistryScrapedTest {
     return found;
   }
 
-  /** The stored series a descriptor's queries read: buckets and count for a histogram. */
+  /**
+   * The stored series a descriptor's queries read: buckets and count for a histogram, the bare name
+   * of a pinned selector such as {@code up{job="caddy"}}.
+   */
   private static List<String> readSeries(MetricDescriptor d) {
     if (d.type() != MetricType.HISTOGRAM) {
-      return List.of(d.seriesName());
+      return List.of(d.seriesName().replaceFirst("\\{.*$", ""));
     }
     return d.permits(Aggregation.RATE)
         ? List.of(d.bucketSeriesName(), d.seriesName() + "_count")
@@ -291,6 +298,37 @@ class MetricRegistryScrapedTest {
         .isEqualTo(
             "sum by (http_status_code) (increase(otelcol_exporter_http_duration_count"
                 + "{net_peer_name=\"victoriametrics\"}[30s]))");
+  }
+
+  @Test
+  void edgeUpReadsOnlyCaddysScrapeAndOffersNoDimension() {
+    assertThat(query("edge.up", Map.of(), List.of(), "last"))
+        .isEqualTo("max(last_over_time(up{job=\"caddy\"}[30s]))");
+    assertThatThrownBy(() -> query("edge.up", Map.of("job", "minio"), List.of(), "last"))
+        .isInstanceOf(ResponseStatusException.class);
+  }
+
+  @Test
+  void minioErrorsSplitByClass() {
+    assertThat(query("minio.errors", Map.of("class", "5xx"), List.of("api"), "increase"))
+        .isEqualTo(
+            "sum by (api)(increase(minio_s3_requests_errors_by_class_total{class=\"5xx\"}[30s]))");
+  }
+
+  @Test
+  void vmRequestsAndErrorsShareThePathDimension() {
+    assertThat(query("vm.requests", Map.of("path", "/api/v1/query_range"), List.of(), "rate"))
+        .isEqualTo(
+            "sum(rate(vm_request_duration_seconds_count{path=\"/api/v1/query_range\"}[30s]))");
+    assertThat(query("vm.errors", Map.of(), List.of("path"), "increase"))
+        .isEqualTo("sum by (path)(increase(vm_http_request_errors_total[30s]))");
+  }
+
+  @Test
+  void collectorDroppedCountsEnqueueFailures() {
+    assertThat(query("collector.dropped", Map.of(), List.of("exporter"), "increase"))
+        .isEqualTo(
+            "sum by (exporter)(increase(otelcol_exporter_enqueue_failed_metric_points[30s]))");
   }
 
   @Test

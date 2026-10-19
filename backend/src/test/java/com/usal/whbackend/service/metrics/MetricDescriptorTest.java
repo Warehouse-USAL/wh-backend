@@ -69,4 +69,28 @@ class MetricDescriptorTest {
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("GAUGE");
   }
+
+  private static MetricDescriptor pinned(MetricType type, List<String> dimensions) {
+    return new MetricDescriptor(
+        "wh.test",
+        "up{job=\"caddy\"}",
+        "Test",
+        "1",
+        type,
+        dimensions,
+        type == MetricType.HISTOGRAM ? List.of(Aggregation.P95) : List.of(Aggregation.LAST),
+        Set.of(UserRole.SUPERADMIN));
+  }
+
+  @Test
+  void aPinnedSelectorIsOnlyForADimensionlessNonHistogram() {
+    assertThatCode(() -> pinned(MetricType.GAUGE, List.of())).doesNotThrowAnyException();
+    // A filter would be appended after the closing brace, and a histogram's _count after it too.
+    assertThatThrownBy(() -> pinned(MetricType.GAUGE, List.of("job")))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("selector");
+    assertThatThrownBy(() -> pinned(MetricType.HISTOGRAM, List.of()))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("selector");
+  }
 }

@@ -13,7 +13,9 @@ import java.util.Set;
  *     configuration (see config/otel/collector-config.yml), and guessing it yields queries that
  *     return empty results with no error. This value is verified against a running stack. For a
  *     {@link MetricType#HISTOGRAM} it is the base name, e.g. {@code http_server_duration}; the
- *     translator appends {@code _count} for rate and increase.
+ *     translator appends {@code _count} for rate and increase. A series shared by several scrape
+ *     jobs may be pinned to one with a selector, e.g. {@code up{job="caddy"}}; such a metric has no
+ *     dimensions (no filter could be appended to it) and is not a histogram.
  * @param dimensions the only labels that may appear in {@code filters} or {@code group_by}
  * @param bucketSeriesName the cumulative {@code le} series a {@link MetricType#HISTOGRAM}'s
  *     quantiles rate. Defaults to {@code <seriesName>_bucket}, the OTel convention; held explicitly
@@ -36,6 +38,11 @@ public record MetricDescriptor(
     if (bucketSeriesName != null && type != MetricType.HISTOGRAM) {
       throw new IllegalArgumentException(
           "Metric %s is a %s and has no bucket series".formatted(name, type));
+    }
+    if (seriesName.contains("{") && (type == MetricType.HISTOGRAM || !dimensions.isEmpty())) {
+      throw new IllegalArgumentException(
+          "Metric %s pins a selector, so it can be neither a histogram nor have dimensions"
+              .formatted(name));
     }
     if (bucketSeriesName == null && type == MetricType.HISTOGRAM) {
       bucketSeriesName = seriesName + "_bucket";
