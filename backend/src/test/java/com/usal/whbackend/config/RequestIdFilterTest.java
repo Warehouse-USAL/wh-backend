@@ -7,6 +7,7 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
@@ -125,6 +126,43 @@ class RequestIdFilterTest {
                     failing))
         .isInstanceOf(ServletException.class);
     assertThat(MDC.get(RequestIdFilter.MDC_KEY)).isNull();
+  }
+
+  @Test
+  void theErrorDispatchLogsUnderTheSameIdWithoutASecondAccessLine() throws Exception {
+    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/orders");
+    filter.doFilter(request, new MockHttpServletResponse(), chain);
+    String id = seenInMdc.get();
+    seenInMdc.set(null);
+
+    request.setDispatcherType(DispatcherType.ERROR);
+    request.setRequestURI("/error");
+    MockHttpServletResponse response = new MockHttpServletResponse();
+    filter.doFilter(request, response, new MockFilterChainCapturingMdc());
+
+    assertThat(seenInMdc.get()).isEqualTo(id);
+    assertThat(MDC.get(RequestIdFilter.MDC_KEY)).isNull();
+    assertThat(response.getHeader(RequestIdFilter.HEADER)).isNull();
+    assertThat(logs.list).hasSize(1);
+  }
+
+  @Test
+  void anErrorDispatchWithoutAKeptIdLeavesTheMdcEmpty() throws Exception {
+    MockHttpServletRequest request = new MockHttpServletRequest("GET", "/error");
+    request.setDispatcherType(DispatcherType.ERROR);
+
+    filter.doFilter(request, new MockHttpServletResponse(), new MockFilterChainCapturingMdc());
+
+    assertThat(seenInMdc.get()).isNull();
+    assertThat(logs.list).isEmpty();
+  }
+
+  /** A fresh chain each dispatch (a MockFilterChain runs once). */
+  private final class MockFilterChainCapturingMdc extends MockFilterChain {
+    @Override
+    public void doFilter(ServletRequest req, ServletResponse res) {
+      seenInMdc.set(MDC.get(RequestIdFilter.MDC_KEY));
+    }
   }
 
   /** Right after the metrics filter, ahead of Spring Security (order -100). */

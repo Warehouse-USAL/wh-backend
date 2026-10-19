@@ -129,7 +129,8 @@ public class DemoDataSeeder implements ApplicationRunner {
         data.getOrders().size(),
         data.getRestockOrders().size(),
         data.getReceptions().size());
-    log.info("Demo accounts (shared password '{}'):", DemoDataset.SHARED_PASSWORD);
+    // Passwords are never logged (logs are shipped); the shared one is in docs/demo-credentials.md.
+    log.info("Demo accounts (shared password in docs/demo-credentials.md):");
     for (User u : users) {
       log.info("  {} — {}", u.getEmail(), u.getRole());
     }

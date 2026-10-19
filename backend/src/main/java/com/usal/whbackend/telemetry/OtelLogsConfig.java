@@ -1,5 +1,6 @@
 package com.usal.whbackend.telemetry;
 
+import io.opentelemetry.api.OpenTelemetry;
 import io.opentelemetry.exporter.otlp.http.logs.OtlpHttpLogRecordExporter;
 import io.opentelemetry.instrumentation.logback.appender.v1_0.OpenTelemetryAppender;
 import io.opentelemetry.sdk.OpenTelemetrySdk;
@@ -18,7 +19,8 @@ import org.springframework.context.annotation.Configuration;
  * Ships log records over OTLP through the {@code OpenTelemetryAppender} declared in {@code
  * logback-spring.xml}. The appender does nothing until it is installed here, which only happens
  * with {@code telemetry.enabled=true}; otherwise the provider has no processor and no exporter is
- * built, so logging behaves exactly as without this class.
+ * built, and a no-op is installed so the appender drops the startup events it buffered (up to 1000)
+ * instead of holding them for the life of the process.
  */
 @Configuration
 public class OtelLogsConfig {
@@ -42,6 +44,7 @@ public class OtelLogsConfig {
     SdkLoggerProviderBuilder builder =
         SdkLoggerProvider.builder().setResource(TelemetryConfig.resource(props));
     if (!props.isEnabled()) {
+      OpenTelemetryAppender.install(OpenTelemetry.noop());
       return builder.build();
     }
     SdkLoggerProvider provider =

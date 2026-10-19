@@ -1,6 +1,7 @@
 package com.usal.whbackend.config;
 
 import com.usal.whbackend.telemetry.HttpMetricsFilter;
+import jakarta.servlet.DispatcherType;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -35,6 +36,10 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * the dispatcher (401/403 from security) has no route and is logged as {@code UNMATCHED}, the same
  * value the metrics use.
  *
+ * <p>Error dispatch: the container's later dispatch to {@code /error} runs through this filter too,
+ * only to put the same id back in the MDC (kept as a request attribute), so logs written there
+ * carry it; it logs no second access line.
+ *
  * <p>Async requests: {@link OncePerRequestFilter} skips async re-dispatches, so an async endpoint
  * gets one line when its initial dispatch returns, with the status and duration known at that point
  * (the console push stream is under the quiet {@code /console/} prefix and gets none).
@@ -46,6 +51,9 @@ public class RequestIdFilter extends OncePerRequestFilter {
   public static final String HEADER = "X-Request-Id";
 
   public static final String MDC_KEY = "request_id";
+
+  /** Request attribute keeping the id for the container's later error dispatch. */
+  static final String ATTRIBUTE = RequestIdFilter.class.getName() + ".id";
 
   /** Bounded and free of separators, so a caller cannot forge or break log lines. */
   private static final Pattern SAFE_ID = Pattern.compile("[A-Za-z0-9_-]{1,64}");
@@ -65,11 +73,29 @@ public class RequestIdFilter extends OncePerRequestFilter {
   }
 
   @Override
+  protected boolean shouldNotFilterErrorDispatch() {
+    return false;
+  }
+
+  @Override
   protected void doFilterInternal(
       HttpServletRequest request, HttpServletResponse response, FilterChain chain)
       throws ServletException, IOException {
+    if (request.getDispatcherType() == DispatcherType.ERROR) {
+      Object kept = request.getAttribute(ATTRIBUTE);
+      if (kept instanceof String id) {
+        MDC.put(MDC_KEY, id);
+      }
+      try {
+        chain.doFilter(request, response);
+      } finally {
+        MDC.remove(MDC_KEY);
+      }
+      return;
+    }
     String inbound = request.getHeader(HEADER);
     String id = isSafe(inbound) ? inbound : UUID.randomUUID().toString();
+    request.setAttribute(ATTRIBUTE, id);
     MDC.put(MDC_KEY, id);
     response.setHeader(HEADER, id);
     long start = System.nanoTime();

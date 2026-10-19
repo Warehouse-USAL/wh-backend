@@ -108,6 +108,23 @@ class OtelLogsConfigTest {
     }
   }
 
+  /** A disabled run drops what the appender buffered before install instead of holding it. */
+  @Test
+  void aDisabledRunReleasesTheStartupBuffer() {
+    logger.info(MESSAGE);
+    config.loggerProvider(props(false), exporterFactory).close();
+
+    // Had the event stayed buffered, installing a live SDK now would replay it.
+    SdkLoggerProvider provider = config.loggerProvider(props(true), exporterFactory);
+    try {
+      provider.forceFlush().join(5, TimeUnit.SECONDS);
+
+      assertThat(shipped()).isEmpty();
+    } finally {
+      provider.close();
+    }
+  }
+
   @Test
   void beanBuildsTheOtlpExporterFromTheLogsEndpoint() {
     TelemetryProperties props = props(true);
