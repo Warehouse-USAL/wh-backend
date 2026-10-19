@@ -202,6 +202,20 @@ class StreamRequestParserTest {
   }
 
   @Test
+  void metricsAlsoAcceptTheLongFixedLookbacks() {
+    assertThat(parse(metric("a", "2d", "1m", null, null)).get(0).key())
+        .extracting(k -> ((SourceKey.Metric) k).range())
+        .isEqualTo(Duration.ofDays(2));
+    assertThat(parse(metric("a", "7d", "1h", null, null)).get(0).key())
+        .extracting(k -> ((SourceKey.Metric) k).range())
+        .isEqualTo(Duration.ofDays(7));
+    assertThat(parse(metric("a", "30d", "1d", null, null)).get(0).key())
+        .extracting(k -> ((SourceKey.Metric) k).range())
+        .isEqualTo(Duration.ofDays(30));
+    assertRejected("INVALID_SUBSCRIPTION", logs("a", null, null, "30d"));
+  }
+
+  @Test
   void anUnknownMetricIsNotRejectedUpFront() {
     // Visibility depends on the catalogue and the caller, so it surfaces as an error event.
     StreamRequest.Subscription unknown =

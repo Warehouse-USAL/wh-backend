@@ -25,7 +25,7 @@ final class StreamRequestParser {
 
   static final String INVALID = "INVALID_SUBSCRIPTION";
 
-  /** The console's range picker, also the only windows a stream can follow. */
+  /** The console's range picker, also the only windows a log tail can follow. */
   static final Map<String, Duration> RANGES =
       Map.of(
           "5m", Duration.ofMinutes(5),
@@ -33,6 +33,21 @@ final class StreamRequestParser {
           "1h", Duration.ofHours(1),
           "6h", Duration.ofHours(6),
           "24h", Duration.ofHours(24));
+
+  /**
+   * The picker's ranges plus the fixed long lookbacks a widget can ask for (a daily job's history),
+   * for metrics only: a log tail over days is not something the console shows.
+   */
+  static final Map<String, Duration> METRIC_RANGES =
+      Map.of(
+          "5m", Duration.ofMinutes(5),
+          "15m", Duration.ofMinutes(15),
+          "1h", Duration.ofHours(1),
+          "6h", Duration.ofHours(6),
+          "24h", Duration.ofHours(24),
+          "2d", Duration.ofDays(2),
+          "7d", Duration.ofDays(7),
+          "30d", Duration.ofDays(30));
 
   private static final Pattern ID = Pattern.compile("[A-Za-z0-9_.-]{1,64}");
 
@@ -77,7 +92,7 @@ final class StreamRequestParser {
   }
 
   private static SourceKey metric(StreamRequest.Subscription sub, Set<UserRole> roles) {
-    Duration range = range(sub.range());
+    Duration range = range(sub.range(), METRIC_RANGES);
     String step = sub.step() == null ? "" : sub.step().trim();
     Duration stepDuration = StepDuration.parse(step).orElseThrow(StreamRequestParser::invalid);
     if (isBlank(sub.metric()) || isBlank(sub.agg()) || stepDuration.compareTo(range) >= 0) {
@@ -95,7 +110,7 @@ final class StreamRequestParser {
   }
 
   private SourceKey logs(StreamRequest.Subscription sub) {
-    Duration range = range(sub.range());
+    Duration range = range(sub.range(), RANGES);
     LogsQuery valid =
         logs.validate(
             new LogsQuery(
@@ -112,8 +127,8 @@ final class StreamRequestParser {
     return new SourceKey.WsEvents(feed);
   }
 
-  private static Duration range(String raw) {
-    Duration range = raw == null ? null : RANGES.get(raw);
+  private static Duration range(String raw, Map<String, Duration> allowed) {
+    Duration range = raw == null ? null : allowed.get(raw);
     if (range == null) {
       throw invalid();
     }
