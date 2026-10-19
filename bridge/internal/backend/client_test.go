@@ -132,6 +132,23 @@ func TestSendRejectedErrorCarriesStatusAndBody(
 	}
 }
 
+func TestSendUnavailableErrorCarriesStatusAndBody(
+	t *testing.T,
+) {
+	client, _ := newClient(t, http.StatusServiceUnavailable)
+	err := client.Send(context.Background(), sample)
+	var unavailable *backend.UnavailableError
+	if !errors.As(err, &unavailable) {
+		t.Fatalf("got %v, want *UnavailableError", err)
+	}
+	if unavailable.Status != http.StatusServiceUnavailable || unavailable.Body != "reply" {
+		t.Fatalf("got %+v", unavailable)
+	}
+	if err.Error() != "backend answered status 503: reply" {
+		t.Fatalf("got %q", err.Error())
+	}
+}
+
 func TestSendNetworkErrorIsTransient(
 	t *testing.T,
 ) {

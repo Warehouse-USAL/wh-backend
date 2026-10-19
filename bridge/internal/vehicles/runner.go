@@ -115,9 +115,22 @@ func (r *runner) retrying(
 		err error,
 		delay time.Duration,
 	) {
-		r.logger.Warn("backend unavailable, retrying", requestid.Attr(requestID), "error", err, "retry_in", delay)
+		r.logRetry(requestID, err, delay)
 		r.rec.Message(flow, "retry")
 	}
+}
+
+func (r *runner) logRetry(
+	requestID string,
+	err error,
+	delay time.Duration,
+) {
+	var unavailable *backend.UnavailableError
+	if errors.As(err, &unavailable) {
+		r.logger.Warn("backend unavailable, retrying", requestid.Attr(requestID), "status", unavailable.Status, "retry_in", delay)
+		return
+	}
+	r.logger.Warn("backend unavailable, retrying", requestid.Attr(requestID), "error", err, "retry_in", delay)
 }
 
 func (r *runner) settle(

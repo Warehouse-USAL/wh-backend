@@ -614,3 +614,27 @@ func TestRejectedMessageIsLoggedWithItsStatusButNotItsPayloadOrBody(
 		t.Fatalf("logged %v, want the status and the size", lines)
 	}
 }
+
+func TestRetryIsLoggedWithTheStatusButNotTheBackendBody(
+	t *testing.T,
+) {
+	body := `{"vehicle_id":"VHC-001","status":"idle"}`
+	lines, raw := loggedRun(t, body, &backend.UnavailableError{Status: 503, Body: "PII-MARKER"})
+	if strings.Contains(raw, "PII-MARKER") {
+		t.Fatalf("log leaks the backend body: %s", raw)
+	}
+	first := lines[0]
+	if first["msg"] != "backend unavailable, retrying" || first["status"] != float64(503) || first["error"] != nil {
+		t.Fatalf("logged %v, want the status only", lines)
+	}
+}
+
+func TestTransportFailureRetryKeepsItsError(
+	t *testing.T,
+) {
+	lines, _ := loggedRun(t, `{"vehicle_id":"VHC-001","status":"idle"}`, errors.New("connection refused"))
+	first := lines[0]
+	if first["msg"] != "backend unavailable, retrying" || first["error"] != "connection refused" {
+		t.Fatalf("logged %v, want the transport error", lines)
+	}
+}

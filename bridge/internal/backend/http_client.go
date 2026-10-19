@@ -50,7 +50,7 @@ func judge(
 	if isRejection(resp.StatusCode) {
 		return &RejectedError{Status: resp.StatusCode, Body: string(body)}
 	}
-	return fmt.Errorf("backend answered status %d: %s", resp.StatusCode, body)
+	return &UnavailableError{Status: resp.StatusCode, Body: string(body)}
 }
 
 func isRejection(
