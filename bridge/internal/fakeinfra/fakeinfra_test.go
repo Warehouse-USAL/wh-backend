@@ -106,7 +106,7 @@ func TestScriptUsesTheGivenVehicleAndOrder(
 	}
 }
 
-func TestScriptForCancelledOrderOnlyFreesTheVehicle(
+func TestScriptForCancelledOrderConfirmsItAndFreesTheVehicle(
 	t *testing.T,
 ) {
 	order := []byte(`{"order_id":"ORD-1","status":"cancelled"}`)
@@ -115,8 +115,12 @@ func TestScriptForCancelledOrderOnlyFreesTheVehicle(
 		t.Fatalf("unexpected error: %v", err)
 	}
 	got := summarize(t, steps)
-	if len(got) != 1 || got[0] != (summary{classify.KindVehicleTelemetry, "idle", ""}) {
-		t.Fatalf("got %v", got)
+	want := []summary{
+		{classify.KindOrderStatus, "cancelled", ""},
+		{classify.KindVehicleTelemetry, "idle", ""},
+	}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("got %v, want %v", got, want)
 	}
 }
 

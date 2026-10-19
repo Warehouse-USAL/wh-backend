@@ -70,6 +70,34 @@ class OrderControllerSecurityTest {
     mockMvc.perform(post("/orders/order-1/cancel")).andExpect(status().isForbidden());
   }
 
+  // ── OPERATOR: the mobile user creates orders and cancels only their own ──
+
+  @Test
+  @WithMockUser(username = "operator-id", roles = "OPERATOR")
+  void createOrder_withOperator_returns201() throws Exception {
+    when(orderService.createOrder(any(), eq("operator-id"))).thenReturn(new Order());
+    mockMvc
+        .perform(
+            post("/orders")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"items\":[],\"destination_area\":\"AREA-B\"}"))
+        .andExpect(status().isCreated());
+  }
+
+  @Test
+  @WithMockUser(username = "operator-id", roles = "OPERATOR")
+  void cancelOrder_withOperator_isLimitedToOwnOrders() throws Exception {
+    when(orderService.cancelOrder(eq("order-1"), any(), eq("operator-id"), eq(false)))
+        .thenReturn(new Order());
+    mockMvc.perform(post("/orders/order-1/cancel")).andExpect(status().isOk());
+  }
+
+  @Test
+  @WithMockUser(roles = "DISPATCHER")
+  void cancelOrder_withDispatcher_returns403() throws Exception {
+    mockMvc.perform(post("/orders/order-1/cancel")).andExpect(status().isForbidden());
+  }
+
   @Test
   void createOrder_withNoToken_returns401() throws Exception {
     mockMvc
@@ -97,7 +125,8 @@ class OrderControllerSecurityTest {
   @Test
   @WithMockUser(roles = "SUPERADMIN")
   void cancelOrder_withSuperadmin_returns200() throws Exception {
-    when(orderService.cancelOrder(anyString(), any())).thenReturn(new Order());
+    when(orderService.cancelOrder(anyString(), any(), anyString(), eq(true)))
+        .thenReturn(new Order());
     mockMvc.perform(post("/orders/order-1/cancel")).andExpect(status().isOk());
   }
 }

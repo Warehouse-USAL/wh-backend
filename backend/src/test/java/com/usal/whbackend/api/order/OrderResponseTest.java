@@ -143,6 +143,19 @@ class OrderResponseTest {
   }
 
   @Test
+  void from_inProgressCancellation_exposesRequestTimestampForClients() {
+    Instant requestedAt = Instant.parse("2026-10-19T12:30:00Z");
+    Order order = new Order();
+    order.setStatus(OrderStatus.IN_PROGRESS);
+    order.setCancellationRequestedAt(requestedAt);
+
+    OrderResponse response = OrderResponse.from(order);
+
+    assertEquals(OrderStatus.IN_PROGRESS, response.status());
+    assertEquals(requestedAt, response.timestamps().cancellationRequestedAt());
+  }
+
+  @Test
   void constructor_nullItems_staysNull() {
     OrderResponse r =
         new OrderResponse("id", OrderStatus.PENDING, "u", null, null, null, null, null, null, null);

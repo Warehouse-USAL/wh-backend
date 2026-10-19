@@ -173,11 +173,33 @@ class OrderControllerTest {
   @Test
   @WithMockUser(roles = "ADMIN_WAREHOUSE")
   void cancelOrder_returns200() throws Exception {
-    when(orderService.cancelOrder(anyString(), any())).thenReturn(sampleOrder);
+    when(orderService.cancelOrder(anyString(), any(), anyString(), eq(true)))
+        .thenReturn(sampleOrder);
     mockMvc
         .perform(post("/orders/test-id/cancel"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.order.status").value("pending"));
+  }
+
+  @Test
+  @WithMockUser(username = "operator-1", roles = "OPERATOR")
+  void cancelOrder_asOperator_cancelsOnlyOwnOrdersAndShowsPendingCancellation() throws Exception {
+    Order inProgress = new Order();
+    inProgress.setId("test-id");
+    inProgress.setStatus(OrderStatus.IN_PROGRESS);
+    inProgress.setRequestedByUserId("operator-1");
+    inProgress.setItems(List.of());
+    inProgress.setCreatedAt(Instant.parse("2026-10-18T10:00:00Z"));
+    inProgress.setCancellationRequestedAt(Instant.parse("2026-10-18T10:05:00Z"));
+    when(orderService.cancelOrder(eq("test-id"), isNull(), eq("operator-1"), eq(false)))
+        .thenReturn(inProgress);
+
+    mockMvc
+        .perform(post("/orders/test-id/cancel"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.order.status").value("in_progress"))
+        .andExpect(
+            jsonPath("$.order.timestamps.cancellation_requested_at").value("2026-10-18T10:05:00Z"));
   }
 
   @Test
@@ -190,7 +212,8 @@ class OrderControllerTest {
     withReason.setRequestedByUserId("user-1");
     withReason.setItems(java.util.List.of());
     withReason.setCreatedAt(java.time.Instant.now());
-    when(orderService.cancelOrder(eq("test-id"), eq("Out of stock"))).thenReturn(withReason);
+    when(orderService.cancelOrder(eq("test-id"), eq("Out of stock"), anyString(), eq(true)))
+        .thenReturn(withReason);
 
     mockMvc
         .perform(
@@ -204,7 +227,8 @@ class OrderControllerTest {
   @Test
   @WithMockUser(roles = "ADMIN_WAREHOUSE")
   void cancelOrder_withoutBody_reasonIsNull() throws Exception {
-    when(orderService.cancelOrder(anyString(), isNull())).thenReturn(sampleOrder);
+    when(orderService.cancelOrder(anyString(), isNull(), anyString(), eq(true)))
+        .thenReturn(sampleOrder);
 
     mockMvc.perform(post("/orders/test-id/cancel")).andExpect(status().isOk());
   }

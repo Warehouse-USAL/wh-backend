@@ -336,20 +336,44 @@ public class OrderService implements OrderCompletionPort {
     orderEventPublishers.forEach(p -> p.broadcastOrderUpdate(order));
   }
 
+  /** Administrator/internal overload that may cancel any order. */
   public Order cancelOrder(String id, String reason) {
+    return cancelOrder(id, reason, null, true);
+  }
+
+  /**
+   * Cancels an order or, if a vehicle is already working on it, asks Infra to. A pending order is
+   * cancelled at once. An in-progress one stays IN_PROGRESS with {@code cancellationRequestedAt}
+   * set until Infra reports it cancelled, since the vehicle must first put the goods back; asking
+   * again meanwhile returns it unchanged. Either way Infra is told on the {@code orders} topic.
+   *
+   * @param requesterId the user asking; must have requested the order unless {@code anyOrder}
+   * @param anyOrder whether the requester may cancel orders other users requested
+   */
+  public Order cancelOrder(String id, String reason, String requesterId, boolean anyOrder) {
     Order order =
         orderRepository
             .findById(id)
             .orElseThrow(
                 () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "ORDER_NOT_FOUND"));
 
+    if (!anyOrder && (requesterId == null || !requesterId.equals(order.getRequestedByUserId()))) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "ORDER_NOT_OWNED");
+    }
     if (order.getStatus() == OrderStatus.COMPLETED || order.getStatus() == OrderStatus.CANCELLED) {
       throw new ResponseStatusException(HttpStatus.CONFLICT, "ORDER_NOT_CANCELLABLE");
     }
+    if (order.getStatus() == OrderStatus.IN_PROGRESS
+        && order.getCancellationRequestedAt() != null) {
+      return order;
+    }
 
-    Order cancelled = orderRepository.cancel(order, reason);
-    orderEventPublishers.forEach(p -> p.broadcastOrderUpdate(cancelled));
-    return cancelled;
+    Order saved =
+        order.getStatus() == OrderStatus.IN_PROGRESS
+            ? orderRepository.requestCancellation(order, reason)
+            : orderRepository.cancel(order, reason);
+    orderEventPublishers.forEach(p -> p.broadcastOrderUpdate(saved));
+    return saved;
   }
 
   @Transactional
