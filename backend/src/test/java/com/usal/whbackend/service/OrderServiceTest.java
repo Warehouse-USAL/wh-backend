@@ -7,17 +7,20 @@ import static org.mockito.Mockito.*;
 import com.usal.whbackend.api.order.CreateOrderRequest;
 import com.usal.whbackend.api.order.CreateOrderRequest.AddressRequest;
 import com.usal.whbackend.api.order.CreateOrderRequest.OrderItemRequest;
+import com.usal.whbackend.domain.IdempotencyRecord;
 import com.usal.whbackend.domain.Order;
 import com.usal.whbackend.domain.OrderItem;
 import com.usal.whbackend.domain.OrderStatus;
 import com.usal.whbackend.domain.Product;
 import com.usal.whbackend.domain.Vehicle;
 import com.usal.whbackend.domain.VehicleStatus;
+import com.usal.whbackend.repository.IdempotencyRecordRepository;
 import com.usal.whbackend.repository.OrderRepository;
 import com.usal.whbackend.repository.ProductRepository;
 import com.usal.whbackend.repository.VehicleRepository;
 import com.usal.whbackend.repository.kafka.VehicleUpdateExecutor;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Function;
@@ -26,13 +29,17 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.mongodb.core.query.Update;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.server.ResponseStatusException;
 
 @ExtendWith(MockitoExtension.class)
@@ -47,6 +54,7 @@ class OrderServiceTest {
   @Mock StopResolver stopResolver;
   @Mock OrderEventPublisher orderEventPublisher;
   @Mock StockEventPublisher stockEventPublisher;
+  @Mock IdempotencyRecordRepository idempotencyRecordRepository;
   OrderService orderService;
 
   @BeforeEach
@@ -61,7 +69,8 @@ class OrderServiceTest {
             stockDrainPort,
             stopResolver,
             List.of(orderEventPublisher),
-            List.of(stockEventPublisher));
+            List.of(stockEventPublisher),
+            idempotencyRecordRepository);
   }
 
   /**
@@ -189,6 +198,18 @@ class OrderServiceTest {
   // ── createOrder ────────────────────────────────────────────────────────────
 
   @Test
+  void createOrder_publicEntryPointsAreTransactional() throws NoSuchMethodException {
+    assertNotNull(
+        OrderService.class
+            .getMethod("createOrder", CreateOrderRequest.class, String.class)
+            .getAnnotation(Transactional.class));
+    assertNotNull(
+        OrderService.class
+            .getMethod("createOrder", CreateOrderRequest.class, String.class, String.class)
+            .getAnnotation(Transactional.class));
+  }
+
+  @Test
   void createOrder_missingDestination_throws400() {
     CreateOrderRequest req = new CreateOrderRequest(List.of(), null, null);
     assertThrows(ResponseStatusException.class, () -> orderService.createOrder(req, "user-1"));
@@ -245,20 +266,31 @@ class OrderServiceTest {
     when(productService.computeReservedStock("prod-1")).thenReturn(0);
     Order saved = new Order();
     saved.setId("ord-new");
-    when(orderRepository.save(any())).thenReturn(saved);
+    when(orderRepository.saveWithoutPublishing(any())).thenReturn(saved);
     when(stopResolver.resolve(any())).thenReturn(List.of("WH|A-L1-P01"));
 
-    Order result =
-        orderService.createOrder(
-            new CreateOrderRequest(
-                List.of(new OrderItemRequest("prod-1", 2)), "AREA-A", validAddress()),
-            "user-1");
+    TransactionSynchronizationManager.initSynchronization();
+    try {
+      Order result =
+          orderService.createOrder(
+              new CreateOrderRequest(
+                  List.of(new OrderItemRequest("prod-1", 2)), "AREA-A", validAddress()),
+              "user-1");
 
-    assertEquals("ord-new", result.getId());
-    ArgumentCaptor<Order> toSave = ArgumentCaptor.forClass(Order.class);
-    verify(orderRepository).save(toSave.capture());
-    assertEquals(List.of("WH|A-L1-P01"), toSave.getValue().getStops());
-    verify(orderEventPublisher).broadcastOrderUpdate(saved);
+      assertEquals("ord-new", result.getId());
+      ArgumentCaptor<Order> toSave = ArgumentCaptor.forClass(Order.class);
+      verify(orderRepository).saveWithoutPublishing(toSave.capture());
+      assertEquals(List.of("WH|A-L1-P01"), toSave.getValue().getStops());
+      verify(orderRepository, never()).publishPendingOrder(any());
+      verify(orderEventPublisher, never()).broadcastOrderUpdate(any());
+
+      TransactionSynchronizationManager.getSynchronizations()
+          .forEach(synchronization -> synchronization.afterCommit());
+      verify(orderRepository).publishPendingOrder(saved);
+      verify(orderEventPublisher).broadcastOrderUpdate(saved);
+    } finally {
+      TransactionSynchronizationManager.clearSynchronization();
+    }
   }
 
   @Test
@@ -272,7 +304,7 @@ class OrderServiceTest {
     when(productRepository.findById("prod-1")).thenReturn(Optional.of(p));
     when(productService.computeAvailableStock("prod-1")).thenReturn(10);
     when(productService.computeReservedStock("prod-1")).thenReturn(0);
-    when(orderRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+    when(orderRepository.saveWithoutPublishing(any())).thenAnswer(inv -> inv.getArgument(0));
 
     Order result =
         orderService.createOrder(
@@ -294,7 +326,7 @@ class OrderServiceTest {
     when(productRepository.findById("prod-1")).thenReturn(Optional.of(p));
     when(productService.computeAvailableStock("prod-1")).thenReturn(10);
     when(productService.computeReservedStock("prod-1")).thenReturn(0);
-    when(orderRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+    when(orderRepository.saveWithoutPublishing(any())).thenAnswer(inv -> inv.getArgument(0));
 
     Order result =
         orderService.createOrder(
@@ -342,7 +374,8 @@ class OrderServiceTest {
     when(productService.computeReservedStock("prod-2")).thenReturn(0);
 
     ArgumentCaptor<Order> orderCaptor = ArgumentCaptor.forClass(Order.class);
-    when(orderRepository.save(orderCaptor.capture())).thenAnswer(inv -> inv.getArgument(0));
+    when(orderRepository.saveWithoutPublishing(orderCaptor.capture()))
+        .thenAnswer(inv -> inv.getArgument(0));
 
     CreateOrderRequest req =
         new CreateOrderRequest(
@@ -493,6 +526,170 @@ class OrderServiceTest {
 
     assertEquals(400, ex.getStatusCode().value());
     assertEquals("INSUFFICIENT_STOCK", ex.getReason());
+  }
+
+  @Test
+  void createOrder_withIdempotencyKey_firstTime_createsOrderAndSavesRecord() {
+    Product p = new Product();
+    p.setId("prod-1");
+    p.setSku("SKU-001");
+    p.setActive(true);
+    p.setMaxQuantityPerOrder(5);
+    p.setMinimumStock(2);
+    when(productRepository.findById("prod-1")).thenReturn(Optional.of(p));
+    when(productService.computeAvailableStock("prod-1")).thenReturn(10);
+    when(productService.computeReservedStock("prod-1")).thenReturn(0);
+    Order saved = new Order();
+    saved.setId("ord-new");
+    when(orderRepository.saveWithoutPublishing(any())).thenReturn(saved);
+    when(idempotencyRecordRepository.findByKey("key-1")).thenReturn(Optional.empty());
+    List<String> orderIdsAtSave = new ArrayList<>();
+    when(idempotencyRecordRepository.save(any(IdempotencyRecord.class)))
+        .thenAnswer(
+            inv -> {
+              IdempotencyRecord record = inv.getArgument(0);
+              orderIdsAtSave.add(record.getOrderId());
+              return record;
+            });
+
+    CreateOrderRequest req =
+        new CreateOrderRequest(
+            List.of(new OrderItemRequest("prod-1", 2)), "AREA-A", validAddress());
+
+    Order result = orderService.createOrder(req, "user-1", "key-1");
+
+    assertEquals("ord-new", result.getId());
+    assertNull(orderIdsAtSave.get(0));
+    assertEquals("ord-new", orderIdsAtSave.get(1));
+    ArgumentCaptor<IdempotencyRecord> recordCaptor =
+        ArgumentCaptor.forClass(IdempotencyRecord.class);
+    verify(idempotencyRecordRepository, times(2)).save(recordCaptor.capture());
+    assertEquals("key-1", recordCaptor.getAllValues().get(0).getKey());
+    assertEquals("user-1", recordCaptor.getAllValues().get(0).getUserId());
+    assertEquals("ord-new", recordCaptor.getAllValues().get(1).getOrderId());
+    InOrder interactions = inOrder(idempotencyRecordRepository, orderRepository);
+    interactions.verify(idempotencyRecordRepository).save(any(IdempotencyRecord.class));
+    interactions.verify(orderRepository).saveWithoutPublishing(any());
+    interactions.verify(idempotencyRecordRepository).save(any(IdempotencyRecord.class));
+  }
+
+  @Test
+  void createOrder_withIdempotencyKey_duplicateKey_returnsExistingOrderWithoutCreatingAgain() {
+    Order existing = new Order();
+    existing.setId("ord-existing");
+    when(idempotencyRecordRepository.findByKey("key-1"))
+        .thenReturn(
+            Optional.of(new IdempotencyRecord("key-1", "user-1", "ord-existing", Instant.now())));
+    when(orderRepository.findById("ord-existing")).thenReturn(Optional.of(existing));
+
+    CreateOrderRequest req =
+        new CreateOrderRequest(
+            List.of(new OrderItemRequest("prod-1", 2)), "AREA-A", validAddress());
+
+    Order result = orderService.createOrder(req, "user-1", "key-1");
+
+    assertEquals("ord-existing", result.getId());
+    verify(orderRepository, never()).saveWithoutPublishing(any());
+    verify(orderRepository, never()).publishPendingOrder(any());
+    verify(productRepository, never()).findById(any());
+  }
+
+  @Test
+  void createOrder_withIdempotencyKey_mismatchedUser_throws409Conflict() {
+    when(idempotencyRecordRepository.findByKey("key-1"))
+        .thenReturn(
+            Optional.of(new IdempotencyRecord("key-1", "user-other", "ord-1", Instant.now())));
+
+    CreateOrderRequest req =
+        new CreateOrderRequest(
+            List.of(new OrderItemRequest("prod-1", 2)), "AREA-A", validAddress());
+
+    ResponseStatusException ex =
+        assertThrows(
+            ResponseStatusException.class, () -> orderService.createOrder(req, "user-1", "key-1"));
+
+    assertEquals(409, ex.getStatusCode().value());
+    assertEquals("IDEMPOTENCY_KEY_USER_MISMATCH", ex.getReason());
+  }
+
+  @Test
+  void createOrder_withIdempotencyKey_orderNotFoundForExistingRecord_throws404() {
+    when(idempotencyRecordRepository.findByKey("key-1"))
+        .thenReturn(
+            Optional.of(new IdempotencyRecord("key-1", "user-1", "ord-ghost", Instant.now())));
+    when(orderRepository.findById("ord-ghost")).thenReturn(Optional.empty());
+
+    CreateOrderRequest req =
+        new CreateOrderRequest(
+            List.of(new OrderItemRequest("prod-1", 2)), "AREA-A", validAddress());
+
+    ResponseStatusException ex =
+        assertThrows(
+            ResponseStatusException.class, () -> orderService.createOrder(req, "user-1", "key-1"));
+
+    assertEquals(404, ex.getStatusCode().value());
+    assertEquals("ORDER_NOT_FOUND", ex.getReason());
+  }
+
+  @Test
+  void createOrder_withIdempotencyKey_concurrentClaimConflictDoesNotCreateOrder() {
+    when(idempotencyRecordRepository.findByKey("key-1"))
+        .thenReturn(Optional.empty());
+    when(idempotencyRecordRepository.save(any(IdempotencyRecord.class)))
+        .thenThrow(new DuplicateKeyException("duplicate"));
+
+    CreateOrderRequest req =
+        new CreateOrderRequest(
+            List.of(new OrderItemRequest("prod-1", 2)), "AREA-A", validAddress());
+
+    ResponseStatusException ex =
+        assertThrows(
+            ResponseStatusException.class, () -> orderService.createOrder(req, "user-1", "key-1"));
+
+    assertEquals(409, ex.getStatusCode().value());
+    assertEquals("IDEMPOTENCY_REQUEST_IN_PROGRESS", ex.getReason());
+    verify(orderRepository, never()).save(any());
+    verify(productRepository, never()).findById(any());
+    verify(orderEventPublisher, never()).broadcastOrderUpdate(any());
+  }
+
+  @Test
+  void createOrder_withoutIdempotencyRepoOrBlankKey_proceedsNormally() {
+    OrderService serviceWithoutRepo =
+        new OrderService(
+            orderRepository,
+            productRepository,
+            productService,
+            vehicleRepository,
+            vehicleUpdateExecutor,
+            stockDrainPort,
+            stopResolver,
+            List.of(orderEventPublisher),
+            List.of(stockEventPublisher),
+            null);
+
+    Product p = new Product();
+    p.setId("prod-1");
+    p.setSku("SKU-001");
+    p.setActive(true);
+    p.setMaxQuantityPerOrder(5);
+    p.setMinimumStock(2);
+    when(productRepository.findById("prod-1")).thenReturn(Optional.of(p));
+    when(productService.computeAvailableStock("prod-1")).thenReturn(10);
+    when(productService.computeReservedStock("prod-1")).thenReturn(0);
+    Order saved = new Order();
+    saved.setId("ord-no-repo");
+    when(orderRepository.saveWithoutPublishing(any())).thenReturn(saved);
+
+    CreateOrderRequest req =
+        new CreateOrderRequest(
+            List.of(new OrderItemRequest("prod-1", 2)), "AREA-A", validAddress());
+
+    Order result = serviceWithoutRepo.createOrder(req, "user-1", "key-any");
+    assertEquals("ord-no-repo", result.getId());
+
+    Order blankResult = orderService.createOrder(req, "user-1", "   ");
+    assertEquals("ord-no-repo", blankResult.getId());
   }
 
   // ── assignVehicle ──────────────────────────────────────────────────────────
