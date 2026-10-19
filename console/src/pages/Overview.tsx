@@ -106,6 +106,8 @@ function RestockTile() {
   const { range } = useLive()
   const runs = useMetric(RESTOCK_RUNS)
   if (runs.loading) return <Skeleton className="col-span-3" />
+  // A failed query says nothing about the cron: never read it as "no run".
+  if (runs.error) return <TileWidget value="UNKNOWN" tone="warn" label={`restock-cron, ${runs.error.message}`} className="col-span-3" />
   const last = runs.series
     .flatMap((s) => s.points.map((p) => ({ t: p.t, result: s.label })))
     .reduce<{ t: number; result: string } | undefined>((a, b) => (a && a.t >= b.t ? a : b), undefined)

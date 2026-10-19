@@ -62,7 +62,7 @@ export default function App() {
               key={path}
               path={path}
               element={
-                path in DOMAIN_PAGES ? (
+                Object.hasOwn(DOMAIN_PAGES, path) ? (
                   <EntityPage title={label} entities={DOMAIN_PAGES[path]} />
                 ) : section === 'Monitoring' && isDomain(label) ? (
                   <MonitoringPage key={path} domain={label} extra={label === 'Orders' ? <RequestTrail /> : undefined} />
@@ -72,9 +72,9 @@ export default function App() {
                   <Overview />
                 ) : path === '/monitoring/websockets' ? (
                   <WebSockets />
-                ) : path in DEV_PORTS ? (
+                ) : Object.hasOwn(DEV_PORTS, path) ? (
                   <DevTool key={path} name={label} port={DEV_PORTS[path]} />
-                ) : path in INFRA_ROUTES ? (
+                ) : Object.hasOwn(INFRA_ROUTES, path) ? (
                   <PresetPage key={path} spec={INFRA_PAGES[INFRA_ROUTES[path]]} />
                 ) : (
                   <Placeholder crumb={section} title={label} />

@@ -99,9 +99,11 @@ describe('MonitoringPage', () => {
     renderPage('Orders')
     const list = await screen.findByText('Requests')
     const card = list.closest('div.rounded-lg') as HTMLElement
-    await waitFor(() => expect(within(card).getAllByText(/^(GET|POST|PATCH)/)).toHaveLength(3))
+    await waitFor(() => expect(within(card).getAllByText(/^(GET|POST|PATCH)/)).toHaveLength(2))
     // 15 minutes of range: 150 requests is 10 per minute. UNMATCHED and other pages' routes stay out.
-    expect(within(card).getAllByText(/^(GET|POST|PATCH)/).map((e) => e.textContent)).toEqual(['POST /orders', 'GET /orders', 'GET /orders/{id}'])
+    expect(within(card).getAllByText(/^(GET|POST|PATCH)/).map((e) => e.textContent)).toEqual(['POST /orders', 'GET /orders'])
+    // A route with zero requests has nothing to rank.
+    expect(within(card).queryByText('GET /orders/{id}')).toBeNull()
     expect(card).toHaveTextContent('per min')
     expect(card).toHaveTextContent('POST /orders10')
     expect(card).toHaveTextContent('GET /orders3')
@@ -114,6 +116,7 @@ describe('MonitoringPage', () => {
         return [
           { labels: { method: 'GET', route: '/orders' }, points: [[1, 20], [2, 1500]] },
           { labels: { method: 'POST', route: '/orders' }, points: [[1, 80]] },
+          { labels: { method: 'GET', route: '/orders/{id}' }, points: [] },
         ]
       }
       return b.filters.status_class === '5xx' ? [{ labels: { method: 'POST', route: '/orders' }, points: [[1, 2], [2, 3]] }] : []
@@ -124,6 +127,8 @@ describe('MonitoringPage', () => {
     await waitFor(() => expect(latency).toHaveTextContent('GET /orders1.5 s'))
     expect(latency).toHaveTextContent('p95, slowest first')
     expect(latency).toHaveTextContent('POST /orders80 ms')
+    expect(within(latency).queryByText('GET /orders/{id}')).toBeNull()
+    expect(latency).not.toHaveTextContent('Infinity')
     const errors = screen.getByText('Errors').closest('div.rounded-lg') as HTMLElement
     expect(errors).toHaveTextContent('5xx, last 15m')
     await waitFor(() => expect(errors).toHaveTextContent('POST /orders5'))

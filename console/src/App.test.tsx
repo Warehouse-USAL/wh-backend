@@ -4,6 +4,7 @@ import { MemoryRouter } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import { api, getSession, setSession } from './api/client'
+import { NAV } from './layout/nav'
 import { jsonResponse, mockFetch } from './test/http'
 
 const renderApp = (path = '/') =>
@@ -83,6 +84,22 @@ describe('App', () => {
     await userEvent.setup().click(screen.getByRole('link', { name: 'WebSockets' }))
     expect(screen.getByRole('heading', { name: 'WebSockets' })).toBeInTheDocument()
     expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  const MONITORING = (NAV.find((s) => s.section === 'Monitoring')?.items ?? []).filter((i) => i.label !== 'WebSockets')
+
+  it('hasNineMonitoringDomainPages', () => {
+    expect(MONITORING).toHaveLength(9)
+  })
+
+  it.each(MONITORING.map((i) => [i.label, i.path]))('monitoringNavItem%sGetsItsDomainPage', async (label, path) => {
+    setSession({ token: 't', email: 'root@x.io' })
+    vi.stubGlobal('fetch', vi.fn<typeof fetch>(async () => new Response(null, { status: 404 })))
+    renderApp(path)
+
+    expect(screen.getByRole('heading', { name: label })).toBeInTheDocument()
+    // Only a domain page loads the API description; a placeholder would not.
+    expect(await screen.findByText('API description unavailable')).toBeInTheDocument()
   })
 
   it('showsNotFoundInsideTheShellForUnknownPaths', () => {

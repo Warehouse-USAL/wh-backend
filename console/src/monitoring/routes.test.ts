@@ -17,7 +17,7 @@ describe('routes', () => {
   it('everyRouteInTheSpecLandsOnExactlyOneDomainPage', () => {
     // A new controller tag fails here until it is mapped to a page or excluded on purpose.
     for (const { key, tags } of operations) {
-      expect(tags.some((t) => t in TAGS || EXCLUDED_TAGS.includes(t)), key).toBe(true)
+      expect(tags.some((t) => Object.hasOwn(TAGS, t) || EXCLUDED_TAGS.includes(t)), key).toBe(true)
     }
     const keys = routesOf(doc).map((r) => `${r.method} ${r.path}`)
     const expected = operations.filter((o) => !o.tags.some((t) => EXCLUDED_TAGS.includes(t))).map((o) => o.key)
@@ -25,6 +25,14 @@ describe('routes', () => {
     expect([...keys].sort()).toEqual([...expected].sort())
     expect(operations.length - expected.length).toBe(3) // the /console/* endpoints, nothing else
     for (const domain of DOMAINS) expect(routesOf(doc).some((r) => r.domain === domain), domain).toBe(true)
+  })
+
+  it('aTagNamedLikeAnObjectBuiltInIsUnmappedNotAPage', () => {
+    const odd = { paths: { '/orders/x': { get: { tags: ['constructor', 'toString'] } } } } as unknown as OpenApiDoc
+    expect(routesOf({ paths: { ...doc.paths, ...odd.paths } } as OpenApiDoc).find((r) => r.path === '/orders/x')).toMatchObject({
+      domain: 'Orders',
+      section: 'Other',
+    })
   })
 
   it('specPathsAreTheRouteTagsTheBackendRecords', () => {

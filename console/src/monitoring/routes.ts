@@ -38,7 +38,11 @@ export const TAGS: Record<string, [Domain, string]> = {
   Infra: ['Infra callbacks', 'Service to service, X-Api-Key'],
 }
 
-/** The console's own endpoints are the console's plumbing, not part of the monitored API. */
+/**
+ * The console's own endpoints (`/console/*`, SUPERADMIN plumbing for this UI) are not part of the
+ * monitored API, so they get no Monitoring page and no group. Add a tag here only for endpoints that
+ * must stay out of every page; anything else belongs in `TAGS`.
+ */
 export const EXCLUDED_TAGS = ['Console']
 
 export interface RouteInfo {
@@ -73,7 +77,7 @@ export function routesOf(spec: OpenApiDoc): RouteInfo[] {
       if (tags.some((t) => EXCLUDED_TAGS.includes(t))) continue
       const schemes = (op?.security ?? []).flatMap(Object.keys).map((s) => SCHEMES[s] ?? s)
       const route = { method: verb.toUpperCase(), path, summary: op?.summary, auth: schemes.join(', ') || 'public' }
-      const tag = tags.find((t) => t in TAGS)
+      const tag = tags.find((t) => Object.hasOwn(TAGS, t))
       if (tag) ranked.push([TAG_ORDER.indexOf(tag), { ...route, domain: TAGS[tag][0], section: TAGS[tag][1] }])
       else unmapped.push(route)
     }

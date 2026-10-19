@@ -21,7 +21,13 @@ export function useNearView<T extends HTMLElement>() {
       { root: el.closest('main'), rootMargin: '400px 0px' },
     )
     observer.observe(el)
-    return () => observer.disconnect()
+    // A resize changes the height of every group, so a height kept from before it is stale.
+    const forget = () => setMinHeight(undefined)
+    window.addEventListener('resize', forget)
+    return () => {
+      observer.disconnect()
+      window.removeEventListener('resize', forget)
+    }
   }, [])
 
   return { ref, near, minHeight }

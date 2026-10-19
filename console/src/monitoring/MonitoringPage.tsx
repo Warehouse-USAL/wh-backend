@@ -128,14 +128,15 @@ const BY_ROUTE = ['method', 'route']
 const TOP_N = 8
 
 const sum = (s: Series) => s.points.reduce((n, p) => n + p.v, 0)
-const peak = (s: Series) => Math.max(...s.points.map((p) => p.v))
+const peak = (s: Series) => (s.points.length ? Math.max(...s.points.map((p) => p.v)) : 0)
 
-/** Series are labelled `METHOD /path`; only this page's routes rank (never UNMATCHED or another page's). */
+/** Series are labelled `METHOD /path`; only this page's routes rank (never UNMATCHED or another page's), and a route with nothing to rank (zero) is left out. */
 function ranked(series: Series[], routes: RouteInfo[], value: (s: Series) => number) {
   const keys = new Set(routes.map((r) => `${r.method} ${r.path}`))
   return series
     .filter((s) => keys.has(s.label))
     .map((s) => ({ name: s.label, value: value(s) }))
+    .filter((r) => r.value > 0)
     .sort((a, b) => b.value - a.value)
     .slice(0, TOP_N)
 }

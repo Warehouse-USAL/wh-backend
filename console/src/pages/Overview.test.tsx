@@ -130,6 +130,25 @@ describe('Overview', () => {
     expect(screen.getByText('OK')).toHaveClass('text-ok')
   })
 
+  it('restockCronTileOwnsUpToAFailedQueryInsteadOfSayingNoRun', () => {
+    stubMetrics((q) => (q.metric === 'job.run' ? state([], { error: new ApiError(503, 'VM_DOWN', 'Metrics store unavailable') }) : state([])))
+    renderPage()
+
+    expect(screen.getByText('UNKNOWN')).toHaveClass('text-wn')
+    expect(screen.getByText('restock-cron, Metrics store unavailable')).toBeInTheDocument()
+    expect(screen.queryByText('NO RUN')).toBeNull()
+  })
+
+  it('everyWidgetFailingShowsItsErrorAndTheServiceTilesStillRender', () => {
+    stubMetrics(() => state([], { error: new ApiError(503, 'VM_DOWN', 'Metrics store unavailable') }))
+    vi.mocked(useLogs).mockReturnValue({ data: [], loading: false, error: new ApiError(500, 'LOGS_DOWN', 'Logs unavailable') })
+    renderPage()
+
+    expect(within(group('services')).getAllByText('UP')).toHaveLength(SERVICES.length)
+    expect(within(group('right now')).getAllByText('Metrics store unavailable')).toHaveLength(4)
+    expect(within(group('recent problems')).getByText('Logs unavailable')).toBeInTheDocument()
+  })
+
   it('restockCronTileSaysWhenNoRunFellInTheRange', () => {
     renderPage()
 
