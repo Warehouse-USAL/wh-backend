@@ -19,6 +19,7 @@ import com.usal.whbackend.domain.OrderStatus;
 import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import org.apache.kafka.clients.producer.ProducerRecord;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -142,6 +143,7 @@ class OrderRepositoryTest {
     assertEquals("WH|A-L1-P01", node.get("stops").get(0).asString());
   }
 
+  @SuppressWarnings("unchecked")
   @Test
   void requestCancellation_keepsTheOrderInProgressAndTellsInfraToCancel() throws Exception {
     Order order = new Order();
@@ -157,9 +159,12 @@ class OrderRepositoryTest {
     assertEquals("Ya no lo necesito", saved.getCancelReason());
     assertNotNull(saved.getCancellationRequestedAt());
     Thread.sleep(100);
-    ArgumentCaptor<String> payload = ArgumentCaptor.forClass(String.class);
-    verify(kafka).send(eq("orders"), eq("ord-1"), payload.capture());
-    JsonNode node = new ObjectMapper().readTree(payload.getValue());
+    ArgumentCaptor<ProducerRecord<String, String>> record =
+        ArgumentCaptor.forClass(ProducerRecord.class);
+    verify(kafka).send(record.capture());
+    assertEquals("orders", record.getValue().topic());
+    assertEquals("ord-1", record.getValue().key());
+    JsonNode node = new ObjectMapper().readTree(record.getValue().value());
     assertEquals("cancelled", node.get("status").asString());
     assertEquals("WH|A-L1-P01", node.get("stops").get(0).asString());
   }

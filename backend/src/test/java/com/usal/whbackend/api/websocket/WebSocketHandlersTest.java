@@ -7,14 +7,19 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.usal.whbackend.domain.Order;
 import com.usal.whbackend.domain.OrderStatus;
 import com.usal.whbackend.domain.Vehicle;
 import com.usal.whbackend.domain.VehicleStatus;
 import java.io.IOException;
 import java.net.URI;
+import java.time.Instant;
 import java.util.Map;
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
@@ -37,6 +42,26 @@ class WebSocketHandlersTest {
 
     verify(s1).sendMessage(any(TextMessage.class));
     verify(s2).sendMessage(any(TextMessage.class));
+  }
+
+  @Test
+  void orderHandler_cancellationRequestIncludesTimestampInEvent() throws IOException {
+    OrderWebSocketHandler handler = new OrderWebSocketHandler(mock(WsActivity.class));
+    WebSocketSession session = openSession("s1");
+    handler.afterConnectionEstablished(session);
+
+    Order order = orderWithStatus(OrderStatus.IN_PROGRESS);
+    order.setId("ord-1");
+    order.setCancellationRequestedAt(Instant.parse("2026-10-19T12:30:00Z"));
+    handler.broadcastOrderUpdate(order);
+
+    ArgumentCaptor<TextMessage> message = ArgumentCaptor.forClass(TextMessage.class);
+    verify(session).sendMessage(message.capture());
+    JsonNode event = new ObjectMapper().readTree(message.getValue().getPayload());
+    Assertions.assertEquals("in_progress", event.path("payload").path("status").asText());
+    Assertions.assertEquals(
+        "2026-10-19T12:30:00Z",
+        event.path("payload").path("timestamps").path("cancellation_requested_at").asText());
   }
 
   @Test
