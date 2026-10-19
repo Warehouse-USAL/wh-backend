@@ -41,17 +41,17 @@ public class VehicleWebSocketHandler extends TextWebSocketHandler implements Veh
 
   @Override
   public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
-    dropSession(session);
+    dropSession(session, "session closed");
   }
 
   @Override
   public void handleTransportError(WebSocketSession session, Throwable exception) {
-    dropSession(session);
+    dropSession(session, "session closed");
   }
 
-  private void dropSession(WebSocketSession session) {
+  private void dropSession(WebSocketSession session, String detail) {
     if (sessions.remove(session.getId()) != null) {
-      wsActivity.closed(WsActivity.VEHICLES, "session closed");
+      wsActivity.closed(WsActivity.VEHICLES, detail);
     }
   }
 
@@ -85,6 +85,8 @@ public class VehicleWebSocketHandler extends TextWebSocketHandler implements Veh
         } catch (IOException e) {
           log.warn(
               "Failed to send vehicle event to session {}: {}", session.getId(), e.getMessage());
+          // A failed write leaves the session unreliable: stop pushing to it and count it closed.
+          dropSession(session, "send failed");
         }
       }
     }

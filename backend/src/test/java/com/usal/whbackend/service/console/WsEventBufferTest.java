@@ -3,6 +3,11 @@ package com.usal.whbackend.service.console;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Instant;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 class WsEventBufferTest {
@@ -87,5 +92,47 @@ class WsEventBufferTest {
     buffer.removeListener("/ws/v1/orders", e -> {});
     buffer.record("/ws/v1/orders", event(1));
     assertThat(buffer.recent("/ws/v1/orders")).hasSize(1);
+  }
+
+  @Test
+  void concurrentWritersKeepTheCapAndEveryListenerCallWhileReadersSnapshot() throws Exception {
+    WsEventBuffer buffer = new WsEventBuffer();
+    AtomicInteger heard = new AtomicInteger();
+    buffer.addListener("/ws/v1/orders", e -> heard.incrementAndGet());
+    int writers = 8;
+    int perWriter = 500;
+    ExecutorService pool = Executors.newFixedThreadPool(writers + 1);
+    CountDownLatch go = new CountDownLatch(1);
+    AtomicInteger oversized = new AtomicInteger();
+    try {
+      for (int w = 0; w < writers; w++) {
+        pool.submit(
+            () -> {
+              go.await();
+              for (int i = 0; i < perWriter; i++) {
+                buffer.record("/ws/v1/orders", event(i));
+              }
+              return null;
+            });
+      }
+      pool.submit(
+          () -> {
+            go.await();
+            for (int i = 0; i < perWriter; i++) {
+              if (buffer.recent("/ws/v1/orders").size() > WsEventBuffer.CAPACITY) {
+                oversized.incrementAndGet();
+              }
+            }
+            return null;
+          });
+      go.countDown();
+    } finally {
+      pool.shutdown();
+    }
+    assertThat(pool.awaitTermination(10, TimeUnit.SECONDS)).isTrue();
+
+    assertThat(buffer.recent("/ws/v1/orders")).hasSize(WsEventBuffer.CAPACITY);
+    assertThat(heard).hasValue(writers * perWriter);
+    assertThat(oversized).hasValue(0);
   }
 }

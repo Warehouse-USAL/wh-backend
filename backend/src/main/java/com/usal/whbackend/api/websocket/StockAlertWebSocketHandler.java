@@ -41,17 +41,17 @@ public class StockAlertWebSocketHandler extends TextWebSocketHandler
 
   @Override
   public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
-    dropSession(session);
+    dropSession(session, "session closed");
   }
 
   @Override
   public void handleTransportError(WebSocketSession session, Throwable exception) {
-    dropSession(session);
+    dropSession(session, "session closed");
   }
 
-  private void dropSession(WebSocketSession session) {
+  private void dropSession(WebSocketSession session, String detail) {
     if (sessions.remove(session.getId()) != null) {
-      wsActivity.closed(WsActivity.STOCK_ALERTS, "session closed");
+      wsActivity.closed(WsActivity.STOCK_ALERTS, detail);
     }
   }
 
@@ -77,6 +77,8 @@ public class StockAlertWebSocketHandler extends TextWebSocketHandler
           wsActivity.pushed(WsActivity.STOCK_ALERTS, summary);
         } catch (IOException e) {
           log.warn("Failed to send stock alert to session {}: {}", session.getId(), e.getMessage());
+          // A failed write leaves the session unreliable: stop pushing to it and count it closed.
+          dropSession(session, "send failed");
         }
       }
     }

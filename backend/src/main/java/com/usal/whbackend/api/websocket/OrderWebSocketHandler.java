@@ -41,17 +41,17 @@ public class OrderWebSocketHandler extends TextWebSocketHandler implements Order
 
   @Override
   public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
-    dropSession(session);
+    dropSession(session, "session closed");
   }
 
   @Override
   public void handleTransportError(WebSocketSession session, Throwable exception) {
-    dropSession(session);
+    dropSession(session, "session closed");
   }
 
-  private void dropSession(WebSocketSession session) {
+  private void dropSession(WebSocketSession session, String detail) {
     if (sessions.remove(session.getId()) != null) {
-      wsActivity.closed(WsActivity.ORDERS, "session closed");
+      wsActivity.closed(WsActivity.ORDERS, detail);
     }
   }
 
@@ -69,6 +69,8 @@ public class OrderWebSocketHandler extends TextWebSocketHandler implements Order
           wsActivity.pushed(WsActivity.ORDERS, summary);
         } catch (IOException e) {
           log.warn("Failed to send order event to session {}: {}", session.getId(), e.getMessage());
+          // A failed write leaves the session unreliable: stop pushing to it and count it closed.
+          dropSession(session, "send failed");
         }
       }
     }

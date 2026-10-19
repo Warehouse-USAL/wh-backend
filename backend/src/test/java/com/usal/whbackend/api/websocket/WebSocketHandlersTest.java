@@ -207,16 +207,21 @@ class WebSocketHandlersTest {
   }
 
   @Test
-  void orderHandler_sendFailureIsSwallowed() throws IOException {
-    OrderWebSocketHandler handler = new OrderWebSocketHandler(mock(WsActivity.class));
+  void orderHandler_sendFailureIsSwallowedAndDropsTheSession() throws IOException {
+    WsActivity activity = mock(WsActivity.class);
+    OrderWebSocketHandler handler = new OrderWebSocketHandler(activity);
 
     WebSocketSession failing = openSession("s1");
     doThrow(new IOException("closed")).when(failing).sendMessage(any(TextMessage.class));
     handler.afterConnectionEstablished(failing);
 
     handler.broadcastOrderUpdate(orderWithStatus(OrderStatus.PENDING));
+    handler.broadcastOrderUpdate(orderWithStatus(OrderStatus.PENDING));
+    handler.afterConnectionClosed(failing, CloseStatus.NORMAL);
 
-    verify(failing).sendMessage(any(TextMessage.class));
+    verify(failing, times(1)).sendMessage(any(TextMessage.class));
+    verify(activity, times(1)).closed(eq(WsActivity.ORDERS), anyString());
+    verify(activity).closed(WsActivity.ORDERS, "send failed");
   }
 
   @Test
@@ -255,8 +260,9 @@ class WebSocketHandlersTest {
   }
 
   @Test
-  void userOrderHandler_sendFailureIsSwallowed() throws IOException {
-    UserOrderWebSocketHandler handler = new UserOrderWebSocketHandler(mock(WsActivity.class));
+  void userOrderHandler_sendFailureIsSwallowedAndDropsTheSession() throws IOException {
+    WsActivity activity = mock(WsActivity.class);
+    UserOrderWebSocketHandler handler = new UserOrderWebSocketHandler(activity);
 
     WebSocketSession owner = sessionWithUri("usr-1", "/ws/v1/orders/usr-1");
     doThrow(new IOException("closed")).when(owner).sendMessage(any(TextMessage.class));
@@ -265,8 +271,10 @@ class WebSocketHandlersTest {
     Order order = orderWithStatus(OrderStatus.PENDING);
     order.setRequestedByUserId("usr-1");
     handler.broadcastOrderUpdate(order);
+    handler.broadcastOrderUpdate(order);
 
-    verify(owner).sendMessage(any(TextMessage.class));
+    verify(owner, times(1)).sendMessage(any(TextMessage.class));
+    verify(activity).closed(WsActivity.USER_ORDERS, "send failed");
   }
 
   @Test
@@ -328,7 +336,8 @@ class WebSocketHandlersTest {
 
   @Test
   void vehicleHandler_sendFailureIsSwallowedAndClosedSessionSkipped() throws IOException {
-    VehicleWebSocketHandler handler = new VehicleWebSocketHandler(mock(WsActivity.class));
+    WsActivity activity = mock(WsActivity.class);
+    VehicleWebSocketHandler handler = new VehicleWebSocketHandler(activity);
 
     WebSocketSession failing = openSession("s1");
     doThrow(new IOException("closed")).when(failing).sendMessage(any(TextMessage.class));
@@ -337,9 +346,11 @@ class WebSocketHandlersTest {
     handler.afterConnectionEstablished(closed);
 
     handler.broadcastVehicleError("v-1", "X", "y", "2026-05-01T10:00:00Z");
+    handler.broadcastVehicleError("v-1", "X", "y", "2026-05-01T10:00:00Z");
 
-    verify(failing).sendMessage(any(TextMessage.class));
+    verify(failing, times(1)).sendMessage(any(TextMessage.class));
     verify(closed, never()).sendMessage(any(TextMessage.class));
+    verify(activity).closed(WsActivity.VEHICLES, "send failed");
   }
 
   @Test
@@ -361,7 +372,8 @@ class WebSocketHandlersTest {
 
   @Test
   void stockHandler_sendFailureIsSwallowedAndClosedSessionSkipped() throws IOException {
-    StockAlertWebSocketHandler handler = new StockAlertWebSocketHandler(mock(WsActivity.class));
+    WsActivity activity = mock(WsActivity.class);
+    StockAlertWebSocketHandler handler = new StockAlertWebSocketHandler(activity);
 
     WebSocketSession failing = openSession("s1");
     doThrow(new IOException("closed")).when(failing).sendMessage(any(TextMessage.class));
@@ -370,9 +382,11 @@ class WebSocketHandlersTest {
     handler.afterConnectionEstablished(closed);
 
     handler.broadcastStockAlert(product(), 1);
+    handler.broadcastStockAlert(product(), 1);
 
-    verify(failing).sendMessage(any(TextMessage.class));
+    verify(failing, times(1)).sendMessage(any(TextMessage.class));
     verify(closed, never()).sendMessage(any(TextMessage.class));
+    verify(activity).closed(WsActivity.STOCK_ALERTS, "send failed");
   }
 
   private com.usal.whbackend.domain.Product product() {
