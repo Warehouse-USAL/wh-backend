@@ -1,0 +1,26 @@
+{
+  "pagination": {
+    "page": 0,
+    "size": 2,
+    "total_elements": 2087,
+    "total_pages": 1044
+  },
+  "restock_orders": [
+    {
+      "id": "ro-02072",
+      "product_id": "p-TEC-005",
+      "quantity_requested": 118,
+      "supplier": "Mayorista Rioplatense",
+      "requested_by_user_id": "u-warehouse",
+      "created_at": "2026-10-16T21:00:00Z"
+    },
+    {
+      "id": "ro-02070",
+      "product_id": "p-ALI-001",
+      "quantity_requested": 111,
+      "supplier": "Mayorista Rioplatense",
+      "requested_by_user_id": "u-warehouse",
+      "created_at": "2026-10-15T21:00:00Z"
+    }
+  ]
+}

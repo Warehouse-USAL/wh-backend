@@ -1,6 +1,8 @@
 # OpenTelemetry Collector — the telemetry broker.
 #
-# OTLP in from the backend, Prometheus remote-write out to VictoriaMetrics.
+# OTLP metrics in from the backend, bridge and restock-cron, plus Prometheus scrapes of the
+# infrastructure, out to VictoriaMetrics by remote-write. OTLP logs out to VictoriaLogs.
+# The prod overlay adds the Caddy scrape from collector-config.prod.yml (see docs/CONSOLE.md).
 receivers:
   otlp:
     protocols:
@@ -8,6 +10,58 @@ receivers:
         endpoint: 0.0.0.0:4318
       grpc:
         endpoint: 0.0.0.0:4317
+  # Series keep their exporter names (job label = job_name). Each job keeps only the series that
+  # docs/CONSOLE.md "Scraped series" lists: VictoriaMetrics retains 800d, so an unused series costs
+  # disk for that long. A target that is down only yields up=0 for its job, the others keep flowing.
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: otel-collector
+          scrape_interval: 30s
+          static_configs:
+            - targets: [localhost:8888]
+          # `detailed` (service.telemetry below) also exposes http_server_* series that would mix into
+          # the backend's http_server_duration / http_server_active. Keep only otelcol_* and the
+          # export latency histogram, renamed into the otelcol_ namespace (ms, net_peer_name label).
+          metric_relabel_configs:
+            - source_labels: [__name__]
+              regex: otelcol_.*|http_client_duration_.*
+              action: keep
+            - source_labels: [__name__]
+              regex: http_client_duration_(.*)
+              target_label: __name__
+              replacement: otelcol_exporter_http_duration_$$1
+        - job_name: victoriametrics
+          scrape_interval: 30s
+          static_configs:
+            - targets: [victoriametrics:8428]
+          # Matched against "<name>;<type>;<name label>": active series is one vm_cache_entries
+          # type, retention one of the hundreds of `flag` series.
+          metric_relabel_configs:
+            - source_labels: [__name__, type, name]
+              regex: >-
+                (vm_rows_inserted_total|vm_rows_ignored_total|vm_rows_invalid_total|vm_data_size_bytes|vm_free_disk_space_bytes|vm_request_duration_seconds(_sum|_count)?|vm_http_request_duration_seconds_(bucket|sum|count)|vm_http_request_errors_total);.*|vm_cache_entries;storage/hour_metric_ids;.*|flag;.*;retentionPeriod
+              action: keep
+        - job_name: minio
+          scrape_interval: 30s
+          metrics_path: /minio/v2/metrics/cluster
+          static_configs:
+            - targets: [minio:9000]
+          metric_relabel_configs:
+            - source_labels: [__name__]
+              regex: >-
+                minio_cluster_usage_total_bytes|minio_cluster_usage_object_total|minio_cluster_bucket_total|minio_cluster_capacity_usable_(total|free)_bytes|minio_s3_requests_total|minio_s3_requests_(4xx|5xx)_errors_total|minio_s3_requests_rejected_(auth|header|invalid|timestamp)_total|minio_s3_requests_ttfb_seconds_distribution|minio_s3_traffic_(received|sent)_bytes
+              action: keep
+            # The 4xx and 5xx error counters become one series with a class label (minio.errors);
+            # their sum is what minio_s3_requests_errors_total counts, so that one is not kept.
+            - source_labels: [__name__]
+              regex: minio_s3_requests_(4xx|5xx)_errors_total
+              target_label: class
+              replacement: $$1
+            - source_labels: [__name__]
+              regex: minio_s3_requests_(4xx|5xx)_errors_total
+              target_label: __name__
+              replacement: minio_s3_requests_errors_by_class_total
 
 processors:
   batch:
@@ -27,6 +81,8 @@ exporters:
     add_metric_suffixes: false
     resource_to_telemetry_conversion:
       enabled: false
+  otlphttp/victorialogs:
+    endpoint: http://victorialogs:9428/insert/opentelemetry
 
 extensions:
   health_check:
@@ -34,8 +90,17 @@ extensions:
 
 service:
   extensions: [health_check]
+  # The collector's own metrics on localhost:8888 (scraped above). `detailed` adds the HTTP client
+  # histogram that times each export to VictoriaMetrics and VictoriaLogs.
+  telemetry:
+    metrics:
+      level: detailed
   pipelines:
     metrics:
-      receivers: [otlp]
+      receivers: [otlp, prometheus]
       processors: [batch]
       exporters: [prometheusremotewrite]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlphttp/victorialogs]

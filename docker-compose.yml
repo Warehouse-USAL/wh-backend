@@ -1,6 +1,6 @@
 services:
   backend:
-    build: .
+    build: ./backend
     ports:
       - "8080:8080"
     environment:
@@ -21,7 +21,14 @@ services:
       MINIO_BUCKET: ${MINIO_BUCKET:-wh-images}
       TELEMETRY_ENABLED: ${TELEMETRY_ENABLED:-true}
       TELEMETRY_ENDPOINT: http://otel-collector:4318/v1/metrics
+      TELEMETRY_LOGS_ENDPOINT: http://otel-collector:4318/v1/logs
+      # Tomcat's ThreadPool MBean feeds the tomcat.threads/tomcat.connections gauges.
+      SERVER_TOMCAT_MBEANREGISTRY_ENABLED: "true"
       VICTORIAMETRICS_URL: http://victoriametrics:8428
+      # Read side of the logs pipeline (the console's Logs page).
+      CONSOLE_VICTORIALOGS_URL: http://victorialogs:9428
+      # Shared secret the bridge sends in X-Api-Key on /infra/**. Blank = those endpoints reject everything.
+      INFRA_API_KEY: ${INFRA_API_KEY:-}
     depends_on:
       mongodb:
         condition: service_healthy
@@ -31,6 +38,27 @@ services:
         condition: service_healthy
     networks:
       - wh-network
+    restart: unless-stopped
+
+  # Temporary translator between Infra's RabbitMQ world and this backend (see bridge/README.md).
+  # Opt-in: `docker compose --profile infra up`. Needs INFRA_AMQP_URL and INFRA_API_KEY (the bridge exits at startup if either is empty).
+  bridge:
+    build: ./bridge
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+      AMQP_URL: ${INFRA_AMQP_URL:-}
+      BACKEND_URL: http://backend:8080
+      INFRA_API_KEY: ${INFRA_API_KEY:-}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    networks:
+      - wh-network
+    profiles:
+      - infra
     restart: unless-stopped
 
   mongodb:
@@ -128,7 +156,13 @@ services:
     restart: unless-stopped
 
   minio:
-    image: minio/minio:latest
+    # minio/minio is no longer published (Docker Hub, quay.io and ghcr all refuse anonymous pulls). Chainguard's
+    # maintained MinIO server build keeps the same entrypoint, env, data format and `mc` for the
+    # healthcheck; its free tier only tags `latest`, so the digest is the pin. Reads data written
+    # by earlier MinIO releases — a one-way upgrade: do not roll the binary back afterwards.
+    image: cgr.dev/chainguard/minio:latest@sha256:4cf4831a2bbcf13ddca09c1cbcc9faff716dd3c4247e0babc32864b8ee8e0034
+    # Runs as uid 65532 by default; existing volumes and bind mounts are root-owned.
+    user: "0:0"
     command: server /data --console-address ":9001"
     ports:
       - "9000:9000"
@@ -136,6 +170,9 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-minioadmin}
+      # Lets the collector scrape /minio/v2/metrics/cluster without a bearer token. Anyone who
+      # reaches port 9000 can read those metrics too (counts and sizes, no object data).
+      MINIO_PROMETHEUS_AUTH_TYPE: public
     volumes:
       - ./data/minio:/data
     networks:
@@ -151,10 +188,10 @@ services:
   victoriametrics:
     image: victoriametrics/victoria-metrics:v1.111.0
     command:
-      # Was 30d. The demo seed now backfills a full year of fleet history (DemoTelemetrySeeder)
-      # so the dashboard has something to build MTBF/MTTR/Pareto charts against — at 30d, VM's
-      # own retention would silently evict everything older than a month right after seeding it.
-      - "-retentionPeriod=400d"
+      # Was 30d, then 400d. The demo seed now backfills two years of fleet history
+      # (DemoTelemetrySeeder) so dashboards can chart year-over-year — a shorter retention would
+      # silently evict the oldest year right after seeding it. 800d leaves margin past 730.
+      - "-retentionPeriod=800d"
       - "-httpListenAddr=:8428"
       # Without this VM sizes its caches at -memory.allowedPercent=60 of host RAM (~5GB on a
       # dev laptop). The prod box is a shared HP ProLiant already running five containers, so
@@ -184,6 +221,88 @@ services:
     depends_on:
       victoriametrics:
         condition: service_started
+      victorialogs:
+        condition: service_started
+    networks:
+      - wh-network
+    restart: unless-stopped
+
+  # Log store behind the console's Logs page: the collector ships OTLP logs here. Internal only,
+  # like the other stores in prod. Same image constraints as victoriametrics (no shell, so no
+  # healthcheck) and the same pinned memory budget reasoning.
+  victorialogs:
+    image: victoriametrics/victoria-logs:v1.53.0
+    command:
+      - "-retentionPeriod=30d"
+      - "-httpListenAddr=:9428"
+      - "-storageDataPath=/victoria-logs-data"
+      - "-memory.allowedBytes=256MB"
+    volumes:
+      - victorialogs_data:/victoria-logs-data
+    networks:
+      - wh-network
+    restart: unless-stopped
+
+  # SUPERADMIN backend console (console/, served at /console/). Its nginx proxies /api to the backend.
+  console:
+    build: ./console
+    ports:
+      - "8083:80"
+      # Frame-safe proxies to mongo-express and redpanda-console (dev profile) for the Dev tools pages.
+      - "8091:8091"
+      - "8092:8092"
+    volumes:
+      - ./console/nginx.dev-tools.conf:/etc/nginx/conf.d/dev-tools.conf:ro
+    depends_on:
+      backend:
+        condition: service_started
+    networks:
+      - wh-network
+    # nginx itself (the SPA), not the backend behind /api: nginx answers 502 there while it boots.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/console/"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+
+  # The daily restock run (docs/RFC_Metricas_Calculadas.md). Calls the backend's
+  # POST /metrics/restock-suggestions/apply, which stores each product's recommendation on the
+  # product. The business params live here, not in the backend: change one in .env and run
+  # `docker compose up -d restock-cron` — only this container is recreated. Stateless.
+  restock-cron:
+    image: curlimages/curl:8.11.1
+    # busybox crond needs root to run jobs; the container only ever runs curl.
+    user: root
+    entrypoint: ["/bin/sh", "/opt/restock-cron/restock-cron.sh", "entrypoint"]
+    environment:
+      RESTOCK_BACKEND_URL: ${RESTOCK_BACKEND_URL:-http://backend:8080}
+      # Defaults to the bootstrap SUPERADMIN, which always exists. Prefer a dedicated
+      # ADMIN_WAREHOUSE account: set RESTOCK_USER / RESTOCK_PASSWORD.
+      RESTOCK_USER: ${RESTOCK_USER:-${ADMIN_EMAIL:-admin@smartwarehouse.local}}
+      RESTOCK_PASSWORD: ${RESTOCK_PASSWORD:-${ADMIN_PASSWORD:-}}
+      # Evaluated in UTC: 06:00 UTC is 03:00 in Buenos Aires / Montevideo.
+      RESTOCK_SCHEDULE: ${RESTOCK_SCHEDULE:-0 6 * * *}
+      RESTOCK_ALPHA: ${RESTOCK_ALPHA:-0.3}
+      RESTOCK_RECENT_DAYS: ${RESTOCK_RECENT_DAYS:-7}
+      RESTOCK_LONG_DAYS: ${RESTOCK_LONG_DAYS:-60}
+      RESTOCK_SAFETY_DAYS: ${RESTOCK_SAFETY_DAYS:-2}
+      RESTOCK_LEAD_TIME_DAYS: ${RESTOCK_LEAD_TIME_DAYS:-5}
+      RESTOCK_COVERAGE_DAYS: ${RESTOCK_COVERAGE_DAYS:-7}
+      # Runs once at start (retrying while the backend boots) so product.restock is never
+      # empty after a deploy or a fresh seed.
+      RESTOCK_RUN_ON_START: ${RESTOCK_RUN_ON_START:-true}
+      # Seconds to wait for backend readiness per run, and first-run attempts on transient errors.
+      RESTOCK_READY_TIMEOUT: ${RESTOCK_READY_TIMEOUT:-900}
+      RESTOCK_STARTUP_RETRIES: ${RESTOCK_STARTUP_RETRIES:-60}
+      # Where each run pushes its job.run gauge (OTLP/JSON). Blank = no push. Never fails a run.
+      RESTOCK_OTLP_URL: ${RESTOCK_OTLP_URL:-http://otel-collector:4318/v1/metrics}
+    volumes:
+      - ./config/restock-cron/restock-cron.sh:/opt/restock-cron/restock-cron.sh:ro
+    depends_on:
+      backend:
+        condition: service_started
     networks:
       - wh-network
     restart: unless-stopped
@@ -191,3 +310,6 @@ services:
 networks:
   wh-network:
     driver: bridge
+
+volumes:
+  victorialogs_data:

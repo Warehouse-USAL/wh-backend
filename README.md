@@ -24,7 +24,7 @@ The only prerequisite is **Docker**. No Java, no Gradle, no MongoDB installation
 ```bash
 git clone https://github.com/Warehouse-USAL/wh-backend.git
 cd wh-backend
-cp src/main/resources/application.yml.example src/main/resources/application.yml
+cp backend/src/main/resources/application.yml.example backend/src/main/resources/application.yml
 make up-dev
 ```
 
@@ -37,6 +37,10 @@ The stack will be available at:
 | Health check | http://localhost:8080/actuator/health |
 | MongoDB Express | http://localhost:8081 |
 | Redpanda Console | http://localhost:8082 |
+| Backend console (SUPERADMIN) | http://localhost:8083/console/ |
+
+The backend console, its telemetry services, environment variables, production rollout and
+rollback are documented in [docs/CONSOLE.md](docs/CONSOLE.md).
 
 ---
 
@@ -102,17 +106,28 @@ feature/* ──► develop ──► beta/* ──► master
 | Code formatting | Spotless (Google Java Format) | Must pass — run `make format-fix` to auto-fix |
 | Static analysis | Checkstyle + SpotBugs | Zero violations |
 | Tests | JUnit 5 + Mockito | All tests must pass |
-| Coverage | JaCoCo | Minimum **80%** instruction coverage |
+| Coverage | JaCoCo | Minimum **95%** instruction coverage |
 | Architecture | ArchUnit | Services must not depend on controllers; repositories must not depend on services or controllers |
+| Bridge coverage | `scripts/go-coverage.sh` | Minimum **90%** statements over `./internal/...` (without `internal/fakeinfra`) |
+| Console coverage | Vitest | Minimum **90%** (thresholds in `console/vite.config.ts`) |
+| Diff coverage | diff-cover | Minimum **90%** of the changed lines, per component touched |
 
 Draft PRs are skipped by CI until marked ready for review.
+
+CI is path-aware: `scripts/ci-changes.sh` decides which components the PR touches (`backend/`,
+`bridge/` + `e2e/`, `console/`, and the platform files: compose, `.env.example`, `config/`,
+workflows, `scripts/`) and only their jobs run; a change to `ci.yml`, `scripts/ci-changes.sh` or
+the `Makefile` runs everything. The bridge's total and diff coverage measure `./internal/...` only
+(`cmd/` is not counted). The final `ci-ok` job passes when every job passed or was skipped, so **`ci-ok` is the
+only required status check** in the branch protection of `develop` and `master` (a repository
+setting: requiring the per-component jobs would block PRs that skip them).
 
 ---
 
 ## Project structure
 
 ```
-src/main/java/com/usal/whbackend/
+backend/src/main/java/com/usal/whbackend/
 ├── domain/          # Entities — plain Java classes annotated with @Document
 ├── repository/      # Spring Data MongoDB interfaces + Kafka producers/consumers
 ├── service/         # Business logic — @Service classes
@@ -148,7 +163,7 @@ MongoDB and Redpanda data is persisted to `data/` at the project root (bind-moun
 
 ## Demo data
 
-To populate a **fresh** database with a complete, interconnected demo dataset — users across every role, a product catalog, a stocked warehouse, vehicles, and orders in every state — set `SEED_DEMO=true` before the first boot:
+To populate a **fresh** database with a complete, interconnected demo dataset — users across every role, a product catalog, a stocked warehouse, vehicles, and **two years** of seasonal order, restock and fleet history (~57k orders) — set `SEED_DEMO=true` before the first boot:
 
 ```bash
 SEED_DEMO=true make up-dev
@@ -158,10 +173,14 @@ It runs once on startup and is **idempotent**: if products already exist it does
 
 Login credentials for the seeded accounts are listed in [docs/demo-credentials.md](docs/demo-credentials.md) (shared password `Demo1234!`).
 
+## Daily restock run (`restock-cron`)
+
+The `restock-cron` compose service calls `POST /metrics/restock-suggestions/apply` once a day, which stores each active product's restock recommendation on the product (`product.restock`). Its schedule (UTC) and business params are env vars with defaults — `RESTOCK_SCHEDULE`, `RESTOCK_ALPHA`, `RESTOCK_RECENT_DAYS`, `RESTOCK_LONG_DAYS`, `RESTOCK_SAFETY_DAYS`, `RESTOCK_LEAD_TIME_DAYS`, `RESTOCK_COVERAGE_DAYS` — plus the service account `RESTOCK_USER` / `RESTOCK_PASSWORD` (defaults to the bootstrap admin). Change one in `.env` and run `docker compose up -d restock-cron`; the backend is untouched. See [docs/RFC_Metricas_Calculadas.md](docs/RFC_Metricas_Calculadas.md) §6.3.
+
 ---
 
 ## Environment configuration
 
-Copy `src/main/resources/application.yml.example` to `application.yml` and adjust as needed. This file is gitignored — never commit secrets.
+Copy `backend/src/main/resources/application.yml.example` to `application.yml` and adjust as needed. This file is gitignored — never commit secrets.
 
 When running via Docker Compose, connection strings are set automatically via the `docker` Spring profile (`application-docker.yml`). No manual configuration is needed for `make up-dev`.

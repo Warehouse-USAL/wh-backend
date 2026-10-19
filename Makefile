@@ -1,9 +1,9 @@
-.PHONY: help up-dev run up-prod up-infra deploy down build test test-coverage lint format format-fix pr-checks logs clean
+.PHONY: e2e bridge-test help up-dev run up-prod up-infra deploy down build test test-coverage lint format format-fix pr-checks logs clean
 
 .DEFAULT_GOAL := help
 
 GRADLE = docker run --rm \
-	-v "$(PWD)":/app \
+	-v "$(PWD)/backend":/app \
 	-v wh-gradle-cache:/root/.gradle \
 	-w /app \
 	eclipse-temurin:21-jdk-alpine ./gradlew
@@ -26,6 +26,7 @@ up-dev: ## Start all services in dev mode (app + MongoDB + Redpanda + UI tools)
 	@echo "  MongoDB Express:  http://localhost:8081"
 	@echo "  Redpanda Console: http://localhost:8082"
 	@echo "  MinIO Console:    http://localhost:9001"
+	@echo "  Backend console:  http://localhost:8083/console/ (SUPERADMIN)"
 	@echo ""
 
 run: up-dev ## Alias for up-dev
@@ -34,9 +35,18 @@ up-prod: ## Start services in production mode (requires env vars set)
 	docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 	@echo "Production services started on port 8080"
 
-deploy: ## Pull the newest backend image and restart ONLY the backend (data services untouched)
-	docker compose -f docker-compose.yml -f docker-compose.prod.yml pull backend
-	docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d backend
+PROD_COMPOSE = docker compose -f docker-compose.yml -f docker-compose.prod.yml
+
+deploy: ## Pull the newest backend + bridge + console images and restart them, plus restock-cron (data untouched)
+	$(PROD_COMPOSE) pull backend bridge console
+	@# Telemetry first (docs/CONSOLE.md, Rollout): the collector's logs pipeline must be up before the
+	@# new backend and bridge export to it. Recreated only when their compose config changed; the
+	@# collector always, since its config is a bind mount compose cannot diff. Volumes persist.
+	@# MongoDB and Redpanda are never touched. WH_IMAGE_TAG in .env pins the three app images.
+	$(PROD_COMPOSE) up -d --no-deps victorialogs
+	$(PROD_COMPOSE) up -d --no-deps --force-recreate otel-collector
+	$(PROD_COMPOSE) up -d --no-deps minio victoriametrics
+	$(PROD_COMPOSE) up -d --no-deps backend bridge console restock-cron
 	@echo "Backend redeployed"
 
 up-infra: ## Start only MongoDB, Redpanda and MinIO (for local Gradle development)
@@ -57,7 +67,7 @@ down: ## Stop and remove all containers
 
 build: ## Build the application JAR
 	$(GRADLE) bootJar
-	@echo "JAR built at build/libs/"
+	@echo "JAR built at backend/build/libs/"
 
 clean: ## Clean build artifacts
 	$(GRADLE) clean
@@ -70,8 +80,8 @@ test: ## Run all tests
 test-coverage: ## Run tests and generate JaCoCo coverage report
 	$(GRADLE) test jacocoTestReport
 	@echo ""
-	@echo "Coverage report: build/reports/jacoco/test/html/index.html"
-	@open build/reports/jacoco/test/html/index.html 2>/dev/null || true
+	@echo "Coverage report: backend/build/reports/jacoco/test/html/index.html"
+	@open backend/build/reports/jacoco/test/html/index.html 2>/dev/null || true
 
 # ─── Quality targets ──────────────────────────────────────────────────────────
 
@@ -83,6 +93,14 @@ format: ## Check code formatting (Google Java Format via Spotless)
 
 format-fix: ## Apply Google Java Format to all source files
 	$(GRADLE) spotlessApply
+
+# ─── Bridge / E2E ─────────────────────────────────────────────────────────────
+
+bridge-test: ## Run the Go bridge's vet + tests
+	cd bridge && go vet ./... && go test -race ./...
+
+e2e: ## Full-stack dry run: backend <-> bridge <-> fake Infra (needs Docker; see e2e/run.sh)
+	./e2e/run.sh
 
 # ─── CI gate ──────────────────────────────────────────────────────────────────
 

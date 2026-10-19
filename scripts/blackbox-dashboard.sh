@@ -103,19 +103,19 @@ echo
 echo "Fleet metrics (OTel → VictoriaMetrics)"
 check "1. histórico de fallas por rover" \
   "len(d['series'])>0 and any(p[1]>0 for s in d['series'] for p in s['points'])" \
-  "$(mq "{\"metric\":\"wh.vehicle.transitions\",\"from\":\"$MFROM\",\"to\":\"$MTO\",\"step\":\"1h\",\"agg\":\"increase\",\"group_by\":[\"vehicle_id\"],\"filters\":{\"to\":\"ERROR\"}}")"
+  "$(mq "{\"metric\":\"wh.vehicle.transitions\",\"from\":\"$MFROM\",\"to\":\"$MTO\",\"step\":\"1h\",\"agg\":\"increase\",\"group_by\":[\"vehicle_id\"],\"filters\":{\"to\":\"OFFLINE\"}}")"
 
 check "2. pareto de fallas por categoría" \
   "len(d['series'])>0 and all('category' in s['labels'] for s in d['series'])" \
-  "$(mq "{\"metric\":\"wh.vehicle.transitions\",\"from\":\"$MFROM\",\"to\":\"$MTO\",\"step\":\"6h\",\"agg\":\"increase\",\"group_by\":[\"category\"],\"filters\":{\"to\":\"ERROR\"}}")"
+  "$(mq "{\"metric\":\"wh.vehicle.transitions\",\"from\":\"$MFROM\",\"to\":\"$MTO\",\"step\":\"6h\",\"agg\":\"increase\",\"group_by\":[\"category\"],\"filters\":{\"to\":\"OFFLINE\"}}")"
 
 check "3. MTBF input — failures over the window" \
   "len(d['series'])>0 and sum(p[1] for s in d['series'] for p in s['points'])>0" \
-  "$(mq "{\"metric\":\"wh.vehicle.transitions\",\"from\":\"$MFROM\",\"to\":\"$MTO\",\"step\":\"6h\",\"agg\":\"increase\",\"filters\":{\"to\":\"ERROR\"}}")"
+  "$(mq "{\"metric\":\"wh.vehicle.transitions\",\"from\":\"$MFROM\",\"to\":\"$MTO\",\"step\":\"6h\",\"agg\":\"increase\",\"filters\":{\"to\":\"OFFLINE\"}}")"
 
-check "4. MTTR input — share of time spent in ERROR" \
+check "4. MTTR input — share of time spent OFFLINE" \
   "len(d['series'])>0 and all(0<=p[1]<=1 for s in d['series'] for p in s['points'])" \
-  "$(mq "{\"metric\":\"wh.vehicle.state\",\"from\":\"$MFROM\",\"to\":\"$MTO\",\"step\":\"1h\",\"agg\":\"avg\",\"group_by\":[\"vehicle_id\"],\"filters\":{\"state\":\"ERROR\"}}")"
+  "$(mq "{\"metric\":\"wh.vehicle.state\",\"from\":\"$MFROM\",\"to\":\"$MTO\",\"step\":\"1h\",\"agg\":\"avg\",\"group_by\":[\"vehicle_id\"],\"filters\":{\"state\":\"OFFLINE\"}}")"
 
 check "5. rovers activos simultáneamente" \
   "len(d['series'])==1 and len(d['series'][0]['points'])>0 and all(0<=p[1]<=6 for p in d['series'][0]['points'])" \
@@ -245,8 +245,8 @@ check "25. reposición requerida — below minimum" "d['has_min_stock'] and d['r
 
 # MTBF and MTTR are ratios the caller computes. These assert the two inputs are both present and
 # combine into a finite number, which is the only part the backend is responsible for.
-FAILS=$(mq "{\"metric\":\"wh.vehicle.transitions\",\"from\":\"$MFROM\",\"to\":\"$MTO\",\"step\":\"6h\",\"agg\":\"increase\",\"group_by\":[\"vehicle_id\"],\"filters\":{\"to\":\"ERROR\"}}")
-INERR=$(mq "{\"metric\":\"wh.vehicle.state\",\"from\":\"$MFROM\",\"to\":\"$MTO\",\"step\":\"6h\",\"agg\":\"avg\",\"group_by\":[\"vehicle_id\"],\"filters\":{\"state\":\"ERROR\"}}")
+FAILS=$(mq "{\"metric\":\"wh.vehicle.transitions\",\"from\":\"$MFROM\",\"to\":\"$MTO\",\"step\":\"6h\",\"agg\":\"increase\",\"group_by\":[\"vehicle_id\"],\"filters\":{\"to\":\"OFFLINE\"}}")
+INERR=$(mq "{\"metric\":\"wh.vehicle.state\",\"from\":\"$MFROM\",\"to\":\"$MTO\",\"step\":\"6h\",\"agg\":\"avg\",\"group_by\":[\"vehicle_id\"],\"filters\":{\"state\":\"OFFLINE\"}}")
 DERIVED=$(python3 -c "
 import json, sys
 window_s = $WINDOW_SECONDS

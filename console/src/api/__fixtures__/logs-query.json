@@ -1,0 +1,9 @@
+{
+  "lines": [
+    { "time": "2026-10-18T21:23:22.539927500Z", "level": "info", "service": "bridge", "message": "order published to infra", "request_id": "t23order1" },
+    { "time": "2026-10-18T21:23:14.533878843Z", "level": "warn", "service": "bridge", "message": "rabbitmq publish failed, retrying", "request_id": null },
+    { "time": "2026-10-18T21:23:02.190502Z", "level": "warn", "service": "backend", "message": "Malformed request body: HttpMessageNotReadableException", "request_id": "t23bad" },
+    { "time": "2026-10-18T21:23:02.930596Z", "level": "info", "service": "backend", "message": "[Producer clientId=producer-1] ProducerId set to 1 with epoch 0", "request_id": null }
+  ],
+  "total": 4
+}

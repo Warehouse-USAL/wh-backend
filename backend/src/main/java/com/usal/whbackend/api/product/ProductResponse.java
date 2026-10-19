@@ -1,0 +1,121 @@
+package com.usal.whbackend.api.product;
+
+import com.usal.whbackend.domain.Product;
+import com.usal.whbackend.domain.ProductRestock;
+import java.time.Instant;
+import java.util.List;
+
+public record ProductResponse(
+    String id,
+    String sku,
+    String name,
+    String description,
+    String category,
+    List<Image> images,
+    Price price,
+    List<Spec> specs,
+    Stock stock,
+    OrderConstraints orderConstraints,
+    boolean active,
+    Instant createdAt,
+    Double height,
+    Double width,
+    Double length,
+    Double weight,
+    Double volume,
+    Restock restock) {
+
+  public ProductResponse {
+    images = images == null ? null : List.copyOf(images);
+    specs = specs == null ? null : List.copyOf(specs);
+  }
+
+  public record Image(String url, String alt, boolean isPrimary) {}
+
+  public record Price(long amountCents, String currency, boolean taxIncluded) {}
+
+  public record Spec(String label, String value) {}
+
+  /**
+   * physical = units on hand in active positions, the reference figure for a product's state; it
+   * only drops when an order completes and its units actually leave. reserved = units held by
+   * pending or in-progress orders. available = physical - reserved, free for new orders.
+   */
+  public record Stock(int available, int reserved, int physical, int min) {}
+
+  public record OrderConstraints(int maxQuantityPerOrder) {}
+
+  /**
+   * The last daily restock recommendation, or null before the first run. A snapshot as of {@code
+   * calculatedAt}: stock moves during the day are reflected at the next run.
+   */
+  public record Restock(
+      boolean shouldRestock,
+      int suggestedQuantity,
+      double reorderPoint,
+      double targetStock,
+      int inventoryPosition,
+      Instant calculatedAt) {}
+
+  public static ProductResponse from(Product product, int availableStock, int reservedStock) {
+    List<Image> images =
+        product.getImages() == null
+            ? List.of()
+            : product.getImages().stream()
+                .filter(java.util.Objects::nonNull)
+                .map(i -> new Image(i.getUrl(), i.getAlt(), i.isPrimary()))
+                .toList();
+
+    Price price =
+        product.getPrice() == null
+            ? null
+            : new Price(
+                product.getPrice().getAmountCents(),
+                product.getPrice().getCurrency(),
+                product.getPrice().isTaxIncluded());
+
+    List<Spec> specs =
+        product.getSpecs() == null
+            ? List.of()
+            : product.getSpecs().stream()
+                .filter(java.util.Objects::nonNull)
+                .map(s -> new Spec(s.getLabel(), s.getValue()))
+                .toList();
+
+    return new ProductResponse(
+        product.getId(),
+        product.getSku(),
+        product.getName(),
+        product.getDescription(),
+        product.getCategory(),
+        images,
+        price,
+        specs,
+        new Stock(
+            availableStock - reservedStock,
+            reservedStock,
+            availableStock,
+            product.getMinimumStock()),
+        new OrderConstraints(product.getMaxQuantityPerOrder()),
+        product.isActive(),
+        product.getCreatedAt(),
+        product.getHeight(),
+        product.getWidth(),
+        product.getLength(),
+        product.getWeight(),
+        product.getVolume(),
+        restock(product.getRestock()));
+  }
+
+  private static Restock restock(ProductRestock r) {
+    return r == null
+        ? null
+        : new Restock(
+            r.shouldRestock(),
+            r.suggestedQuantity(),
+            r.reorderPoint(),
+            r.targetStock(),
+            r.inventoryPosition(),
+            r.calculatedAt());
+  }
+}

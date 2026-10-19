@@ -1,0 +1,41 @@
+meta {
+  name: Restock Suggestions
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{baseUrl}}/metrics/restock-suggestions
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "params": {
+      "alpha": 0.3,
+      "recent_days": 7,
+      "long_days": 60,
+      "safety_days": 2,
+      "lead_time_days": 5,
+      "coverage_days": 7
+    },
+    "filters": {}
+  }
+}
+
+docs {
+  Computed metric: weighted daily demand and, per active product, whether to restock and how much.
+
+  Every param is required — each team sends its own business decisions. Optional filters:
+  product_ids (string[]) and category (case-insensitive).
+
+  Inventory position = available_stock (already net of reservations) + on_order_stock.
+
+  Response: {metric, params_used, generated_at, data[]}, most urgent first.
+  Rejections: INVALID_METRIC_PARAMS (400), naming the offending param.
+}

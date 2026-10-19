@@ -59,7 +59,7 @@ call "no-token-401"      GET  /products                   401 "" "none"
 
 # ---- products ----
 SKU="E2E-$RANDOM"
-call "product-create"    POST /products 201 "{\"sku\":\"$SKU\",\"name\":\"E2E Widget\",\"category\":\"HERRAMIENTAS\",\"description\":\"d\",\"price\":{\"amount_cents\":1999,\"currency\":\"USD\",\"tax_included\":true},\"max_quantity_per_order\":50,\"minimum_stock\":5}"
+call "product-create"    POST /products 201 "{\"sku\":\"$SKU\",\"name\":\"E2E Widget\",\"category\":\"HERRAMIENTAS\",\"description\":\"d\",\"price\":{\"amount_cents\":1999,\"currency\":\"USD\",\"tax_included\":true},\"max_quantity_per_order\":50,\"minimum_stock\":5,\"height\":10,\"width\":10,\"length\":10,\"weight\":1}"
 PID=$(xget id)
 call "product-list"      GET  /products                   200
 call "product-get"       GET  "/products/$PID"            200
