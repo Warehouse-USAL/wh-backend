@@ -26,6 +26,7 @@ up-dev: ## Start all services in dev mode (app + MongoDB + Redpanda + UI tools)
 	@echo "  MongoDB Express:  http://localhost:8081"
 	@echo "  Redpanda Console: http://localhost:8082"
 	@echo "  MinIO Console:    http://localhost:9001"
+	@echo "  Backend console:  http://localhost:8083/console/ (SUPERADMIN)"
 	@echo ""
 
 run: up-dev ## Alias for up-dev
@@ -41,6 +42,7 @@ deploy: ## Pull the newest backend + bridge + console images and restart them, p
 	@# Telemetry first (docs/CONSOLE.md, Rollout): the collector's logs pipeline must be up before the
 	@# new backend and bridge export to it. Recreated only when their compose config changed; the
 	@# collector always, since its config is a bind mount compose cannot diff. Volumes persist.
+	@# MongoDB and Redpanda are never touched. WH_IMAGE_TAG in .env pins the three app images.
 	$(PROD_COMPOSE) up -d --no-deps victorialogs
 	$(PROD_COMPOSE) up -d --no-deps --force-recreate otel-collector
 	$(PROD_COMPOSE) up -d --no-deps minio victoriametrics

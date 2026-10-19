@@ -6,19 +6,30 @@
 #    is generated once into a named volume, and a one-shot initializer runs
 #    rs.initiate() authenticated as root (the dev healthcheck can't, once auth is on)
 #  - stateful data lives in named volumes (no host bind-mount permission issues)
+#  - backend, bridge and console run the GHCR images of one release: WH_IMAGE_TAG (default latest)
+#    pins all three, e.g. WH_IMAGE_TAG=v1.4.0 to roll back (docs/CONSOLE.md, Rollback)
+#  - secrets have no defaults here: compose refuses to start when one is missing
+
+# json-file rotation for the services the console added (the Docker daemon default never rotates).
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
 
 services:
   backend:
-    image: ghcr.io/warehouse-usal/wh-backend:latest
+    image: ghcr.io/warehouse-usal/wh-backend:${WH_IMAGE_TAG:-latest}
     environment:
-      SPRING_DATA_MONGODB_URI: ${SPRING_DATA_MONGODB_URI}
+      SPRING_DATA_MONGODB_URI: ${SPRING_DATA_MONGODB_URI:?set SPRING_DATA_MONGODB_URI in .env}
       # Override the dev base's credential-less SPRING_MONGODB_URI so prod doesn't
       # connect unauthenticated.
-      SPRING_MONGODB_URI: ${SPRING_DATA_MONGODB_URI}
+      SPRING_MONGODB_URI: ${SPRING_DATA_MONGODB_URI:?set SPRING_DATA_MONGODB_URI in .env}
       REDPANDA_BOOTSTRAP_SERVERS: ${REDPANDA_BOOTSTRAP_SERVERS}
       # Redpanda is Kafka-compatible; the prod profile binds spring.kafka.bootstrap-servers.
       SPRING_KAFKA_BOOTSTRAP_SERVERS: ${REDPANDA_BOOTSTRAP_SERVERS:-redpanda:9092}
-      JWT_SECRET: ${JWT_SECRET}
+      # Signs every JWT, console sessions included: the dev base's literal must never reach prod.
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env (at least 32 chars)}
       JWT_EXPIRATION_MS: ${JWT_EXPIRATION_MS:-86400000}
       SPRING_PROFILES_ACTIVE: prod
       # Honor X-Forwarded-* (incl. X-Forwarded-Prefix from Caddy) so swagger/api-docs
@@ -55,7 +66,7 @@ services:
   # (profile `infra`); in prod it always runs. INFRA_AMQP_URL and INFRA_API_KEY come from the
   # server's .env — the bridge exits at startup if either is empty.
   bridge:
-    image: ghcr.io/warehouse-usal/wh-bridge:latest
+    image: ghcr.io/warehouse-usal/wh-bridge:${WH_IMAGE_TAG:-latest}
     environment:
       KAFKA_BROKERS: ${REDPANDA_BOOTSTRAP_SERVERS:-redpanda:9092}
       AMQP_URL: ${INFRA_AMQP_URL:-}
@@ -80,8 +91,8 @@ services:
 
   mongodb:
     environment:
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:?set MONGO_ROOT_USER in .env}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD in .env}
     command: ["--replSet", "rs0", "--bind_ip_all", "--keyFile", "/etc/mongo/mongo.key", "--auth"]
     volumes:
       - mongo_data:/data/db
@@ -142,6 +153,8 @@ services:
   # proxy network can also write metrics and logs into the stores (docs/CONSOLE.md).
   otel-collector:
     command: ["--config=/etc/otel/collector-config.yml", "--config=/etc/otel/collector-config.prod.yml"]
+    # Until Caddy serves its metrics this logs one scrape warning a minute.
+    logging: *logging
     volumes:
       - ./config/otel/collector-config.prod.yml:/etc/otel/collector-config.prod.yml:ro
     ports: !override []
@@ -151,20 +164,23 @@ services:
 
   victorialogs:
     restart: always
+    logging: *logging
 
   # Prebuilt GHCR image; reached through Caddy at /console/ (docs/CONSOLE.md), so no host port.
   console:
-    image: ghcr.io/warehouse-usal/wh-console:latest
+    image: ghcr.io/warehouse-usal/wh-console:${WH_IMAGE_TAG:-latest}
     ports: !override []
     # No dev-tools proxies in prod.
     volumes: !reset []
     restart: always
+    logging: *logging
     networks:
       - wh-network
       - wh-proxy
 
   restock-cron:
     restart: always
+    logging: *logging
 
 networks:
   wh-network:

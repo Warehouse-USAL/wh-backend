@@ -258,6 +258,13 @@ services:
         condition: service_started
     networks:
       - wh-network
+    # nginx itself (the SPA), not the backend behind /api: nginx answers 502 there while it boots.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/console/"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
     restart: unless-stopped
 
   # The daily restock run (docs/RFC_Metricas_Calculadas.md). Calls the backend's

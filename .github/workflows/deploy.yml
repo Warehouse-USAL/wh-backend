@@ -98,21 +98,17 @@ jobs:
 
       - name: Verify console is up
         run: |
-          # No healthcheck: running for 3 checks in a row, and no restart meanwhile (crash loop).
-          inspect() { docker inspect -f '{{.State.Status}} {{.RestartCount}}' wh-backend-console-1 2>/dev/null || echo "missing none"; }
-          restarts0=$(inspect); restarts0=${restarts0#* }
-          up=0
-          for _ in $(seq 1 12); do
-            info=$(inspect)
-            if [ "${info#* }" != "$restarts0" ]; then
-              echo "console restarted during the wait (restarts $restarts0 -> ${info#* })" | tee -a /tmp/wh-deploy.log
-              up=0; break
+          # The compose healthcheck covers nginx and the SPA; the wget proves its /api proxy reaches
+          # the backend (the same path the browser takes behind Caddy).
+          for _ in $(seq 1 24); do
+            state=$(docker inspect -f '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' wh-backend-console-1 2>/dev/null || echo missing)
+            if [ "$state" = "running healthy" ] \
+              && docker exec wh-backend-console-1 wget -q -O /dev/null http://127.0.0.1/api/actuator/health; then
+              echo "console healthy, /api proxy reaches the backend"; exit 0
             fi
-            if [ "${info% *}" = running ]; then up=$((up + 1)); else up=0; fi
-            if [ "$up" -ge 3 ]; then echo "console running"; exit 0; fi
             sleep 5
           done
-          echo "console not up (state: ${info% *}, restarts: ${info#* }):" | tee -a /tmp/wh-deploy.log
+          echo "console not healthy or /api proxy failing (state: $state):" | tee -a /tmp/wh-deploy.log
           docker logs --tail 40 wh-backend-console-1 2>&1 | tail -30 >> /tmp/wh-deploy.log
           exit 1
 
