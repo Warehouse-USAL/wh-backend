@@ -8,9 +8,11 @@ import io.opentelemetry.sdk.metrics.SdkMeterProvider;
 import io.opentelemetry.sdk.metrics.SdkMeterProviderBuilder;
 import io.opentelemetry.sdk.metrics.export.PeriodicMetricReader;
 import io.opentelemetry.sdk.resources.Resource;
+import java.lang.management.ManagementFactory;
 import java.time.Duration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -35,13 +37,7 @@ public class TelemetryConfig {
    */
   @Bean(destroyMethod = "close")
   public OpenTelemetrySdk openTelemetrySdk(TelemetryProperties props) {
-    Resource resource =
-        Resource.getDefault()
-            .merge(
-                Resource.create(
-                    Attributes.of(AttributeKey.stringKey("service.name"), props.getServiceName())));
-
-    SdkMeterProviderBuilder meterProvider = SdkMeterProvider.builder().setResource(resource);
+    SdkMeterProviderBuilder meterProvider = SdkMeterProvider.builder().setResource(resource(props));
 
     if (props.isEnabled()) {
       meterProvider.registerMetricReader(
@@ -61,13 +57,48 @@ public class TelemetryConfig {
     return OpenTelemetrySdk.builder().setMeterProvider(meterProvider.build()).build();
   }
 
+  /** Shared by metrics and logs, so the log store can filter by the same {@code service.name}. */
+  static Resource resource(TelemetryProperties props) {
+    return Resource.getDefault()
+        .merge(
+            Resource.create(
+                Attributes.of(AttributeKey.stringKey("service.name"), props.getServiceName())));
+  }
+
   @Bean
   public TelemetryPort telemetryPort(
-      OpenTelemetrySdk sdk, TelemetryProperties props, FleetStateSource fleetStateSource) {
+      OpenTelemetrySdk sdk,
+      TelemetryProperties props,
+      FleetStateSource fleetStateSource,
+      ObjectProvider<MongoMetricsListener> mongoListener) {
     if (!props.isEnabled()) {
       log.info("Telemetry disabled (telemetry.enabled=false) — samples are discarded");
       return new NoOpTelemetryAdapter();
     }
-    return new OtelTelemetryAdapter(sdk.getMeter(INSTRUMENTATION_SCOPE), fleetStateSource);
+    OtelTelemetryAdapter adapter =
+        new OtelTelemetryAdapter(sdk.getMeter(INSTRUMENTATION_SCOPE), fleetStateSource);
+    mongoListener.ifAvailable(listener -> adapter.registerPoolGauge(listener::poolStats));
+    return adapter;
+  }
+
+  /**
+   * Registered here rather than with {@code @Component}: {@code @WebMvcTest} slices scan filters
+   * but not this class, and none of them provides a {@link TelemetryPort}.
+   */
+  @Bean
+  public HttpMetricsFilter httpMetricsFilter(TelemetryPort telemetryPort) {
+    return new HttpMetricsFilter(telemetryPort);
+  }
+
+  /**
+   * Registered on the SDK in both modes, like the adapter's own gauges: with telemetry disabled the
+   * SDK has no reader, so the callbacks simply never run.
+   */
+  @Bean
+  public RuntimeGauges runtimeGauges(OpenTelemetrySdk sdk, HttpMetricsFilter httpMetricsFilter) {
+    return new RuntimeGauges(
+        sdk.getMeter(INSTRUMENTATION_SCOPE),
+        ManagementFactory.getPlatformMBeanServer(),
+        httpMetricsFilter::activeRequests);
   }
 }

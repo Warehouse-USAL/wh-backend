@@ -22,6 +22,7 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
@@ -74,6 +75,7 @@ public class GlobalExceptionHandler {
           Map.entry("ORDER_NOT_ASSIGNABLE", "La orden no puede ser asignada en su estado actual."),
           Map.entry(
               "VEHICLE_ALREADY_BUSY", "El vehículo ya está asignado a otra orden en progreso."),
+          Map.entry("UNKNOWN_FEED", "El feed de WebSocket solicitado no existe."),
           Map.entry(
               "UNKNOWN_METRIC", "La métrica solicitada no existe. Consultar GET /metrics/catalog."),
           Map.entry(
@@ -89,6 +91,11 @@ public class GlobalExceptionHandler {
           Map.entry(
               "METRICS_UNAVAILABLE", "El almacén de métricas no está disponible en este momento."),
           Map.entry(
+              "LOG_STORE_UNAVAILABLE", "El almacén de logs no está disponible en este momento."),
+          Map.entry(
+              "INVALID_TIME_RANGE",
+              "El rango de tiempo no es válido. Debe ser ascendente y de a lo sumo 7 días."),
+          Map.entry(
               "UNKNOWN_ENTITY", "La entidad solicitada no existe. Consultar GET /query/catalog."),
           Map.entry(
               "UNKNOWN_FIELD",
@@ -97,6 +104,11 @@ public class GlobalExceptionHandler {
               "UNSUPPORTED_OPERATOR", "El operador indicado no está permitido para este campo."),
           Map.entry("TOO_MANY_FILTERS", "La consulta declara demasiados filtros."),
           Map.entry("INVALID_FILTER_VALUE", "El valor de uno de los filtros no es válido."),
+          Map.entry(
+              "INVALID_SUBSCRIPTION",
+              "Una de las suscripciones del stream no es válida (id, kind o parámetros)."),
+          Map.entry(
+              "STREAM_LIMIT", "Hay demasiados streams abiertos; cierre uno e intente de nuevo."),
           Map.entry(
               "NO_AGGREGATES",
               "Una consulta agrupada debe declarar al menos un agregado en 'aggregates'."),
@@ -131,9 +143,12 @@ public class GlobalExceptionHandler {
               "INVALID_DELIVERY_UNIT",
               "Unidad de entrega inválida. Valores aceptados: CAJA, MEDIO_PALLET, PALLET."));
 
+  // The error bodies are JSON whatever the request's Accept header asks for: the console stream
+  // sends Accept: text/event-stream, and a body Spring cannot write for that Accept is dropped.
   @ExceptionHandler(AccessDeniedException.class)
   public ResponseEntity<ErrorResponse> handleAccessDenied(AccessDeniedException ex) {
     return ResponseEntity.status(HttpStatus.FORBIDDEN)
+        .contentType(MediaType.APPLICATION_JSON)
         .body(ErrorResponse.of("ACCESS_DENIED", "No tiene permisos para realizar esta operación."));
   }
 
@@ -142,6 +157,7 @@ public class GlobalExceptionHandler {
     String code = ex.getReason() != null ? ex.getReason() : ex.getStatusCode().toString();
     String message = MESSAGES.getOrDefault(code, code);
     return ResponseEntity.status(ex.getStatusCode())
+        .contentType(MediaType.APPLICATION_JSON)
         .body(Map.of("error", Map.of("code", code, "message", message)));
   }
 
@@ -189,19 +205,24 @@ public class GlobalExceptionHandler {
             .findFirst()
             .orElse("Validation error");
     return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+        .contentType(MediaType.APPLICATION_JSON)
         .body(ErrorResponse.of("VALIDATION_ERROR", message));
   }
 
   @ExceptionHandler(HttpMessageNotReadableException.class)
   public ResponseEntity<ErrorResponse> handleMalformedRequest(HttpMessageNotReadableException ex) {
-    log.warn("Malformed request body: {}", ex.getMessage());
+    // The message can quote a fragment of the body (a password in a malformed login), so log the
+    // type.
+    log.warn("Malformed request body: {}", ex.getClass().getSimpleName());
     for (Throwable cause = ex.getCause(); cause != null; cause = cause.getCause()) {
       if (cause instanceof InvalidFormatException ife && ife.getTargetType() == StockSize.class) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+            .contentType(MediaType.APPLICATION_JSON)
             .body(ErrorResponse.of("INVALID_DELIVERY_UNIT", MESSAGES.get("INVALID_DELIVERY_UNIT")));
       }
     }
     return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+        .contentType(MediaType.APPLICATION_JSON)
         .body(
             ErrorResponse.of("MALFORMED_REQUEST", "El cuerpo de la solicitud no es JSON válido."));
   }
@@ -291,7 +312,7 @@ public class GlobalExceptionHandler {
 
   @ExceptionHandler(MaxUploadSizeExceededException.class)
   public ResponseEntity<ErrorResponse> handleMaxUploadSize(MaxUploadSizeExceededException ex) {
-    return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
+    return ResponseEntity.status(HttpStatus.CONTENT_TOO_LARGE)
         .body(ErrorResponse.of("PAYLOAD_TOO_LARGE", "El archivo supera el tamaño máximo de 5MB."));
   }
 }

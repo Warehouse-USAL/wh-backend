@@ -2,12 +2,19 @@ package com.usal.whbackend.service.storage;
 
 import io.minio.GetObjectArgs;
 import io.minio.GetObjectResponse;
+import io.minio.ListObjectsArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
 import io.minio.RemoveObjectArgs;
+import io.minio.Result;
 import io.minio.errors.ErrorResponseException;
+import io.minio.messages.Item;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Iterator;
+import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -24,8 +31,10 @@ public class MinioStorageService implements StorageService {
   private static final Logger log = LoggerFactory.getLogger(MinioStorageService.class);
   private static final Set<String> ALLOWED_TYPES = Set.of("image/jpeg", "image/png", "image/webp");
   private static final long MAX_FILE_SIZE = 5 * 1024 * 1024;
+  static final int MAX_LISTED_FILES = 1000;
   private static final int MAGIC_BYTES_LENGTH = 12;
   private static final Pattern SAFE_SEGMENT = Pattern.compile("[a-zA-Z0-9._-]+");
+  private static final Pattern UPLOAD_PATH = Pattern.compile("[A-Za-z0-9_-]{1,64}");
 
   private final MinioClient minioClient;
   private final String bucket;
@@ -139,9 +148,50 @@ public class MinioStorageService implements StorageService {
     return requestBase + key;
   }
 
+  @Override
+  public Listing list() {
+    List<StoredFile> files = new ArrayList<>();
+    boolean truncated;
+    try {
+      Iterator<Result<Item>> objects =
+          minioClient
+              .listObjects(ListObjectsArgs.builder().bucket(bucket).recursive(true).build())
+              .iterator();
+      while (files.size() < MAX_LISTED_FILES && objects.hasNext()) {
+        Item item = objects.next().get();
+        if (item.isDir()) {
+          continue;
+        }
+        String key = item.objectName();
+        int slash = key.lastIndexOf('/');
+        files.add(
+            new StoredFile(
+                slash < 0 ? "" : key.substring(0, slash), key.substring(slash + 1), item.size()));
+      }
+      truncated = objects.hasNext();
+    } catch (Exception e) {
+      throw new StorageException("Error al listar archivos", e);
+    }
+    files.sort(Comparator.comparing(StoredFile::path).thenComparing(StoredFile::filename));
+    return new Listing(files, truncated);
+  }
+
   public static String extractKey(String url, String requestBase) {
     int idx = url.indexOf(requestBase);
     return idx != -1 ? url.substring(idx + requestBase.length()) : url;
+  }
+
+  /**
+   * An upload folder: one segment of 1 to 64 letters, digits, '_' or '-' (no dots, so no traversal;
+   * bounded, so an over-long folder is a 400 here rather than a storage failure). The rejected
+   * value is not echoed back.
+   */
+  public static String uploadPath(String path) {
+    if (!UPLOAD_PATH.matcher(path).matches()) {
+      throw new IllegalArgumentException(
+          "Invalid path: use 1 to 64 letters, digits, '_' or '-' only.");
+    }
+    return path;
   }
 
   public static String sanitizePathSegment(String segment) {

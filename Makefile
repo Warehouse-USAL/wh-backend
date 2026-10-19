@@ -26,6 +26,7 @@ up-dev: ## Start all services in dev mode (app + MongoDB + Redpanda + UI tools)
 	@echo "  MongoDB Express:  http://localhost:8081"
 	@echo "  Redpanda Console: http://localhost:8082"
 	@echo "  MinIO Console:    http://localhost:9001"
+	@echo "  Backend console:  http://localhost:8083/console/ (SUPERADMIN)"
 	@echo ""
 
 run: up-dev ## Alias for up-dev
@@ -34,11 +35,18 @@ up-prod: ## Start services in production mode (requires env vars set)
 	docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 	@echo "Production services started on port 8080"
 
-deploy: ## Pull the newest backend + bridge images and restart them, plus restock-cron (data untouched)
-	docker compose -f docker-compose.yml -f docker-compose.prod.yml pull backend bridge
-	docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps backend bridge restock-cron
-	@# Recreated only when its compose config changed (e.g. retention); its volume persists.
-	docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps victoriametrics
+PROD_COMPOSE = docker compose -f docker-compose.yml -f docker-compose.prod.yml
+
+deploy: ## Pull the newest backend + bridge + console images and restart them, plus restock-cron (data untouched)
+	$(PROD_COMPOSE) pull backend bridge console
+	@# Telemetry first (docs/CONSOLE.md, Rollout): the collector's logs pipeline must be up before the
+	@# new backend and bridge export to it. Recreated only when their compose config changed; the
+	@# collector always, since its config is a bind mount compose cannot diff. Volumes persist.
+	@# MongoDB and Redpanda are never touched. WH_IMAGE_TAG in .env pins the three app images.
+	$(PROD_COMPOSE) up -d --no-deps victorialogs
+	$(PROD_COMPOSE) up -d --no-deps --force-recreate otel-collector
+	$(PROD_COMPOSE) up -d --no-deps minio victoriametrics
+	$(PROD_COMPOSE) up -d --no-deps backend bridge console restock-cron
 	@echo "Backend redeployed"
 
 up-infra: ## Start only MongoDB, Redpanda and MinIO (for local Gradle development)

@@ -1,5 +1,6 @@
 package com.usal.whbackend.api.infra;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.is;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -14,8 +15,13 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.usal.whbackend.api.error.GlobalExceptionHandler;
 import com.usal.whbackend.config.JwtService;
+import com.usal.whbackend.config.RequestIdFilter;
 import com.usal.whbackend.config.SecurityConfig;
 import com.usal.whbackend.domain.Order;
 import com.usal.whbackend.domain.OrderStatus;
@@ -23,6 +29,7 @@ import com.usal.whbackend.service.OrderStatusService;
 import com.usal.whbackend.service.VehicleTelemetryService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
@@ -112,6 +119,55 @@ class InfraControllerTest {
   }
 
   // ── POST /infra/orders/{id}/status ──────────────────────────────────────────
+
+  /** Runs {@code request} with the request id filter and returns the callback log lines. */
+  private ListAppender<ILoggingEvent> callbackLines(MockHttpServletRequestBuilder request)
+      throws Exception {
+    Logger logger = (Logger) LoggerFactory.getLogger("com.usal.whbackend.api.infra");
+    ListAppender<ILoggingEvent> lines = new ListAppender<>();
+    lines.start();
+    logger.addAppender(lines);
+    try {
+      MockMvcBuilders.webAppContextSetup(context)
+          .addFilters(new RequestIdFilter())
+          .apply(springSecurity())
+          .build()
+          .perform(request.header(RequestIdFilter.HEADER, "req-1"))
+          .andExpect(status().isOk());
+    } finally {
+      logger.detachAppender(lines);
+    }
+    return lines;
+  }
+
+  @Test
+  void orderStatus_logsTheAppliedStatusUnderTheRequestId() throws Exception {
+    // The stored order's id is logged, never the raw path variable the caller sent.
+    Order order = new Order();
+    order.setId("ord-stored");
+    order.setStatus(OrderStatus.IN_PROGRESS);
+    when(orderStatusService.apply(anyString(), anyString(), any(), any())).thenReturn(order);
+
+    ListAppender<ILoggingEvent> lines = callbackLines(statusRequest("test-key"));
+
+    assertThat(lines.list)
+        .singleElement()
+        .satisfies(
+            line -> {
+              assertThat(line.getFormattedMessage())
+                  .isEqualTo("callback order ord-stored status -> IN_PROGRESS");
+              assertThat(line.getLevel()).isEqualTo(Level.INFO);
+              assertThat(line.getMDCPropertyMap()).containsEntry("request_id", "req-1");
+            });
+  }
+
+  @Test
+  void telemetry_isNeverLoggedPerMessage() throws Exception {
+    when(telemetryService.apply(anyString(), any(), any(), any(), any()))
+        .thenReturn("backend-uuid");
+
+    assertThat(callbackLines(telemetryRequest("test-key")).list).isEmpty();
+  }
 
   @Test
   void orderStatus_withTheApiKey_appliesTheStatusAndReturnsTheOrder() throws Exception {

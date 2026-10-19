@@ -6,6 +6,7 @@ import io.jsonwebtoken.JwtException;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.Date;
 import javax.crypto.SecretKey;
 import org.springframework.beans.factory.annotation.Value;
@@ -75,6 +76,17 @@ public final class JwtService {
    */
   public String extractRole(String token) {
     return parseClaims(token).get("role", String.class);
+  }
+
+  /**
+   * Extracts the expiry of a JWT token.
+   *
+   * @param token the JWT token
+   * @return when the token stops being valid
+   * @throws JwtException if the token is invalid, expired, or malformed
+   */
+  public Instant extractExpiration(String token) {
+    return parseClaims(token).getExpiration().toInstant();
   }
 
   private Claims parseClaims(String token) {

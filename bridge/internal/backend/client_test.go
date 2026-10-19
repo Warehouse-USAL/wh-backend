@@ -6,11 +6,13 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/backend"
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/classify"
+	"github.com/Warehouse-USAL/wh-backend/bridge/internal/requestid"
 )
 
 type recorded struct {
@@ -18,6 +20,7 @@ type recorded struct {
 	path   string
 	key    string
 	ctype  string
+	reqID  string
 	body   string
 }
 
@@ -36,6 +39,7 @@ func (f *fakeBackend) ServeHTTP(
 		path:   r.URL.EscapedPath(),
 		key:    r.Header.Get("X-Api-Key"),
 		ctype:  r.Header.Get("Content-Type"),
+		reqID:  r.Header.Get("X-Request-Id"),
 		body:   string(body),
 	})
 	w.WriteHeader(f.status)
@@ -128,6 +132,23 @@ func TestSendRejectedErrorCarriesStatusAndBody(
 	}
 }
 
+func TestSendUnavailableErrorCarriesStatusAndBody(
+	t *testing.T,
+) {
+	client, _ := newClient(t, http.StatusServiceUnavailable)
+	err := client.Send(context.Background(), sample)
+	var unavailable *backend.UnavailableError
+	if !errors.As(err, &unavailable) {
+		t.Fatalf("got %v, want *UnavailableError", err)
+	}
+	if unavailable.Status != http.StatusServiceUnavailable || unavailable.Body != "reply" {
+		t.Fatalf("got %+v", unavailable)
+	}
+	if err.Error() != "backend answered status 503: reply" {
+		t.Fatalf("got %q", err.Error())
+	}
+}
+
 func TestSendNetworkErrorIsTransient(
 	t *testing.T,
 ) {
@@ -138,6 +159,25 @@ func TestSendNetworkErrorIsTransient(
 	err := client.Send(context.Background(), sample)
 	if err == nil || errors.Is(err, backend.ErrRejected) {
 		t.Fatalf("got %v, want a transient error", err)
+	}
+}
+
+func TestSendFailsToBuildARequestForAnInvalidBaseURL(
+	t *testing.T,
+) {
+	client := backend.New("http://bad host", "secret", time.Second)
+	err := client.Send(context.Background(), sample)
+	if err == nil || !strings.Contains(err.Error(), "build request") || errors.Is(err, backend.ErrRejected) {
+		t.Fatalf("got %v, want a build request error", err)
+	}
+}
+
+func TestRejectedErrorDescribesTheAnswer(
+	t *testing.T,
+) {
+	err := &backend.RejectedError{Status: http.StatusNotFound, Body: "VEHICLE_NOT_FOUND"}
+	if got := err.Error(); got != "backend rejected the request: status 404: VEHICLE_NOT_FOUND" {
+		t.Fatalf("Error() = %q", got)
 	}
 }
 
@@ -155,5 +195,17 @@ func TestSendTimeoutIsTransient(
 	err := client.Send(context.Background(), sample)
 	if err == nil || errors.Is(err, backend.ErrRejected) {
 		t.Fatalf("got %v, want a transient error", err)
+	}
+}
+
+func TestSendForwardsTheContextRequestID(
+	t *testing.T,
+) {
+	client, fake := newClient(t, http.StatusOK)
+	if err := client.Send(requestid.With(context.Background(), "req-1"), sample); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got := fake.requests[0].reqID; got != "req-1" {
+		t.Fatalf("X-Request-Id = %q, want req-1", got)
 	}
 }

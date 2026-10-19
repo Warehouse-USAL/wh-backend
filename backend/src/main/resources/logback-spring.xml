@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Spring Boot's default console logging, unchanged, plus an OpenTelemetry appender that ships each
+  record with its request_id. The appender is inert until OtelLogsConfig installs an SDK, which it
+  only does with telemetry.enabled=true.
+-->
+<configuration>
+  <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+  <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+
+  <appender name="OTEL" class="io.opentelemetry.instrumentation.logback.appender.v1_0.OpenTelemetryAppender">
+    <captureMdcAttributes>request_id</captureMdcAttributes>
+  </appender>
+
+  <!--
+    The SDK reports export failures (collector down) through these loggers. They stay visible on
+    the console but are not additive, so they never reach the OTEL appender: shipping an export
+    failure would itself fail to export and feed back into the logger.
+  -->
+  <logger name="io.opentelemetry" level="WARN" additivity="false">
+    <appender-ref ref="CONSOLE"/>
+  </logger>
+
+  <!--
+    The status page's Kafka admin client logs every failed metadata refresh at INFO while the
+    broker is down (dozens a minute); connection failures still show as NetworkClient WARNs.
+  -->
+  <logger name="org.apache.kafka.clients.admin" level="WARN"/>
+
+  <root level="INFO">
+    <appender-ref ref="CONSOLE"/>
+    <appender-ref ref="OTEL"/>
+  </root>
+</configuration>

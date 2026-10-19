@@ -7,6 +7,10 @@ import (
 	"time"
 )
 
+// ErrNoOrderID is returned by Script for an order message without an
+// order_id, which the fake vehicle cannot report on.
+var ErrNoOrderID = errors.New("order has no order_id")
+
 type order struct {
 	OrderID string   `json:"order_id"`
 	Status  string   `json:"status"`
@@ -47,7 +51,7 @@ func Script(
 		return nil, fmt.Errorf("decode order: %w", err)
 	}
 	if received.OrderID == "" {
-		return nil, errors.New("order has no order_id")
+		return nil, ErrNoOrderID
 	}
 	stamp := now.UTC().Format(time.RFC3339)
 	if received.Status == "cancelled" {

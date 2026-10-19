@@ -8,6 +8,8 @@ import (
 	"time"
 
 	amqp "github.com/rabbitmq/amqp091-go"
+
+	"github.com/Warehouse-USAL/wh-backend/bridge/internal/requestid"
 )
 
 var (
@@ -20,10 +22,11 @@ type publisher struct {
 	url        string
 	exchange   string
 	routingKey string
+	dial       func(url string) (connection, error)
 
 	mu      sync.Mutex
-	conn    *amqp.Connection
-	ch      *amqp.Channel
+	conn    connection
+	ch      channel
 	returns chan amqp.Return
 }
 
@@ -48,7 +51,7 @@ func (p *publisher) ensure() error {
 		return nil
 	}
 	p.reset()
-	conn, err := amqp.DialConfig(p.url, amqp.Config{Dial: amqp.DefaultDial(dialTimeout)})
+	conn, err := p.dial(p.url)
 	if err != nil {
 		return fmt.Errorf("dial rabbitmq: %w", err)
 	}
@@ -77,7 +80,7 @@ func (p *publisher) send(
 	ctx context.Context,
 	body []byte,
 ) error {
-	confirmation, err := p.ch.PublishWithDeferredConfirmWithContext(
+	confirmation, err := p.ch.PublishConfirmed(
 		ctx,
 		p.exchange,
 		p.routingKey,
@@ -87,6 +90,7 @@ func (p *publisher) send(
 			ContentType:  "application/json",
 			DeliveryMode: amqp.Persistent,
 			Timestamp:    time.Now(),
+			Headers:      headers(ctx),
 			Body:         body,
 		},
 	)
@@ -110,4 +114,15 @@ func (p *publisher) checkReturned() error {
 	default:
 		return nil
 	}
+}
+
+// headers carries the request id on the context, if any, to Infra.
+func headers(
+	ctx context.Context,
+) amqp.Table {
+	id := requestid.From(ctx)
+	if id == "" {
+		return nil
+	}
+	return amqp.Table{requestid.Header: id}
 }

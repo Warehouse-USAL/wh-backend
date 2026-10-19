@@ -1,5 +1,6 @@
 package com.usal.whbackend.service.metrics;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -42,5 +43,54 @@ class MetricDescriptorTest {
     assertThatThrownBy(() -> descriptor(MetricType.GAUGE, List.of(Aggregation.INCREASE)))
         .isInstanceOf(IllegalArgumentException.class)
         .hasMessageContaining("GAUGE");
+  }
+
+  private static MetricDescriptor withBuckets(MetricType type, String buckets) {
+    return new MetricDescriptor(
+        "wh.test",
+        "wh_test",
+        "Test",
+        "1",
+        type,
+        List.of(),
+        type == MetricType.HISTOGRAM ? List.of(Aggregation.P95) : List.of(Aggregation.LAST),
+        Set.of(UserRole.SUPERADMIN),
+        buckets);
+  }
+
+  @Test
+  void onlyAHistogramMayNameItsBucketSeries() {
+    assertThat(withBuckets(MetricType.HISTOGRAM, "wh_test_raw").bucketSeriesName())
+        .isEqualTo("wh_test_raw");
+    assertThat(withBuckets(MetricType.HISTOGRAM, null).bucketSeriesName())
+        .isEqualTo("wh_test_bucket");
+    assertThat(withBuckets(MetricType.GAUGE, null).bucketSeriesName()).isNull();
+    assertThatThrownBy(() -> withBuckets(MetricType.GAUGE, "wh_test_raw"))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("GAUGE");
+  }
+
+  private static MetricDescriptor pinned(MetricType type, List<String> dimensions) {
+    return new MetricDescriptor(
+        "wh.test",
+        "up{job=\"caddy\"}",
+        "Test",
+        "1",
+        type,
+        dimensions,
+        type == MetricType.HISTOGRAM ? List.of(Aggregation.P95) : List.of(Aggregation.LAST),
+        Set.of(UserRole.SUPERADMIN));
+  }
+
+  @Test
+  void aPinnedSelectorIsOnlyForADimensionlessNonHistogram() {
+    assertThatCode(() -> pinned(MetricType.GAUGE, List.of())).doesNotThrowAnyException();
+    // A filter would be appended after the closing brace, and a histogram's _count after it too.
+    assertThatThrownBy(() -> pinned(MetricType.GAUGE, List.of("job")))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("selector");
+    assertThatThrownBy(() -> pinned(MetricType.HISTOGRAM, List.of()))
+        .isInstanceOf(IllegalArgumentException.class)
+        .hasMessageContaining("selector");
   }
 }

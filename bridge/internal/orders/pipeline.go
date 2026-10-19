@@ -3,10 +3,13 @@ package orders
 import (
 	"context"
 	"log/slog"
-	"time"
 
+	"github.com/Warehouse-USAL/wh-backend/bridge/internal/requestid"
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/retry"
+	"github.com/Warehouse-USAL/wh-backend/bridge/internal/telemetry"
 )
+
+const flow = "orders_out"
 
 // Pipeline moves orders from the backend to Infra, one at a time.
 type Pipeline interface {
@@ -20,18 +23,23 @@ type Pipeline interface {
 }
 
 // New builds a Pipeline that reads from consumer and writes to publisher,
-// retrying failed publishes according to policy.
+// retrying failed publishes according to policy. Every record is counted on
+// rec under the orders_out flow: ok once published, retry per failed
+// attempt, dropped when invalid and error when stopped before publishing.
+// Each publish attempt is timed on rec with result ok or error, and each
+// record from its poll to its commit (retries included) with result ok,
+// dropped or error.
+//
+// A record's request id is remembered in ids under its order id, for the
+// callbacks of that order, and passed to publisher on the context. Every log
+// line about a record carries its order_id and request_id.
 func New(
 	consumer Consumer,
 	publisher Publisher,
 	policy retry.Policy,
 	logger *slog.Logger,
+	rec telemetry.Recorder,
+	ids *requestid.Store,
 ) Pipeline {
-	policy.OnRetry = func(
-		err error,
-		delay time.Duration,
-	) {
-		logger.Warn("rabbitmq publish failed, retrying", "error", err, "retry_in", delay)
-	}
-	return &runner{consumer: consumer, publisher: publisher, policy: policy, logger: logger}
+	return &runner{consumer: consumer, publisher: publisher, policy: policy, logger: logger, rec: rec, ids: ids}
 }

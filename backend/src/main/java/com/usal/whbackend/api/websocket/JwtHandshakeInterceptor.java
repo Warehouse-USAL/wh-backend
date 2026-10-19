@@ -15,9 +15,14 @@ public class JwtHandshakeInterceptor implements HandshakeInterceptor {
 
   private final JwtService jwtService;
   private final Set<String> allowedRoles;
+  private final String feed;
+  private final WsActivity wsActivity;
 
-  public JwtHandshakeInterceptor(JwtService jwtService, Set<String> allowedRoles) {
+  public JwtHandshakeInterceptor(
+      JwtService jwtService, Set<String> allowedRoles, String feed, WsActivity wsActivity) {
     this.jwtService = jwtService;
+    this.feed = feed;
+    this.wsActivity = wsActivity;
     this.allowedRoles = Set.copyOf(allowedRoles);
   }
 
@@ -29,11 +34,13 @@ public class JwtHandshakeInterceptor implements HandshakeInterceptor {
       Map<String, Object> attributes) {
     String token = extractToken(request);
     if (token == null || !jwtService.isTokenValid(token)) {
+      wsActivity.rejected(feed, "handshake rejected: missing or invalid token");
       response.setStatusCode(HttpStatus.FORBIDDEN);
       return false;
     }
     String role = jwtService.extractRole(token);
     if (!allowedRoles.contains(role)) {
+      wsActivity.rejected(feed, "handshake rejected: role not allowed");
       response.setStatusCode(HttpStatus.FORBIDDEN);
       return false;
     }

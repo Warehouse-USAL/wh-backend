@@ -25,6 +25,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -86,22 +87,36 @@ public class OrderController {
   @Operation(
       summary = "Create order",
       description =
-          "Creates a new order and reserves stock. Requires ADMIN_SALES, ADMIN_WAREHOUSE or"
+          "Creates a new order and reserves stock. Supports Idempotency-Key header to prevent"
+              + " duplicate orders on network retries. Requires ADMIN_SALES, ADMIN_WAREHOUSE or"
               + " OPERATOR role.")
   @ApiResponse(responseCode = "201", description = "Order created")
   @ApiResponse(
       responseCode = "400",
       description =
           "DESTINATION_AREA_REQUIRED, ITEMS_REQUIRED, PRODUCT_NOT_FOUND, INSUFFICIENT_STOCK, QUANTITY_EXCEEDS_LIMIT, etc.")
+  @ApiResponse(
+      responseCode = "409",
+      description =
+          "IDEMPOTENCY_KEY_USER_MISMATCH, or IDEMPOTENCY_REQUEST_IN_PROGRESS for a concurrent request")
   @ApiResponse(responseCode = "403", description = "Insufficient role")
   @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_SALES', 'ADMIN_WAREHOUSE', 'OPERATOR')")
   @PostMapping
   public ResponseEntity<Map<String, OrderResponse>> createOrder(
+      @Parameter(
+              description =
+                  "Optional idempotency key (UUID) to prevent duplicate order creation on network retries")
+          @RequestHeader(value = "Idempotency-Key", required = false)
+          String idempotencyKey,
       @RequestBody CreateOrderRequest request,
       @CurrentSecurityContext(expression = "authentication") Authentication authentication) {
     String userId = authentication.getName();
+    Order order =
+        (idempotencyKey != null && !idempotencyKey.isBlank())
+            ? orderService.createOrder(request, userId, idempotencyKey.trim())
+            : orderService.createOrder(request, userId);
     return ResponseEntity.status(HttpStatus.CREATED)
-        .body(Map.of("order", OrderResponse.from(orderService.createOrder(request, userId))));
+        .body(Map.of("order", OrderResponse.from(order)));
   }
 
   @Operation(

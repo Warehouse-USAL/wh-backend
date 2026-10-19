@@ -10,6 +10,8 @@ import java.util.Optional;
  *   <li>{@link #overTimeFunction()} collapses the samples inside one step bucket
  *   <li>{@link #operator()} collapses the remaining series into the requested {@code group_by}
  * </ul>
+ *
+ * <p>P50/P95/P99 are histogram-only quantiles, rendered by the translator's histogram branch.
  */
 public enum Aggregation {
   AVG("avg_over_time", "avg", false),
@@ -33,16 +35,28 @@ public enum Aggregation {
   // the change across the bucket instead, and sum is the only correct way to combine deltas
   // from several series.
   RATE("rate", "sum", true),
-  INCREASE("increase", "sum", true);
+  INCREASE("increase", "sum", true),
+
+  // Histogram quantiles. The bucket counters are rated within the step and summed across series
+  // (keeping le), then histogram_quantile interpolates the fraction. Only histograms offer these.
+  P50("rate", "sum", false, 0.5),
+  P95("rate", "sum", false, 0.95),
+  P99("rate", "sum", false, 0.99);
 
   private final String overTimeFunction;
   private final String operator;
   private final boolean counterDelta;
+  private final Double quantile;
 
   Aggregation(String overTimeFunction, String operator, boolean counterDelta) {
+    this(overTimeFunction, operator, counterDelta, null);
+  }
+
+  Aggregation(String overTimeFunction, String operator, boolean counterDelta, Double quantile) {
     this.overTimeFunction = overTimeFunction;
     this.operator = operator;
     this.counterDelta = counterDelta;
+    this.quantile = quantile;
   }
 
   /** The windowing function applied inside one step bucket. */
@@ -57,6 +71,11 @@ public enum Aggregation {
   /** True for functions that read a counter's change rather than its value. */
   public boolean isCounterDelta() {
     return counterDelta;
+  }
+
+  /** The fraction a histogram quantile reads, e.g. 0.95 for P95; empty for every other value. */
+  public Optional<Double> quantile() {
+    return Optional.ofNullable(quantile);
   }
 
   /** Case-insensitive lookup that never throws — callers turn the empty case into a 400. */

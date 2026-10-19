@@ -57,6 +57,7 @@ entrega es al menos una vez, el backend tiene que tolerar mensajes repetidos.
 | `HTTP_TIMEOUT` | no | `5s` | Timeout por llamada al backend |
 | `RETRY_MIN` / `RETRY_MAX` | no | `1s` / `30s` | Backoff exponencial |
 | `HEALTH_ADDR` | no | `:8081` | `GET /healthz` |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | no | | Base OTLP/HTTP del collector, p. ej. `http://otel-collector:4318`; vacío = sin exportar métricas ni logs |
 
 Si falta alguna obligatoria, el servicio no arranca y nombra todas las que
 faltan. La clave de la API y la contraseña de AMQP nunca se loguean.

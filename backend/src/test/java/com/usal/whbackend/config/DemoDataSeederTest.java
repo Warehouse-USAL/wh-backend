@@ -1,5 +1,6 @@
 package com.usal.whbackend.config;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -8,6 +9,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.usal.whbackend.domain.Line;
 import com.usal.whbackend.domain.Order;
 import com.usal.whbackend.domain.Position;
@@ -30,6 +34,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 @ExtendWith(MockitoExtension.class)
@@ -119,8 +124,20 @@ class DemoDataSeederTest {
     when(productRepository.count()).thenReturn(0L);
     when(passwordEncoder.encode(anyString())).thenReturn("$2a$hashed");
 
-    seeder(true).run(null);
+    Logger logger = (Logger) LoggerFactory.getLogger(DemoDataSeeder.class);
+    ListAppender<ILoggingEvent> lines = new ListAppender<>();
+    lines.start();
+    logger.addAppender(lines);
+    try {
+      seeder(true).run(null);
+    } finally {
+      logger.detachAppender(lines);
+    }
 
+    assertThat(lines.list)
+        .extracting(ILoggingEvent::getFormattedMessage)
+        .isNotEmpty()
+        .noneMatch(line -> line.contains(DemoDataset.SHARED_PASSWORD));
     verify(userRepository).saveAll(argThat((Iterable<User> it) -> count(it) == 13));
     verify(productRepository).saveAll(argThat((Iterable<Product> it) -> count(it) == 24));
     verify(zoneRepository).saveAll(argThat((Iterable<Zone> it) -> count(it) == 2));

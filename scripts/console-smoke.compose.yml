@@ -1,0 +1,60 @@
+# Smoke stack overlay, used by scripts/console-smoke.sh (docs/CONSOLE.md, "Smoke test"):
+#   docker compose -p whsmoke -f docker-compose.yml -f scripts/console-smoke.compose.yml --profile infra up
+# - Only the console's ports reach the host (8083, and the dev-tools proxies 8091/8092), so the
+#   smoke runs next to a dev stack or a stray app on :8080 and tests what the browser sees.
+# - Named volumes instead of the ./data bind mounts: a smoke run never touches local data and
+#   `down -v` leaves nothing behind (same container paths, so compose replaces the bind mounts).
+# - Its own RabbitMQ so the bridge (profile infra) starts; never Infra's broker.
+services:
+  backend:
+    ports: !reset []
+  mongodb:
+    ports: !reset []
+    volumes:
+      - smoke_mongodb:/data/db
+  redpanda:
+    ports: !reset []
+    volumes:
+      - smoke_redpanda:/var/lib/redpanda/data
+  minio:
+    ports: !reset []
+    volumes:
+      - smoke_minio:/data
+  victoriametrics:
+    ports: !reset []
+    volumes:
+      - smoke_vm:/victoria-metrics-data
+  otel-collector:
+    ports: !reset []
+  mongo-express:
+    ports: !reset []
+  redpanda-console:
+    ports: !reset []
+
+  bridge:
+    environment:
+      AMQP_URL: amqp://smoke:smoke@rabbitmq:5672/
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  rabbitmq:
+    # The image e2e/ uses (3.13-alpine failed once here reading its Erlang cookie: eacces).
+    image: rabbitmq:3.13-management
+    environment:
+      RABBITMQ_DEFAULT_USER: smoke
+      RABBITMQ_DEFAULT_PASS: smoke
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    networks:
+      - wh-network
+    profiles: [infra]
+
+volumes:
+  smoke_mongodb:
+  smoke_redpanda:
+  smoke_minio:
+  smoke_vm:

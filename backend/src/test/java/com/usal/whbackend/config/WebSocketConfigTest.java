@@ -11,6 +11,7 @@ import com.usal.whbackend.api.websocket.OrderWebSocketHandler;
 import com.usal.whbackend.api.websocket.StockAlertWebSocketHandler;
 import com.usal.whbackend.api.websocket.UserOrderWebSocketHandler;
 import com.usal.whbackend.api.websocket.VehicleWebSocketHandler;
+import com.usal.whbackend.api.websocket.WsActivity;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistration;
 import org.springframework.web.socket.config.annotation.WebSocketHandlerRegistry;
@@ -22,11 +23,12 @@ class WebSocketConfigTest {
     JwtService jwtService = mock(JwtService.class);
     WebSocketConfig config =
         new WebSocketConfig(
-            new OrderWebSocketHandler(),
-            new UserOrderWebSocketHandler(),
-            new VehicleWebSocketHandler(),
-            new StockAlertWebSocketHandler(),
-            jwtService);
+            new OrderWebSocketHandler(mock(WsActivity.class)),
+            new UserOrderWebSocketHandler(mock(WsActivity.class)),
+            new VehicleWebSocketHandler(mock(WsActivity.class)),
+            new StockAlertWebSocketHandler(mock(WsActivity.class)),
+            jwtService,
+            mock(WsActivity.class));
 
     WebSocketHandlerRegistry registry = mock(WebSocketHandlerRegistry.class);
     WebSocketHandlerRegistration registration = mock(WebSocketHandlerRegistration.class);

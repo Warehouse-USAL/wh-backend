@@ -154,6 +154,38 @@ class MinioStorageServiceTest {
   }
 
   @Test
+  void uploadPath_valid_returnsPath() {
+    assertEquals("images", MinioStorageService.uploadPath("images"));
+    assertEquals("product_photos-2", MinioStorageService.uploadPath("product_photos-2"));
+    assertEquals("a".repeat(64), MinioStorageService.uploadPath("a".repeat(64)));
+  }
+
+  @Test
+  void uploadPath_overLong_throwsWithoutEchoingIt() {
+    String path = "a".repeat(65);
+    IllegalArgumentException e =
+        assertThrows(IllegalArgumentException.class, () -> MinioStorageService.uploadPath(path));
+    assertFalse(e.getMessage().contains(path));
+  }
+
+  @ParameterizedTest
+  @ValueSource(strings = {"..", "a.b", "foo/bar", "foo\\bar", "", " ", "dir name"})
+  void uploadPath_invalid_throwsIllegalArgument(String path) {
+    assertThrows(IllegalArgumentException.class, () -> MinioStorageService.uploadPath(path));
+  }
+
+  @Test
+  void upload_customPath_storesUnderIt() throws Exception {
+    byte[] png = {(byte) 0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0};
+    MockMultipartFile file = new MockMultipartFile("file", "a.png", MediaType.IMAGE_PNG_VALUE, png);
+
+    String result = storageService.upload(file, "products");
+
+    assertTrue(result.startsWith("/api/v1/files/products/"));
+    assertTrue(result.endsWith(".png"));
+  }
+
+  @Test
   void sanitizePathSegment_null_throwsNullPointer() {
     assertThrows(NullPointerException.class, () -> MinioStorageService.sanitizePathSegment(null));
   }

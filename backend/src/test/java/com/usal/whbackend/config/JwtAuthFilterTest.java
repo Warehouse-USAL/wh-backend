@@ -80,4 +80,25 @@ class JwtAuthFilterTest {
     assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
     verify(chain).doFilter(request, response);
   }
+
+  @Test
+  void validToken_exposesItsExpiryAsARequestAttribute() throws Exception {
+    MockHttpServletRequest request = new MockHttpServletRequest();
+    request.addHeader("Authorization", "Bearer validtoken");
+    java.time.Instant expiry = java.time.Instant.parse("2026-10-18T12:00:00Z");
+    when(jwtService.isTokenValid("validtoken")).thenReturn(true);
+    when(jwtService.extractUserId("validtoken")).thenReturn("u1");
+    when(jwtService.extractRole("validtoken")).thenReturn("SUPERADMIN");
+    when(jwtService.extractExpiration("validtoken")).thenReturn(expiry);
+
+    filter.doFilter(request, new MockHttpServletResponse(), mock(FilterChain.class));
+
+    assertThat(request.getAttribute(JwtAuthFilter.EXPIRES_AT)).isEqualTo(expiry);
+    // Saved for the async re-dispatch, which this filter does not run on.
+    assertThat(
+            request.getAttribute(
+                org.springframework.security.web.context.RequestAttributeSecurityContextRepository
+                    .DEFAULT_REQUEST_ATTR_NAME))
+        .isNotNull();
+  }
 }

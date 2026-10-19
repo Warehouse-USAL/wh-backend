@@ -21,6 +21,7 @@ public class StockAlertWebSocketHandler extends TextWebSocketHandler
 
   private static final Logger log = LoggerFactory.getLogger(StockAlertWebSocketHandler.class);
   private final Map<String, WebSocketSession> sessions = new ConcurrentHashMap<>();
+  private final WsActivity wsActivity;
   private final ObjectMapper objectMapper =
       new ObjectMapper()
           .registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule())
@@ -28,19 +29,30 @@ public class StockAlertWebSocketHandler extends TextWebSocketHandler
           .setPropertyNamingStrategy(
               com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE);
 
+  public StockAlertWebSocketHandler(WsActivity wsActivity) {
+    this.wsActivity = wsActivity;
+  }
+
   @Override
   public void afterConnectionEstablished(WebSocketSession session) {
     sessions.put(session.getId(), new ConcurrentWebSocketSessionDecorator(session, 1000, 65536));
+    wsActivity.connected(WsActivity.STOCK_ALERTS, "session opened");
   }
 
   @Override
   public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
-    sessions.remove(session.getId());
+    dropSession(session, "session closed");
   }
 
   @Override
   public void handleTransportError(WebSocketSession session, Throwable exception) {
-    sessions.remove(session.getId());
+    dropSession(session, "session closed");
+  }
+
+  private void dropSession(WebSocketSession session, String detail) {
+    if (sessions.remove(session.getId()) != null) {
+      wsActivity.closed(WsActivity.STOCK_ALERTS, detail);
+    }
   }
 
   @Override
@@ -52,16 +64,21 @@ public class StockAlertWebSocketHandler extends TextWebSocketHandler
             "name", product.getName(),
             "current_stock", currentStock,
             "minimum_stock", product.getMinimumStock());
-    broadcast(serialize(Map.of("event", "stock.alert", "payload", payload)));
+    broadcast(
+        serialize(Map.of("event", "stock.alert", "payload", payload)),
+        "stock.alert " + product.getSku() + " stock " + currentStock);
   }
 
-  private void broadcast(String json) {
+  private void broadcast(String json, String summary) {
     for (WebSocketSession session : sessions.values()) {
       if (session.isOpen()) {
         try {
           session.sendMessage(new TextMessage(json));
+          wsActivity.pushed(WsActivity.STOCK_ALERTS, summary);
         } catch (IOException e) {
           log.warn("Failed to send stock alert to session {}: {}", session.getId(), e.getMessage());
+          // A failed write leaves the session unreliable: stop pushing to it and count it closed.
+          dropSession(session, "send failed");
         }
       }
     }
