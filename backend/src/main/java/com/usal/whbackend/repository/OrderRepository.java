@@ -166,8 +166,10 @@ public class OrderRepository {
                     .send(record(topic, key, json, requestId))
                     .whenComplete(
                         (result, ex) -> {
+                          double elapsedMs = (System.nanoTime() - start) / 1_000_000.0;
+                          telemetry.recordKafkaPublish(topic, ex == null, elapsedMs);
                           telemetry.recordKafkaMessage(topic, "out", ex == null);
-                          long ms = (System.nanoTime() - start) / 1_000_000;
+                          long ms = (long) elapsedMs;
                           withRequestId(
                               requestId,
                               () -> {

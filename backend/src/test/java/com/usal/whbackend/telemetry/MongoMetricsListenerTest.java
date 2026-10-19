@@ -13,9 +13,13 @@ import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
+import com.mongodb.ServerAddress;
+import com.mongodb.connection.ClusterId;
+import com.mongodb.connection.ServerId;
 import com.mongodb.event.CommandFailedEvent;
 import com.mongodb.event.CommandStartedEvent;
 import com.mongodb.event.CommandSucceededEvent;
+import com.mongodb.event.ConnectionCheckOutFailedEvent;
 import com.mongodb.event.ConnectionCheckedInEvent;
 import com.mongodb.event.ConnectionCheckedOutEvent;
 import com.mongodb.event.ConnectionClosedEvent;
@@ -30,6 +34,8 @@ import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 
 class MongoMetricsListenerTest {
+
+  private static final ServerId SERVER = new ServerId(new ClusterId(), new ServerAddress());
 
   private TelemetryPort port;
   private TelemetryProperties props;
@@ -205,6 +211,33 @@ class MongoMetricsListenerTest {
 
     listener.connectionClosed(mock(ConnectionClosedEvent.class));
     assertThat(listener.poolStats()).isEqualTo(new MongoMetricsListener.PoolStats(0, 1));
+  }
+
+  @Test
+  void aFailedCheckoutIsCountedByItsReason() {
+    for (ConnectionCheckOutFailedEvent.Reason reason :
+        ConnectionCheckOutFailedEvent.Reason.values()) {
+      listener.connectionCheckOutFailed(new ConnectionCheckOutFailedEvent(SERVER, 1L, reason, 0L));
+    }
+
+    verify(port).recordMongoCheckoutFailed("timeout");
+    verify(port).recordMongoCheckoutFailed("pool_closed");
+    verify(port).recordMongoCheckoutFailed("connection_error");
+    verify(port).recordMongoCheckoutFailed("unknown");
+    assertThat(listener.poolStats()).isEqualTo(new MongoMetricsListener.PoolStats(0, 0));
+  }
+
+  @Test
+  void aFailedCheckoutNeverThrows() {
+    doThrow(new IllegalStateException("down")).when(port).recordMongoCheckoutFailed(any());
+
+    assertThatCode(
+            () ->
+                listener.connectionCheckOutFailed(
+                    new ConnectionCheckOutFailedEvent(
+                        SERVER, 1L, ConnectionCheckOutFailedEvent.Reason.TIMEOUT, 0L)))
+        .doesNotThrowAnyException();
+    assertThatCode(() -> listener.connectionCheckOutFailed(null)).doesNotThrowAnyException();
   }
 
   @Test

@@ -21,11 +21,19 @@ import tools.jackson.databind.ObjectMapper;
 class OrderRepositoryKafkaMetricsTest {
 
   private final List<String> recorded = new CopyOnWriteArrayList<>();
+  private final List<String> published = new CopyOnWriteArrayList<>();
   private final TelemetryPort telemetry =
       new NoOpTelemetryAdapter() {
         @Override
         public void recordKafkaMessage(String topic, String direction, boolean ok) {
           recorded.add(topic + "/" + direction + "/" + (ok ? "ok" : "error"));
+        }
+
+        @Override
+        public void recordKafkaPublish(String topic, boolean ok, double durationMs) {
+          if (durationMs >= 0) {
+            published.add(topic + "/" + (ok ? "ok" : "error"));
+          }
         }
       };
 
@@ -68,6 +76,7 @@ class OrderRepositoryKafkaMetricsTest {
 
     awaitRecorded(2);
     assertThat(recorded).containsExactly("orders/out/ok", "orders/out/error");
+    assertThat(published).containsExactly("orders/ok", "orders/error");
   }
 
   @Test
@@ -78,5 +87,7 @@ class OrderRepositoryKafkaMetricsTest {
 
     awaitRecorded(1);
     assertThat(recorded).containsExactly("order.completed/out/error");
+    // No acknowledgement to time: only the message counter sees a send that throws.
+    assertThat(published).isEmpty();
   }
 }

@@ -4,11 +4,13 @@ import com.mongodb.event.CommandFailedEvent;
 import com.mongodb.event.CommandListener;
 import com.mongodb.event.CommandStartedEvent;
 import com.mongodb.event.CommandSucceededEvent;
+import com.mongodb.event.ConnectionCheckOutFailedEvent;
 import com.mongodb.event.ConnectionCheckedInEvent;
 import com.mongodb.event.ConnectionCheckedOutEvent;
 import com.mongodb.event.ConnectionClosedEvent;
 import com.mongodb.event.ConnectionCreatedEvent;
 import com.mongodb.event.ConnectionPoolListener;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -128,6 +130,19 @@ public class MongoMetricsListener implements CommandListener, ConnectionPoolList
       telemetry.recordMongoCheckout(event.getElapsedTime(TimeUnit.NANOSECONDS) / 1_000_000.0);
     } catch (RuntimeException e) {
       log.warn("Failed to record mongo checkout: {}", e.getMessage());
+    }
+  }
+
+  /**
+   * A checkout that gave up: {@code timeout} is a pool wait timeout (every connection busy for
+   * longer than the driver's wait queue timeout), the others are the driver's remaining reasons.
+   */
+  @Override
+  public void connectionCheckOutFailed(ConnectionCheckOutFailedEvent event) {
+    try {
+      telemetry.recordMongoCheckoutFailed(event.getReason().name().toLowerCase(Locale.ROOT));
+    } catch (RuntimeException e) {
+      log.warn("Failed to record mongo checkout failure: {}", e.getMessage());
     }
   }
 

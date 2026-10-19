@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.doThrow;
@@ -11,6 +12,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import io.opentelemetry.api.metrics.DoubleHistogram;
+import io.opentelemetry.api.metrics.LongCounter;
 import io.opentelemetry.api.metrics.Meter;
 import io.opentelemetry.sdk.common.CompletableResultCode;
 import io.opentelemetry.sdk.metrics.InstrumentType;
@@ -113,6 +115,49 @@ class OtelTelemetryAdapterHttpTest {
   }
 
   @Test
+  void failedCheckoutsAreCountedWithABoundedReason() {
+    CapturingReader reader = new CapturingReader();
+    SdkMeterProvider provider = SdkMeterProvider.builder().registerMetricReader(reader).build();
+    OtelTelemetryAdapter adapter = new OtelTelemetryAdapter(provider.get("test"), EMPTY_FLEET);
+
+    adapter.recordMongoCheckoutFailed("timeout");
+    adapter.recordMongoCheckoutFailed("timeout");
+    adapter.recordMongoCheckoutFailed("something-new");
+    adapter.recordMongoCheckoutFailed(null);
+
+    MetricData failed = metric(reader, OtelTelemetryAdapter.MONGO_CHECKOUT_FAILED_METRIC);
+    assertThat(failed.getLongSumData().getPoints())
+        .extracting(p -> p.getAttributes().get(OtelTelemetryAdapter.REASON) + "=" + p.getValue())
+        .containsExactlyInAnyOrder("timeout=2", "unknown=2");
+    provider.close();
+  }
+
+  @Test
+  void kafkaPublishLatencyIsTaggedWithAKnownTopicAndResult() {
+    CapturingReader reader = new CapturingReader();
+    SdkMeterProvider provider = SdkMeterProvider.builder().registerMetricReader(reader).build();
+    OtelTelemetryAdapter adapter = new OtelTelemetryAdapter(provider.get("test"), EMPTY_FLEET);
+
+    adapter.recordKafkaPublish("orders", true, 12.0);
+    adapter.recordKafkaPublish("order.completed", false, 30.0);
+    adapter.recordKafkaPublish("orders.v2", true, 1.0);
+    adapter.recordKafkaPublish(null, true, 1.0);
+
+    MetricData publish = metric(reader, OtelTelemetryAdapter.KAFKA_PUBLISH_METRIC);
+    assertThat(publish.getUnit()).isEqualTo("ms");
+    assertThat(publish.getHistogramData().getPoints())
+        .extracting(
+            p ->
+                p.getAttributes().get(OtelTelemetryAdapter.TOPIC)
+                    + "/"
+                    + p.getAttributes().get(OtelTelemetryAdapter.RESULT)
+                    + "="
+                    + p.getCount())
+        .containsExactlyInAnyOrder("orders/ok=1", "order.completed/error=1", "other/ok=2");
+    provider.close();
+  }
+
+  @Test
   void poolGaugeReportsInUseAndAvailable() {
     CapturingReader reader = new CapturingReader();
     SdkMeterProvider provider = SdkMeterProvider.builder().registerMetricReader(reader).build();
@@ -160,6 +205,20 @@ class OtelTelemetryAdapterHttpTest {
         .doesNotThrowAnyException();
     assertThatCode(() -> adapter.recordMongoCommand(null)).doesNotThrowAnyException();
     assertThatCode(() -> adapter.recordMongoCheckout(1.0)).doesNotThrowAnyException();
+    assertThatCode(() -> adapter.recordKafkaPublish("orders", true, 1.0))
+        .doesNotThrowAnyException();
+  }
+
+  @Test
+  void failedCheckoutCountingNeverThrows() {
+    Meter meter = mock(Meter.class, RETURNS_DEEP_STUBS);
+    LongCounter counter = mock(LongCounter.class);
+    when(meter.counterBuilder(anyString()).setUnit(anyString()).setDescription(anyString()).build())
+        .thenReturn(counter);
+    doThrow(new IllegalStateException("down")).when(counter).add(anyLong(), any());
+    OtelTelemetryAdapter adapter = new OtelTelemetryAdapter(meter, EMPTY_FLEET);
+
+    assertThatCode(() -> adapter.recordMongoCheckoutFailed("timeout")).doesNotThrowAnyException();
   }
 
   private static MetricData metric(CapturingReader reader, String name) {

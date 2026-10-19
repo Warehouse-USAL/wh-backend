@@ -8,6 +8,7 @@ import io.opentelemetry.api.metrics.LongCounter;
 import io.opentelemetry.api.metrics.Meter;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
@@ -44,11 +45,17 @@ public class OtelTelemetryAdapter implements TelemetryPort {
   /** Catalogue name for the Mongo connection checkout wait histogram. */
   public static final String MONGO_CHECKOUT_METRIC = "mongo.pool.checkout";
 
+  /** Catalogue name for the failed Mongo connection checkout counter. */
+  public static final String MONGO_CHECKOUT_FAILED_METRIC = "mongo.pool.checkout.failed";
+
   /** Catalogue name for the Mongo pool occupancy gauge. */
   public static final String MONGO_POOL_METRIC = "mongo.pool.connections";
 
   /** Catalogue name for the Kafka message counter. */
   public static final String KAFKA_METRIC = "kafka.messages";
+
+  /** Catalogue name for the Kafka publish acknowledgement latency histogram. */
+  public static final String KAFKA_PUBLISH_METRIC = "kafka.publish.duration";
 
   /** Catalogue name for the open WebSocket sessions gauge. */
   public static final String WS_SESSIONS_METRIC = "ws.sessions";
@@ -74,13 +81,23 @@ public class OtelTelemetryAdapter implements TelemetryPort {
   static final AttributeKey<String> DIRECTION = AttributeKey.stringKey("direction");
   static final AttributeKey<String> RESULT = AttributeKey.stringKey("result");
   static final AttributeKey<String> FEED = AttributeKey.stringKey("feed");
+  static final AttributeKey<String> REASON = AttributeKey.stringKey("reason");
+
+  /** The driver's checkout failure reasons; anything else is {@code unknown}. */
+  private static final Set<String> CHECKOUT_REASONS =
+      Set.of("timeout", "pool_closed", "connection_error", "unknown");
+
+  /** The topics the backend publishes; anything else is {@code other}, so the tag stays bounded. */
+  private static final Set<String> PUBLISHED_TOPICS = Set.of("orders", "order.completed");
 
   private final DoubleGauge batteryGauge;
   private final LongCounter transitionCounter;
   private final DoubleHistogram httpHistogram;
   private final DoubleHistogram mongoCommandHistogram;
   private final DoubleHistogram mongoCheckoutHistogram;
+  private final LongCounter mongoCheckoutFailedCounter;
   private final LongCounter kafkaCounter;
+  private final DoubleHistogram kafkaPublishHistogram;
   private final LongCounter wsMessageCounter;
   private final Map<String, AtomicInteger> wsSessions = new ConcurrentHashMap<>();
   private final Meter meter;
@@ -125,11 +142,26 @@ public class OtelTelemetryAdapter implements TelemetryPort {
             .setExplicitBucketBoundariesAdvice(MS_BUCKETS)
             .build();
 
+    this.mongoCheckoutFailedCounter =
+        meter
+            .counterBuilder(MONGO_CHECKOUT_FAILED_METRIC)
+            .setUnit("1")
+            .setDescription("MongoDB connection checkouts that failed, by reason")
+            .build();
+
     this.kafkaCounter =
         meter
             .counterBuilder(KAFKA_METRIC)
             .setUnit("1")
             .setDescription("Kafka messages by topic, direction and result")
+            .build();
+
+    this.kafkaPublishHistogram =
+        meter
+            .histogramBuilder(KAFKA_PUBLISH_METRIC)
+            .setUnit("ms")
+            .setDescription("Time from a Kafka send to the broker's acknowledgement")
+            .setExplicitBucketBoundariesAdvice(MS_BUCKETS)
             .build();
 
     this.wsMessageCounter =
@@ -307,6 +339,16 @@ public class OtelTelemetryAdapter implements TelemetryPort {
   }
 
   @Override
+  public void recordMongoCheckoutFailed(String reason) {
+    try {
+      mongoCheckoutFailedCounter.add(
+          1, Attributes.of(REASON, bounded(reason, CHECKOUT_REASONS, "unknown")));
+    } catch (RuntimeException e) {
+      log.warn("Failed to record mongo checkout failure: {}", e.getMessage());
+    }
+  }
+
+  @Override
   public void recordKafkaMessage(String topic, String direction, boolean ok) {
     try {
       kafkaCounter.add(
@@ -315,6 +357,18 @@ public class OtelTelemetryAdapter implements TelemetryPort {
               TOPIC, nullSafe(topic), DIRECTION, nullSafe(direction), RESULT, ok ? "ok" : "error"));
     } catch (RuntimeException e) {
       log.warn("Failed to record kafka message: {}", e.getMessage());
+    }
+  }
+
+  @Override
+  public void recordKafkaPublish(String topic, boolean ok, double durationMs) {
+    try {
+      kafkaPublishHistogram.record(
+          durationMs,
+          Attributes.of(
+              TOPIC, bounded(topic, PUBLISHED_TOPICS, "other"), RESULT, ok ? "ok" : "error"));
+    } catch (RuntimeException e) {
+      log.warn("Failed to record kafka publish duration: {}", e.getMessage());
     }
   }
 
@@ -334,6 +388,11 @@ public class OtelTelemetryAdapter implements TelemetryPort {
     } catch (RuntimeException e) {
       log.warn("Failed to record websocket message: {}", e.getMessage());
     }
+  }
+
+  /** {@code value} when it is one of {@code allowed}, else {@code fallback}. */
+  private static String bounded(String value, Set<String> allowed, String fallback) {
+    return value != null && allowed.contains(value) ? value : fallback;
   }
 
   /** A null label would be dropped by the SDK, silently changing the series identity. */

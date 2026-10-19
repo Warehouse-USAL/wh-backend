@@ -29,7 +29,17 @@ public class NoOpTelemetryAdapter implements TelemetryPort {
   }
 
   @Override
+  public void recordMongoCheckoutFailed(String reason) {
+    // intentionally empty
+  }
+
+  @Override
   public void recordKafkaMessage(String topic, String direction, boolean ok) {
+    // intentionally empty
+  }
+
+  @Override
+  public void recordKafkaPublish(String topic, boolean ok, double durationMs) {
     // intentionally empty
   }
 
