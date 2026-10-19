@@ -12,7 +12,7 @@ export default function Sidebar({ onSignOut }: { onSignOut: () => void }) {
     <aside className="flex w-[232px] shrink-0 flex-col border-r border-bd bg-bg">
     <nav aria-label="Console" className="flex flex-1 flex-col gap-px overflow-y-auto px-2.5 pt-3.5 pb-2">
       <div className="flex items-center gap-2 px-2.5 pt-1 pb-4 text-sm font-semibold">
-        <span className="size-[18px] rounded bg-tx" aria-hidden />
+        <img src={`${import.meta.env.BASE_URL}logo.png`} alt="" className="size-5" />
         wh-backend
         <span className="ml-auto rounded-full border border-bd px-2 text-[11px] font-medium text-mu">staging</span>
       </div>
