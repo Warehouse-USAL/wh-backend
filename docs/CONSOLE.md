@@ -329,6 +329,46 @@ closes again); Live on reopens it. The header shows the state and the time of th
 
   Also keep any proxy read timeout above the heartbeat (15 s).
 
+## Smoke test
+
+`scripts/console-smoke.sh` boots the whole stack in an isolated compose project (`whsmoke`:
+`docker-compose.yml` plus `scripts/console-smoke.compose.yml`, profile `infra` with its own
+RabbitMQ, named volumes, demo seed, SUPERADMIN `admin@smartwarehouse.local` / `Demo1234!`) and
+asserts over HTTP through the console's nginx on `localhost:8083`, as the browser sees it. Only
+8083, 8091 and 8092 are published, so it runs next to a dev stack (not next to another stack on
+those ports). It tears everything down (`down -v`) on exit; CI runs it as the `console-smoke` job
+when backend, bridge, console or platform files change.
+
+```sh
+scripts/console-smoke.sh            # boot, test, tear down (about 3 min once images are built)
+scripts/console-smoke.sh --keep     # leave the stack up
+scripts/console-smoke.sh --no-up    # test a running, seeded stack; never torn down
+bash scripts/console-smoke.test.sh  # the script's own helpers (SSE parser, headers, JWT), no Docker
+```
+
+What it asserts (each a row in the summary table; exit 1 on any failure):
+
+- SPA: `/console/` and one hashed asset answer 200 with one CSP (`default-src 'self'`,
+  `object-src 'none'`, `base-uri 'self'`, `frame-ancestors 'none'`, no `unsafe-eval`),
+  `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy`; assets `immutable`.
+- Auth: SUPERADMIN login returns a JWT; anonymous gets 401; a JWT in `?token=` gets 401;
+  ADMIN_SYSTEM, ADMIN_WAREHOUSE and OPERATOR get 403 on `/console/status`,
+  `/console/ws-events/orders`, `POST /console/logs/query`, `POST /console/stream` and
+  `GET /api/v1/files`.
+- Status: every service in `/console/status` is `UP`. Catalogue: the 17 console metrics are
+  listed, and ADMIN_SYSTEM sees fewer metrics than SUPERADMIN.
+- Pipelines: `http.server.duration` p95 by `route` has a `/products` series after traffic, and
+  `/console/logs/query` returns the access line `http GET /products 200` for the `X-Request-Id`
+  sent (bounded retries, no fixed sleeps).
+- Upload with the `path` part, then listed and served.
+- Stream (`curl -N` through nginx): 200 `text/event-stream`, first byte within 5 s, a snapshot per
+  subscription, `error` `UNKNOWN_METRIC` without the metric's name, an `update` on the `orders`
+  feed pushed after a rejected WebSocket handshake with no new request from the client, `: ping`
+  within 20 s, `end` `token-expired` for a token minted (dev JWT secret) to expire 25 s in, and 429
+  `STREAM_LIMIT` for a user's sixth stream.
+- Dev tools: 8091/8092 answer 502 without the `dev` profile, 200 without `X-Frame-Options` with it.
+- No JWT used in the run and not the demo password appear in `docker compose logs`.
+
 ## Scraped series
 
 Exact names as stored in VictoriaMetrics (collector `0.115.1`, MinIO `RELEASE.2026-09-22`,
