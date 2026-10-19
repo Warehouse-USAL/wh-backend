@@ -16,14 +16,15 @@ export function niceMax(v: number): number {
 
 const trim = (v: number, digits: number) => String(+v.toFixed(digits))
 
+// Units switch on the value as displayed, so 999.996 reads 1k and 999.96 ms reads 1 s, never 1000.
 export function formatCount(v: number): string {
   if (v >= 999_950) return `${trim(v / 1e6, 1)}M`
-  if (v >= 1000) return `${trim(v / 1e3, 1)}k`
+  if (+v.toFixed(2) >= 1000) return `${trim(v / 1e3, 1)}k`
   return trim(v, 2)
 }
 
 export function formatMs(v: number): string {
-  return v >= 1000 ? `${trim(v / 1000, 2)} s` : `${trim(v, 1)} ms`
+  return +v.toFixed(1) >= 1000 ? `${trim(v / 1000, 2)} s` : `${trim(v, 1)} ms`
 }
 
 export function toneFor(pct: number): Tone {

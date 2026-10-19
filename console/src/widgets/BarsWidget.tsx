@@ -2,6 +2,8 @@ import Chart, { type ChartProps } from './Chart'
 import { formatCount, niceMax, plotData, tooltip } from './scale'
 
 const num = (v: number) => +v.toFixed(2)
+/** Smallest drawn segment (of 100), so a non-zero count never vanishes next to a large one. */
+const MIN_BAR = 1.5
 
 /** Stacked bars, one per timestamp; series are stacked in order, first at the bottom. */
 export default function BarsWidget(props: ChartProps) {
@@ -19,7 +21,7 @@ export default function BarsWidget(props: ChartProps) {
         return series.map((s, j) => {
           const v = data.values[j][i]
           if (!v) return null
-          const h = (v / max) * 100
+          const h = Math.max((v / max) * 100, MIN_BAR)
           base -= h
           return (
             <rect key={`${t}-${j}`} x={num((i + 0.5) * slot - width / 2)} y={num(base)} width={num(width)} height={num(h)} fill={s.color}>

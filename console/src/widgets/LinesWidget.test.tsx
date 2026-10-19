@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import LinesWidget from './LinesWidget'
 import { formatMs, type Series } from './scale'
 
@@ -46,4 +46,19 @@ describe('LinesWidget', () => {
     render(<LinesWidget title="Latency" series={[s]} />)
     expect(screen.getByRole('img')).toHaveAttribute('aria-label', 'Latency: p50 7')
   })
-})
+
+  it('leavesHeadroomAboveThePeak', () => {
+    const s: Series = { label: 'p50', color: '#0070f3', points: pts([80, 80]) }
+    render(<LinesWidget title="Error rate" series={[s]} />)
+    // 80 * 1.15 = 92 -> axis 100, not 90 (peak would sit at 89%)
+    expect(screen.getByText('100')).toBeInTheDocument()
+  })
+
+  it('keysTwoSeriesWithTheSameLabelApart', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const a: Series = { label: 'dup', color: '#0070f3', points: pts([1, 2]) }
+    const b: Series = { label: 'dup', color: '#e5484d', points: pts([2, 3]) }
+    render(<LinesWidget title="Dup" series={[a, b]} />)
+    expect(screen.getAllByText('dup')).toHaveLength(2)
+    expect(error).not.toHaveBeenCalled()
+  })})

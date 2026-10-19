@@ -8,7 +8,8 @@ const TEXT: Record<Tone, string> = { ok: 'text-ok', warn: 'text-wn', error: 'tex
 /** Big number with a caption and an optional sparkline behind it. */
 export default function TileWidget({ value, label, tone, spark, className }: Props) {
   const vs = (spark ?? []).filter(Number.isFinite)
-  const lo = Math.min(...vs)
+  // Scaled from zero (or the lowest negative), not min to max: a 99.9 to 99.7 success rate stays a flat line.
+  const lo = Math.min(0, ...vs)
   const span = Math.max(...vs) - lo
   const points = vs
     .map((v, i) => `${+((i / (vs.length - 1)) * 100).toFixed(2)},${+(span ? 34 - ((v - lo) / span) * 28 : 20).toFixed(2)}`)

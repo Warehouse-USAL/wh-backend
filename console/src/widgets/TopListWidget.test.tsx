@@ -1,5 +1,5 @@
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import TopListWidget from './TopListWidget'
 
 const fmt = (v: number) => `${v} req`
@@ -23,4 +23,10 @@ describe('TopListWidget', () => {
     )
     expect(screen.getByText('No data in this range')).toBeInTheDocument()
   })
-})
+
+  it('keysRowsWithTheSameNameApart', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {})
+    render(<TopListWidget title="Requests" color="#000" format={fmt} rows={[{ name: 'x', value: 2 }, { name: 'x', value: 1 }]} />)
+    expect(screen.getAllByText('x')).toHaveLength(2)
+    expect(error).not.toHaveBeenCalled()
+  })})

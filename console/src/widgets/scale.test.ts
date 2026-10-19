@@ -60,4 +60,11 @@ describe('scale', () => {
     expect(timeLabels([at(9, 3)])).toEqual(['09:03:00'])
     expect(timeLabels([])).toEqual([])
   })
-})
+
+  it('unitsSwitchOnTheRoundedValueNeverShowingOneThousand', () => {
+    expect(formatCount(999.996)).toBe('1k')
+    expect(formatCount(999.99)).toBe('999.99')
+    expect(formatCount(999_949)).toBe('999.9k')
+    expect(formatMs(999.96)).toBe('1 s')
+    expect(formatMs(999.94)).toBe('999.9 ms')
+  })})

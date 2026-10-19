@@ -16,11 +16,16 @@ describe('TileWidget', () => {
 
   it('drawsASparklineFromFiniteValuesOnly', () => {
     const { container } = render(<TileWidget value="1" label="x" tone="ok" spark={[1, NaN, 3, 2]} />)
-    expect(container.querySelector('polyline')).toHaveAttribute('points', '0,34 50,6 100,20')
+    expect(container.querySelector('polyline')).toHaveAttribute('points', '0,24.67 50,6 100,15.33')
   })
 
-  it('centersAFlatSparkline', () => {
-    const { container } = render(<TileWidget value="1" label="x" tone="ok" spark={[4, 4]} />)
+  it('scalesFromZeroSoASteadyHighRateStaysNearlyFlat', () => {
+    const { container } = render(<TileWidget value="1" label="x" tone="ok" spark={[99.9, 99.7]} />)
+    expect(container.querySelector('polyline')).toHaveAttribute('points', '0,6 100,6.06')
+  })
+
+  it('centersAnAllZeroSparkline', () => {
+    const { container } = render(<TileWidget value="1" label="x" tone="ok" spark={[0, 0]} />)
     expect(container.querySelector('polyline')).toHaveAttribute('points', '0,20 100,20')
   })
 

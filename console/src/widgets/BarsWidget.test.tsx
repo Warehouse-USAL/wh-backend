@@ -71,4 +71,11 @@ describe('BarsWidget', () => {
     render(<BarsWidget title="Hits" series={[big]} />)
     expect(screen.getByText('5M')).toBeInTheDocument()
   })
-})
+
+  it('drawsATinyNonZeroSegmentAtAMinimumHeight', () => {
+    const tiny: Series = { label: '5xx', color: '#e5484d', points: [{ t: at(0), v: 1 }] }
+    const big: Series = { label: '2xx', color: '#0070f3', points: [{ t: at(0), v: 100000 }] }
+    const { container } = render(<BarsWidget title="Hits" series={[big, tiny]} />)
+    const rects = [...container.querySelectorAll('svg rect')]
+    expect(rects[1]).toHaveAttribute('height', '1.5')
+  })})

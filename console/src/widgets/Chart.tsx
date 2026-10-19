@@ -56,8 +56,8 @@ export default function Chart({ title, sub, series, className, data, max, format
             ))}
           </div>
           <div className="mt-1.5 flex flex-wrap gap-3 text-[11px] text-mu">
-            {series.map((s) => (
-              <span key={s.label}>
+            {series.map((s, i) => (
+              <span key={`${i}-${s.label}`}>
                 <i className="mr-[5px] inline-block size-2 rounded-xs" style={{ background: s.color }} />
                 {s.label}
               </span>
