@@ -106,6 +106,9 @@ describe('files', () => {
     expect(files.actionable?.({ path: 'images', filename: 'a.png' })).toBe(true)
     expect(files.actionable?.({ path: '', filename: 'root.png' })).toBe(false)
     expect(files.actionable?.({ path: 'a/b', filename: 'c.png' })).toBe(false)
+    expect(files.actionable?.({ path: '..', filename: 'c.png' })).toBe(false)
+    expect(files.actionable?.({ path: 'images', filename: '.' })).toBe(false)
+    expect(files.actionable?.({ path: 'images', filename: 'a..png' })).toBe(true)
   })
 })
 

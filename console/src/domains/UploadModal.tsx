@@ -3,7 +3,7 @@ import { Input } from '@/components/ui/input'
 import Modal from './Modal'
 
 // FileController.upload: an optional `path` part (one segment, as the backend validates it) and the `file` part.
-const PATH = /^[A-Za-z0-9_-]+$/
+const PATH = /^[A-Za-z0-9_-]{1,64}$/
 const ACCEPT = 'image/jpeg,image/png,image/webp'
 
 interface UploadModalProps {
@@ -33,7 +33,7 @@ export default function UploadModal({ onSubmit, onClose }: UploadModalProps) {
       {pathOk ? (
         <p className="text-xs text-mu">Stored as path/generated-name. JPEG, PNG or WebP, up to 5 MB.</p>
       ) : (
-        <p className="text-xs text-er">One folder name: letters, digits, _ or - only.</p>
+        <p className="text-xs text-er">One folder name of 1 to 64 characters: letters, digits, _ or - only.</p>
       )}
       <label className="flex flex-col gap-1.5 font-medium">
         File

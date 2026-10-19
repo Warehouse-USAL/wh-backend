@@ -83,7 +83,7 @@ describe('EntityPage', () => {
 
     expect(await screen.findByRole('status')).toHaveTextContent('Loading')
     answer(jsonResponse(200, { products: [], pagination: { page: 0, size: 25, total_elements: 0, total_pages: 0 } }))
-    expect(await screen.findByText('No products yet.')).toBeInTheDocument()
+    expect(await screen.findByText(/^No products yet\./)).toBeInTheDocument()
 
     routes({ 'GET /api/products': () => jsonResponse(500, { error: { code: 'INTERNAL', message: 'Mongo is down' } }) })
     await userEvent.setup().click(screen.getByRole('button', { name: 'Refresh' }))
@@ -371,6 +371,41 @@ describe('EntityPage', () => {
     expect(screen.queryByRole('dialog', { name: 'products / p-TEC-001' })).toBeNull()
   })
 
+  it('aSlowEditNeverOpensOverALaterNewDialog', async () => {
+    let answer: (r: Response) => void = () => {}
+    routes({
+      'GET /api/products': () => jsonResponse(200, products),
+      'GET /api/v3/api-docs': SPEC,
+      'GET /api/products/p-TEC-001': () => new Promise<Response>((resolve) => (answer = resolve)),
+    })
+    renderPage('/domains/products', 'Products')
+    const user = userEvent.setup()
+
+    await user.click(await screen.findByRole('button', { name: 'Edit p-TEC-001' }))
+    await user.click(screen.getByRole('button', { name: 'New product' }))
+    expect(await screen.findByRole('dialog', { name: 'New product' })).toBeInTheDocument()
+    answer(jsonResponse(200, { product: { id: 'p-TEC-001', name: 'First' } }))
+
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(screen.getByRole('dialog', { name: 'New product' })).toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: 'products / p-TEC-001' })).toBeNull()
+  })
+
+  it('inactiveOnlyTogglesTheBackendsIsActiveFilterAndExplainsTheHiddenRows', async () => {
+    const { calls } = routes({
+      'GET /api/products': () => jsonResponse(200, { products: [], pagination: { page: 0, size: 25, total_elements: 0, total_pages: 0 } }),
+    })
+    renderPage('/domains/products', 'Products')
+    const user = userEvent.setup()
+
+    expect(await screen.findByText(/Inactive ones are hidden/)).toBeInTheDocument()
+    await user.click(screen.getByRole('checkbox', { name: 'Inactive only' }))
+    expect(await screen.findByText('No inactive products.')).toBeInTheDocument()
+    expect(calls('GET', '/api/products').map(([input]) => String(input))).toEqual([
+      '/api/products?page=0&size=25', '/api/products?page=0&size=25&isActive=false',
+    ])
+  })
+
   describe('Files', () => {
     const filesRoute: Handler = () => jsonResponse(200, files)
 
@@ -408,7 +443,12 @@ describe('EntityPage', () => {
       await user.type(path, 'products/x')
       expect(within(dialog).getByText(/letters, digits, _ or - only/)).toBeInTheDocument()
       expect(within(dialog).getByRole('button', { name: 'Upload' })).toBeDisabled()
-      await user.type(path, '{Backspace}{Backspace}')
+      await user.clear(path)
+      await user.type(path, 'a'.repeat(65))
+      expect(within(dialog).getByText(/1 to 64 characters/)).toBeInTheDocument()
+      expect(within(dialog).getByRole('button', { name: 'Upload' })).toBeDisabled()
+      await user.clear(path)
+      await user.type(path, 'products')
       await user.click(within(dialog).getByRole('button', { name: 'Upload' }))
 
       await waitFor(() => expect(calls('POST', '/api/api/v1/files/upload')).toHaveLength(1))

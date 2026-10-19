@@ -53,6 +53,8 @@ export interface EntityConfig {
   extras: Extra[]
   /** The list endpoint's free-text query parameter, when it has one. */
   search?: string
+  /** Query parameter that narrows the list to inactive rows (the backend defaults to active only). */
+  inactive?: string
   /** Renames document fields to the request's names before Edit keeps only the fields the request accepts. */
   toRequest?(doc: Row): Row
   /** False when the row's endpoints cannot address it (Files keys outside one safe folder). */
@@ -97,7 +99,7 @@ async function lineOptions(): Promise<ScopeOption[]> {
 
 // FileController is mapped under /api/v1 itself, so through the console's /api prefix it is /api/api/v1/files.
 const FILE_PATH = '/api/v1/files/{path}/{filename}'
-const SEGMENT = /^[A-Za-z0-9._-]+$/
+const SEGMENT = /^(?!\.+$)[A-Za-z0-9._-]+$/ // dots-only segments (`.`, `..`) would climb out of the folder
 
 function bytes(value: unknown): string {
   const n = Number(value)
@@ -121,6 +123,7 @@ export const ENTITIES: EntityConfig[] = [
     columns: [col('Id', 'id'), col('Name', 'name'), col('SKU', 'sku'), col('Category', 'category'), col('Stock', 'stock.available'), col('Active', 'active')],
     get: { path: '/products/{id}', key: 'product' },
     search: 'search',
+    inactive: 'isActive',
     toRequest: (doc) => ({
       ...doc,
       is_active: doc.active,

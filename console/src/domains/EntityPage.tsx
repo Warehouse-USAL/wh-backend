@@ -67,7 +67,9 @@ function EntityTable({ entity, title, tabs, onTab }: TableProps) {
   const [actionError, setActionError] = useState<string | null>(null)
   const [term, setTerm] = useState('')
   const [search, setSearch] = useState('')
-  const editRequest = useRef(0)
+  // Ticket of the latest dialog request: a slower earlier one (Edit, New, an extra) must not open over a later one.
+  const opening = useRef(0)
+  const [inactive, setInactive] = useState(false)
 
   // Typing settles before the list refetches, and a new search starts at the first page.
   useEffect(() => {
@@ -80,7 +82,8 @@ function EntityTable({ entity, title, tabs, onTab }: TableProps) {
 
   const scopeVars: Vars = entity.scope ? { [entity.scope.param]: scope.value } : {}
   const filter = entity.search && search ? `&${entity.search}=${encodeURIComponent(search)}` : ''
-  const query = scope.ready ? `${fillPath(entity.listPath, scopeVars)}?page=${page}&size=${PAGE_SIZE}${filter}` : null
+  const only = entity.inactive && inactive ? `&${entity.inactive}=false` : ''
+  const query = scope.ready ? `${fillPath(entity.listPath, scopeVars)}?page=${page}&size=${PAGE_SIZE}${filter}${only}` : null
 
   useEffect(() => {
     if (!query) return
@@ -114,9 +117,16 @@ function EntityTable({ entity, title, tabs, onTab }: TableProps) {
     }
   }
 
+  const show = (next: Dialog | null) => {
+    opening.current++
+    setDialog(next)
+  }
+
   const openNew = (endpoint: Endpoint) =>
     act(async () => {
+      const ticket = ++opening.current
       const spec = await loadSpec()
+      if (ticket !== opening.current) return
       const initial = spec ? requestTemplate(spec, endpoint) : {}
       const hint = spec ? 'Prefilled with the structure of the request. Fill in the values and press Create.' : NO_SCHEMA
       setDialog({ kind: 'json', title: `New ${entity.noun}`, endpoint, initial, vars: scopeVars, submitLabel: 'Create', hint })
@@ -124,7 +134,9 @@ function EntityTable({ entity, title, tabs, onTab }: TableProps) {
 
   const openExtra = (extra: Extra, row: Row) =>
     act(async () => {
+      const ticket = ++opening.current
       const spec = await loadSpec()
+      if (ticket !== opening.current) return
       const prefill = extra.prefill?.(row) ?? {}
       const initial = spec ? { ...(requestTemplate(spec, extra.endpoint) as Row), ...pickRequest(spec, extra.endpoint, prefill) } : {}
       const hint = spec ? 'Prefilled with the structure of the request.' : NO_SCHEMA
@@ -140,15 +152,15 @@ function EntityTable({ entity, title, tabs, onTab }: TableProps) {
       })
     })
 
-  // Only the latest Edit click opens, however the fetches race.
+  // Only the latest click opens, however the fetches race.
   const openEdit = (endpoint: Endpoint, row: Row) =>
     act(async () => {
-      const request = ++editRequest.current
+      const ticket = ++opening.current
       const { get } = entity
       const body = get ? ((await api(fillPath(get.path, rowVars(row)))) as Row) : row
       const doc = (get?.key ? body[get.key] : body) as Row
       const spec = await loadSpec()
-      if (request !== editRequest.current) return
+      if (ticket !== opening.current) return
       const initial = spec ? pickRequest(spec, endpoint, entity.toRequest?.(doc) ?? doc) : doc
       const hint = spec
         ? 'Only fields this endpoint accepts are shown; unknown fields are ignored by the API.'
@@ -176,7 +188,7 @@ function EntityTable({ entity, title, tabs, onTab }: TableProps) {
   const newButton = create && scope.ready && (
     <Button
       size="sm"
-      onClick={() => (entity.upload ? setDialog({ kind: 'upload' }) : openNew(create))}
+      onClick={() => (entity.upload ? show({ kind: 'upload' }) : openNew(create))}
     >
       New {entity.noun}
     </Button>
@@ -192,7 +204,7 @@ function EntityTable({ entity, title, tabs, onTab }: TableProps) {
           <RowAction key={x.label} label={x.label} id={id} onClick={() => openExtra(x, row)} />
         ))}
         {file && <RowAction label="Download" id={id} onClick={() => download(file, row)} />}
-        {remove && <RowAction label="Delete" id={id} danger onClick={() => setDialog({ kind: 'delete', row })} />}
+        {remove && <RowAction label="Delete" id={id} danger onClick={() => show({ kind: 'delete', row })} />}
       </>
     )
   }
@@ -203,7 +215,9 @@ function EntityTable({ entity, title, tabs, onTab }: TableProps) {
     if (entity.scope && scope.options?.length === 0) return { empty: `Create a ${entity.scope.label.toLowerCase()} first.` }
     if (!current) return 'loading'
     if (current.error) return { error: current.error }
-    return current.rows?.length === 0 ? { empty: `No ${noun} yet.` } : null
+    if (current.rows?.length !== 0) return null
+    if (entity.inactive) return { empty: inactive ? `No inactive ${noun}.` : `No ${noun} yet. Inactive ones are hidden: tick "Inactive only" to list them.` }
+    return { empty: `No ${noun} yet.` }
   }
 
   const pagination = current?.pagination
@@ -241,6 +255,19 @@ function EntityTable({ entity, title, tabs, onTab }: TableProps) {
                 onChange={(e) => setTerm(e.target.value)}
                 className="max-w-[260px]"
               />
+            )}
+            {entity.inactive && (
+              <label className="flex items-center gap-1.5 text-xs text-mu">
+                <input
+                  type="checkbox"
+                  checked={inactive}
+                  onChange={(e) => {
+                    setInactive(e.target.checked)
+                    setPage(0)
+                  }}
+                />
+                Inactive only
+              </label>
             )}
             <span className="flex-1" />
             {count !== undefined && <span className="text-xs text-mu">{`${count} ${count === 1 ? entity.noun : noun}`}</span>}
