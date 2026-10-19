@@ -2,6 +2,7 @@ package com.usal.whbackend.api.console;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
+import static org.hamcrest.Matchers.startsWith;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
@@ -12,6 +13,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.request;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.usal.whbackend.api.error.GlobalExceptionHandler;
 import com.usal.whbackend.api.websocket.WsActivity;
 import com.usal.whbackend.config.JacksonConfig;
@@ -34,6 +38,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.boot.test.context.TestConfiguration;
@@ -228,6 +233,83 @@ class ConsoleStreamControllerTest {
         .perform(stream(token(UserRole.SUPERADMIN), body))
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.error.code").value("INVALID_FILTER_VALUE"));
+  }
+
+  /** What the console client sends: it asks for the stream media type, not JSON. */
+  static MockHttpServletRequestBuilder eventStreamRequest(String token, String body) {
+    return stream(token, body).accept(MediaType.TEXT_EVENT_STREAM);
+  }
+
+  /** Captures WARNs from Spring's exception-handler resolver (the "Failure in" line). */
+  private static final String RESOLVER_LOGGER =
+      "org.springframework.web.servlet.mvc.method.annotation.ExceptionHandlerExceptionResolver";
+
+  private static ListAppender<ILoggingEvent> resolverLog() {
+    ListAppender<ILoggingEvent> appender = new ListAppender<>();
+    appender.start();
+    ((Logger) LoggerFactory.getLogger(RESOLVER_LOGGER)).addAppender(appender);
+    return appender;
+  }
+
+  private static void detach(ListAppender<ILoggingEvent> appender) {
+    ((Logger) LoggerFactory.getLogger(RESOLVER_LOGGER)).detachAppender(appender);
+  }
+
+  @Test
+  void aMalformedStreamRequestIsJsonWhateverTheAcceptHeader() throws Exception {
+    ListAppender<ILoggingEvent> log = resolverLog();
+    try {
+      mockMvc
+          .perform(eventStreamRequest(token(UserRole.SUPERADMIN), "{not json"))
+          .andExpect(status().isBadRequest())
+          .andExpect(header().string("Content-Type", startsWith("application/json")))
+          .andExpect(jsonPath("$.error.code").value("MALFORMED_REQUEST"));
+      assertThat(log.list)
+          .noneMatch(e -> e.getFormattedMessage().contains("Failure in @ExceptionHandler"));
+    } finally {
+      detach(log);
+    }
+  }
+
+  @Test
+  void aStreamWithAnInvalidSubscriptionIsJsonWhateverTheAcceptHeader() throws Exception {
+    ListAppender<ILoggingEvent> log = resolverLog();
+    try {
+      String body = "{\"subscriptions\":[{\"id\":\"s\",\"kind\":\"nope\"}]}";
+      mockMvc
+          .perform(eventStreamRequest(token(UserRole.SUPERADMIN), body))
+          .andExpect(status().isBadRequest())
+          .andExpect(header().string("Content-Type", startsWith("application/json")))
+          .andExpect(jsonPath("$.error.code").value("INVALID_SUBSCRIPTION"));
+      assertThat(log.list)
+          .noneMatch(e -> e.getFormattedMessage().contains("Failure in @ExceptionHandler"));
+    } finally {
+      detach(log);
+    }
+  }
+
+  @Test
+  void anAnonymousStreamRequestIsJsonUnauthorized() throws Exception {
+    mockMvc
+        .perform(eventStreamRequest(null, WS))
+        .andExpect(status().isUnauthorized())
+        .andExpect(header().string("Content-Type", startsWith("application/json")));
+  }
+
+  @Test
+  void aForbiddenStreamRequestIsJsonWhateverTheAcceptHeader() throws Exception {
+    ListAppender<ILoggingEvent> log = resolverLog();
+    try {
+      mockMvc
+          .perform(eventStreamRequest(token(UserRole.ADMIN_SYSTEM), WS))
+          .andExpect(status().isForbidden())
+          .andExpect(header().string("Content-Type", startsWith("application/json")))
+          .andExpect(jsonPath("$.error.code").value("ACCESS_DENIED"));
+      assertThat(log.list)
+          .noneMatch(e -> e.getFormattedMessage().contains("Failure in @ExceptionHandler"));
+    } finally {
+      detach(log);
+    }
   }
 
   @Test

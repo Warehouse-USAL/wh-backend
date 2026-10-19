@@ -22,6 +22,7 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
@@ -142,9 +143,12 @@ public class GlobalExceptionHandler {
               "INVALID_DELIVERY_UNIT",
               "Unidad de entrega inválida. Valores aceptados: CAJA, MEDIO_PALLET, PALLET."));
 
+  // The error bodies are JSON whatever the request's Accept header asks for: the console stream
+  // sends Accept: text/event-stream, and a body Spring cannot write for that Accept is dropped.
   @ExceptionHandler(AccessDeniedException.class)
   public ResponseEntity<ErrorResponse> handleAccessDenied(AccessDeniedException ex) {
     return ResponseEntity.status(HttpStatus.FORBIDDEN)
+        .contentType(MediaType.APPLICATION_JSON)
         .body(ErrorResponse.of("ACCESS_DENIED", "No tiene permisos para realizar esta operación."));
   }
 
@@ -153,6 +157,7 @@ public class GlobalExceptionHandler {
     String code = ex.getReason() != null ? ex.getReason() : ex.getStatusCode().toString();
     String message = MESSAGES.getOrDefault(code, code);
     return ResponseEntity.status(ex.getStatusCode())
+        .contentType(MediaType.APPLICATION_JSON)
         .body(Map.of("error", Map.of("code", code, "message", message)));
   }
 
@@ -200,6 +205,7 @@ public class GlobalExceptionHandler {
             .findFirst()
             .orElse("Validation error");
     return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+        .contentType(MediaType.APPLICATION_JSON)
         .body(ErrorResponse.of("VALIDATION_ERROR", message));
   }
 
@@ -211,10 +217,12 @@ public class GlobalExceptionHandler {
     for (Throwable cause = ex.getCause(); cause != null; cause = cause.getCause()) {
       if (cause instanceof InvalidFormatException ife && ife.getTargetType() == StockSize.class) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+            .contentType(MediaType.APPLICATION_JSON)
             .body(ErrorResponse.of("INVALID_DELIVERY_UNIT", MESSAGES.get("INVALID_DELIVERY_UNIT")));
       }
     }
     return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+        .contentType(MediaType.APPLICATION_JSON)
         .body(
             ErrorResponse.of("MALFORMED_REQUEST", "El cuerpo de la solicitud no es JSON válido."));
   }
