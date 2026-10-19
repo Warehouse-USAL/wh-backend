@@ -1,6 +1,7 @@
 package com.usal.whbackend.repository;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -133,6 +134,28 @@ class OrderRepositoryTest {
 
     verify(mongo).save(order);
     // Kafka publish is async — wait briefly for the background thread to fire
+    Thread.sleep(100);
+    ArgumentCaptor<String> payload = ArgumentCaptor.forClass(String.class);
+    verify(kafka).send(eq("orders"), eq("ord-1"), payload.capture());
+    JsonNode node = new ObjectMapper().readTree(payload.getValue());
+    assertEquals("cancelled", node.get("status").asString());
+    assertEquals("WH|A-L1-P01", node.get("stops").get(0).asString());
+  }
+
+  @Test
+  void requestCancellation_keepsTheOrderInProgressAndTellsInfraToCancel() throws Exception {
+    Order order = new Order();
+    order.setId("ord-1");
+    order.setStatus(OrderStatus.IN_PROGRESS);
+    order.setItems(List.of());
+    order.setStops(List.of("WH|A-L1-P01"));
+    when(mongo.save(order)).thenReturn(order);
+
+    Order saved = orderRepository.requestCancellation(order, "Ya no lo necesito");
+
+    assertEquals(OrderStatus.IN_PROGRESS, saved.getStatus());
+    assertEquals("Ya no lo necesito", saved.getCancelReason());
+    assertNotNull(saved.getCancellationRequestedAt());
     Thread.sleep(100);
     ArgumentCaptor<String> payload = ArgumentCaptor.forClass(String.class);
     verify(kafka).send(eq("orders"), eq("ord-1"), payload.capture());

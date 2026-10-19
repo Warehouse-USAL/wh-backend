@@ -1,14 +1,18 @@
 package com.usal.whbackend.api.order;
 
 import com.usal.whbackend.api.Pagination;
+import com.usal.whbackend.api.Roles;
 import com.usal.whbackend.domain.Order;
+import com.usal.whbackend.domain.UserRole;
 import com.usal.whbackend.service.OrderService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import java.util.Collections;
 import java.util.Map;
+import java.util.Set;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -30,6 +34,10 @@ import org.springframework.web.bind.annotation.RestController;
 @Tag(name = "Orders", description = "Order lifecycle management")
 @SecurityRequirement(name = "bearer-jwt")
 public class OrderController {
+
+  /** Roles that may cancel any order; everyone else allowed to cancel only cancels their own. */
+  private static final Set<UserRole> CANCEL_ANY_ORDER =
+      Set.of(UserRole.SUPERADMIN, UserRole.ADMIN_WAREHOUSE, UserRole.ADMIN_SALES);
 
   private final OrderService orderService;
 
@@ -78,14 +86,15 @@ public class OrderController {
   @Operation(
       summary = "Create order",
       description =
-          "Creates a new order and reserves stock. Requires ADMIN_SALES or ADMIN_WAREHOUSE role.")
+          "Creates a new order and reserves stock. Requires ADMIN_SALES, ADMIN_WAREHOUSE or"
+              + " OPERATOR role.")
   @ApiResponse(responseCode = "201", description = "Order created")
   @ApiResponse(
       responseCode = "400",
       description =
           "DESTINATION_AREA_REQUIRED, ITEMS_REQUIRED, PRODUCT_NOT_FOUND, INSUFFICIENT_STOCK, QUANTITY_EXCEEDS_LIMIT, etc.")
   @ApiResponse(responseCode = "403", description = "Insufficient role")
-  @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_SALES', 'ADMIN_WAREHOUSE')")
+  @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_SALES', 'ADMIN_WAREHOUSE', 'OPERATOR')")
   @PostMapping
   public ResponseEntity<Map<String, OrderResponse>> createOrder(
       @RequestBody CreateOrderRequest request,
@@ -98,19 +107,30 @@ public class OrderController {
   @Operation(
       summary = "Cancel order",
       description =
-          "Cancels an order and restores reserved stock. Requires ADMIN_WAREHOUSE or ADMIN_SALES role.")
-  @ApiResponse(responseCode = "200", description = "Order cancelled")
-  @ApiResponse(responseCode = "403", description = "Insufficient role")
+          "Cancels a pending order at once and restores reserved stock. An in_progress order"
+              + " stays in_progress with timestamps.cancellation_requested_at set until Infra"
+              + " reports it cancelled, once the vehicle has put the goods back; the change"
+              + " arrives over the WebSocket. ADMIN_WAREHOUSE and ADMIN_SALES may cancel any"
+              + " order, OPERATOR only the orders they requested.")
+  @ApiResponse(
+      responseCode = "200",
+      description = "Order cancelled, or its cancellation requested from Infra")
+  @ApiResponse(
+      responseCode = "403",
+      description = "Insufficient role, or ORDER_NOT_OWNED — an operator's order of someone else")
   @ApiResponse(responseCode = "404", description = "ORDER_NOT_FOUND")
   @ApiResponse(
       responseCode = "409",
       description = "ORDER_NOT_CANCELLABLE — already completed or cancelled")
-  @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_WAREHOUSE', 'ADMIN_SALES')")
+  @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_WAREHOUSE', 'ADMIN_SALES', 'OPERATOR')")
   @PostMapping("/{id}/cancel")
   public ResponseEntity<Map<String, OrderResponse>> cancelOrder(
-      @PathVariable String id, @RequestBody(required = false) CancelOrderRequest body) {
+      @PathVariable String id,
+      @RequestBody(required = false) CancelOrderRequest body,
+      @CurrentSecurityContext(expression = "authentication") Authentication authentication) {
     String reason = body != null ? body.reason() : null;
-    return ResponseEntity.ok(
-        Map.of("order", OrderResponse.from(orderService.cancelOrder(id, reason))));
+    boolean anyOrder = !Collections.disjoint(Roles.of(authentication), CANCEL_ANY_ORDER);
+    Order order = orderService.cancelOrder(id, reason, authentication.getName(), anyOrder);
+    return ResponseEntity.ok(Map.of("order", OrderResponse.from(order)));
   }
 }

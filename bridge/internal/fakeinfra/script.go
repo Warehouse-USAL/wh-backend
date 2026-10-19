@@ -34,8 +34,9 @@ type telemetry struct {
 //
 // A pending order is taken by vehicleID (in_progress), the vehicle reports
 // the first stop and then every stop it visits, the order completes and the
-// vehicle goes back to idle. A cancelled order only frees the vehicle. Every
-// message is stamped with now.
+// vehicle goes back to idle. A cancelled order is confirmed and the vehicle
+// freed: the backend keeps an order it already handed out in progress until
+// Infra reports it cancelled. Every message is stamped with now.
 func Script(
 	payload []byte,
 	vehicleID string,
@@ -50,7 +51,10 @@ func Script(
 	}
 	stamp := now.UTC().Format(time.RFC3339)
 	if received.Status == "cancelled" {
-		return encode(telemetry{VehicleID: vehicleID, Status: "idle", Battery: 90, Timestamp: stamp})
+		return encode(
+			orderStatus{OrderID: received.OrderID, Status: "cancelled", VehicleID: vehicleID, Timestamp: stamp},
+			telemetry{VehicleID: vehicleID, Status: "idle", Battery: 90, Timestamp: stamp},
+		)
 	}
 	return walk(received, vehicleID, stamp)
 }

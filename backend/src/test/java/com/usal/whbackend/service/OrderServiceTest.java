@@ -397,6 +397,69 @@ class OrderServiceTest {
   }
 
   @Test
+  void cancelOrder_inProgressOrder_requestsCancellationFromInfra() {
+    Order order = new Order();
+    order.setId("ord-1");
+    order.setStatus(OrderStatus.IN_PROGRESS);
+    when(orderRepository.findById("ord-1")).thenReturn(Optional.of(order));
+    when(orderRepository.requestCancellation(any(), any())).thenReturn(order);
+
+    orderService.cancelOrder("ord-1", "reason");
+
+    verify(orderRepository).requestCancellation(order, "reason");
+    verify(orderRepository, never()).cancel(any(), any());
+    verify(orderEventPublisher).broadcastOrderUpdate(order);
+  }
+
+  @Test
+  void cancelOrder_cancellationAlreadyRequested_returnsOrderUnchanged() {
+    Order order = new Order();
+    order.setId("ord-1");
+    order.setStatus(OrderStatus.IN_PROGRESS);
+    order.setCancellationRequestedAt(Instant.parse("2026-10-18T10:00:00Z"));
+    when(orderRepository.findById("ord-1")).thenReturn(Optional.of(order));
+
+    Order result = orderService.cancelOrder("ord-1", "again");
+
+    assertSame(order, result);
+    verify(orderRepository, never()).requestCancellation(any(), any());
+    verify(orderRepository, never()).cancel(any(), any());
+    verify(orderEventPublisher, never()).broadcastOrderUpdate(any());
+  }
+
+  @Test
+  void cancelOrder_ownOrder_cancelsForRequester() {
+    Order order = new Order();
+    order.setId("ord-1");
+    order.setStatus(OrderStatus.PENDING);
+    order.setRequestedByUserId("operator-1");
+    when(orderRepository.findById("ord-1")).thenReturn(Optional.of(order));
+    when(orderRepository.cancel(any(), any())).thenReturn(order);
+
+    orderService.cancelOrder("ord-1", null, "operator-1", false);
+
+    verify(orderRepository).cancel(order, null);
+  }
+
+  @Test
+  void cancelOrder_someoneElsesOrder_throws403() {
+    Order order = new Order();
+    order.setId("ord-1");
+    order.setStatus(OrderStatus.PENDING);
+    order.setRequestedByUserId("operator-2");
+    when(orderRepository.findById("ord-1")).thenReturn(Optional.of(order));
+
+    ResponseStatusException ex =
+        assertThrows(
+            ResponseStatusException.class,
+            () -> orderService.cancelOrder("ord-1", null, "operator-1", false));
+
+    assertEquals(403, ex.getStatusCode().value());
+    assertEquals("ORDER_NOT_OWNED", ex.getReason());
+    verify(orderRepository, never()).cancel(any(), any());
+  }
+
+  @Test
   void cancelOrder_completedOrder_throws409() {
     Order order = new Order();
     order.setStatus(OrderStatus.COMPLETED);
