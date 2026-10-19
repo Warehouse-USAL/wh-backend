@@ -78,3 +78,28 @@ func TestOnlyARealRecorderCountsAsLiveTelemetry(
 		t.Fatal("without an endpoint the recorder must be the no-op one")
 	}
 }
+
+func TestTelemetryFailureFallsBackToTheNoopRecorderAndTheGivenLogger(
+	t *testing.T,
+) {
+	t.Cleanup(func() { newTelemetry = telemetry.New })
+	newTelemetry = func(
+		context.Context,
+		string,
+		string,
+	) (telemetry.Recorder, func(context.Context) error, error) {
+		return nil, nil, errors.New("exporter refused")
+	}
+	var logs bytes.Buffer
+	given := slog.New(slog.NewTextHandler(&logs, nil))
+	rec, shutdown, logger := startTelemetry(context.Background(), "http://collector:4318", given)
+	if rec != telemetry.Noop() || logger != given {
+		t.Fatalf("rec=%v logger=%v, want the no-op recorder and the given logger", rec, logger)
+	}
+	if err := shutdown(context.Background()); err != nil {
+		t.Fatalf("no-op shutdown returned %v", err)
+	}
+	if !strings.Contains(logs.String(), "telemetry unavailable, running without it") || !strings.Contains(logs.String(), "exporter refused") {
+		t.Fatalf("failure not logged: %q", logs.String())
+	}
+}

@@ -32,6 +32,8 @@ const (
 	flushTimeout     = 5 * time.Second
 )
 
+var newTelemetry = telemetry.New
+
 func main() {
 	os.Exit(run())
 }
@@ -66,7 +68,7 @@ func startTelemetry(
 	endpoint string,
 	logger *slog.Logger,
 ) (telemetry.Recorder, func(context.Context) error, *slog.Logger) {
-	rec, shutdown, err := telemetry.New(ctx, endpoint, "wh-bridge")
+	rec, shutdown, err := newTelemetry(ctx, endpoint, "wh-bridge")
 	if err != nil {
 		logger.Error("telemetry unavailable, running without it", "error", err)
 		return telemetry.Noop(), func(context.Context) error { return nil }, logger

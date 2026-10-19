@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"strings"
@@ -125,8 +126,8 @@ func TestScriptRejectsGarbage(
 	if _, err := fakeinfra.Script([]byte(`nope`), "VHC-001", clock); err == nil {
 		t.Fatal("expected an error")
 	}
-	if _, err := fakeinfra.Script([]byte(`{"status":"pending"}`), "VHC-001", clock); err == nil {
-		t.Fatal("expected an error for a missing order_id")
+	if _, err := fakeinfra.Script([]byte(`{"status":"pending"}`), "VHC-001", clock); !errors.Is(err, fakeinfra.ErrNoOrderID) {
+		t.Fatalf("got %v, want ErrNoOrderID for a missing order_id", err)
 	}
 }
 
@@ -207,7 +208,10 @@ func TestLogsCarryPayloadSizesNeverPayloads(
 	source := &fakeSource{deliveries: make(chan vehicles.Delivery, 2)}
 	good := &fakeDelivery{body: `{"order_id":"ORD-1","status":"pending","stops":["PII-MARKER"]}`, acked: make(chan struct{})}
 	bad := &fakeDelivery{body: `PII-MARKER {`, acked: make(chan struct{})}
+	noID := &fakeDelivery{body: `{"status":"PII-MARKER"}`, acked: make(chan struct{})}
+	source.deliveries = make(chan vehicles.Delivery, 3)
 	source.deliveries <- bad
+	source.deliveries <- noID
 	source.deliveries <- good
 	logs := &lockedBuffer{}
 	logger := slog.New(slog.NewTextHandler(logs, nil))
@@ -215,7 +219,7 @@ func TestLogsCarryPayloadSizesNeverPayloads(
 	defer cancel()
 	done := make(chan error, 1)
 	go func() { done <- fakeinfra.Run(ctx, source, &recordingPublisher{}, "VHC-001", time.Millisecond, logger) }()
-	for _, d := range []*fakeDelivery{bad, good} {
+	for _, d := range []*fakeDelivery{bad, noID, good} {
 		select {
 		case <-d.acked:
 		case <-time.After(2 * time.Second):
@@ -226,6 +230,9 @@ func TestLogsCarryPayloadSizesNeverPayloads(
 	<-done
 	if got := logs.String(); strings.Contains(got, "PII-MARKER") || !strings.Contains(got, "payload_bytes=") {
 		t.Fatalf("logs must carry sizes and no payload: %s", got)
+	}
+	if got := logs.String(); !strings.Contains(got, `reason="malformed order"`) || !strings.Contains(got, `reason="no order_id"`) {
+		t.Fatalf("ignored orders must carry a static reason: %s", got)
 	}
 }
 

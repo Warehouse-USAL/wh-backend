@@ -2,6 +2,7 @@ package fakeinfra
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -41,7 +42,7 @@ func (p *player) play(
 ) {
 	steps, err := Script(delivery.Body(), p.vehicleID, time.Now())
 	if err != nil {
-		p.logger.Error("ignoring order", "payload_bytes", len(delivery.Body()))
+		p.logger.Error("ignoring order", "reason", ignoredReason(err), "payload_bytes", len(delivery.Body()))
 		_ = delivery.Ack()
 		return
 	}
@@ -105,4 +106,13 @@ func pause(
 	case <-timer.C:
 		return nil
 	}
+}
+
+func ignoredReason(
+	err error,
+) string {
+	if errors.Is(err, ErrNoOrderID) {
+		return "no order_id"
+	}
+	return "malformed order"
 }
