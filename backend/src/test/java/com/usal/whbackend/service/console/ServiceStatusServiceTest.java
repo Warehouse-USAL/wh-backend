@@ -1,13 +1,25 @@
 package com.usal.whbackend.service.console;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.time.Duration;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
+import org.apache.kafka.clients.admin.Admin;
+import org.apache.kafka.clients.admin.AdminClientConfig;
+import org.apache.kafka.clients.admin.DescribeClusterResult;
+import org.apache.kafka.common.KafkaFuture;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -268,5 +280,41 @@ class ServiceStatusServiceTest {
     registry.unregisterContributor("mongo");
 
     assertThat(find(service.statuses(), "mongodb").state()).isEqualTo("UNKNOWN");
+  }
+
+  @Test
+  void oneKafkaAdminClientServesEveryProbeAndIsClosedOnShutdown() {
+    Admin admin = mock(Admin.class);
+    DescribeClusterResult cluster = mock(DescribeClusterResult.class);
+    when(cluster.nodes()).thenReturn(KafkaFuture.completedFuture(List.of()));
+    when(admin.describeCluster()).thenReturn(cluster);
+    AtomicInteger created = new AtomicInteger();
+    AtomicReference<Map<String, Object>> config = new AtomicReference<>();
+    ServiceStatusService kafka =
+        new ServiceStatusService(
+            properties,
+            registry,
+            environment,
+            "broker:9092",
+            settings -> {
+              created.incrementAndGet();
+              config.set(settings);
+              return admin;
+            });
+    try {
+      for (int poll = 0; poll < 3; poll++) {
+        assertThat(find(kafka.statuses(), "redpanda").state()).isEqualTo("UP");
+      }
+    } finally {
+      kafka.shutdown();
+    }
+
+    assertThat(created).hasValue(1);
+    verify(admin, times(3)).describeCluster();
+    verify(admin).close(any(Duration.class));
+    assertThat(config.get())
+        .containsEntry(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, "broker:9092")
+        .containsEntry(AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, 1500)
+        .containsEntry(AdminClientConfig.DEFAULT_API_TIMEOUT_MS_CONFIG, 1500);
   }
 }

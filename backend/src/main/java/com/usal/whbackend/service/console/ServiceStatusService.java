@@ -16,11 +16,13 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.Function;
 import java.util.function.Supplier;
 import org.apache.kafka.clients.admin.Admin;
 import org.apache.kafka.clients.admin.AdminClientConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.health.contributor.HealthContributor;
 import org.springframework.boot.health.contributor.HealthIndicator;
@@ -36,9 +38,9 @@ import org.springframework.web.client.RestClient;
 /**
  * Probes the eight platform services in parallel. The backend and MongoDB come from the actuator
  * health indicators in process, Redpanda from a short Kafka metadata call (Spring Boot ships no
- * Kafka health indicator) and the rest from an HTTP GET. Every probe is bounded by {@link #TIMEOUT}
- * and none throws: a failure is a {@code DOWN} row with a short detail, a blank URL is {@code
- * UNKNOWN}.
+ * Kafka health indicator) on one admin client reused across probes and closed on shutdown, and the
+ * rest from an HTTP GET. Every probe is bounded by {@link #TIMEOUT} and none throws: a failure is a
+ * {@code DOWN} row with a short detail, a blank URL is {@code UNKNOWN}.
  */
 @Service
 public class ServiceStatusService {
@@ -50,6 +52,10 @@ public class ServiceStatusService {
   private static final Duration TIMEOUT = Duration.ofSeconds(2);
   private static final Duration KAFKA_TIMEOUT = Duration.ofMillis(1500);
   private static final Duration DEADLINE = Duration.ofMillis(2200);
+
+  /** Bounds how often the idle admin client retries a broker that is down. */
+  private static final int KAFKA_RECONNECT_MAX_MS = 10_000;
+
   private static final Profiles DEV_PROFILES = Profiles.of("dev", "docker");
 
   private static final Logger log = LoggerFactory.getLogger(ServiceStatusService.class);
@@ -59,6 +65,9 @@ public class ServiceStatusService {
   private final Environment environment;
   private final String kafkaBootstrap;
   private final RestClient client;
+  private final Function<Map<String, Object>, Admin> adminFactory;
+  private final Object adminLock = new Object();
+  private Admin admin;
   private final Map<String, AtomicBoolean> inFlight = new ConcurrentHashMap<>();
   private final ExecutorService executor =
       Executors.newFixedThreadPool(
@@ -69,11 +78,22 @@ public class ServiceStatusService {
             return thread;
           });
 
+  @Autowired
   public ServiceStatusService(
       ConsoleProperties properties,
       HealthContributorRegistry healthRegistry,
       Environment environment,
       @Value("${spring.kafka.bootstrap-servers:}") String kafkaBootstrap) {
+    this(properties, healthRegistry, environment, kafkaBootstrap, Admin::create);
+  }
+
+  ServiceStatusService(
+      ConsoleProperties properties,
+      HealthContributorRegistry healthRegistry,
+      Environment environment,
+      String kafkaBootstrap,
+      Function<Map<String, Object>, Admin> adminFactory) {
+    this.adminFactory = adminFactory;
     this.properties = properties;
     this.healthRegistry = healthRegistry;
     this.environment = environment;
@@ -114,6 +134,12 @@ public class ServiceStatusService {
   @PreDestroy
   void shutdown() {
     executor.shutdownNow();
+    synchronized (adminLock) {
+      if (admin != null) {
+        admin.close(Duration.ofMillis(500));
+        admin = null;
+      }
+    }
   }
 
   /**
@@ -129,7 +155,11 @@ public class ServiceStatusService {
     Future<ServiceStatus> future =
         executor.submit(
             () -> {
-              started.set(true);
+              // Whoever flips `started` first owns releasing the guard: this task, or await() when
+              // it gave up before the task ran. Never both, so a late start cannot double-run.
+              if (!started.compareAndSet(false, true)) {
+                return null;
+              }
               try {
                 return check.get();
               } catch (RuntimeException e) {
@@ -157,7 +187,7 @@ public class ServiceStatusService {
         return timeout;
       } catch (ExecutionException | TimeoutException e) {
         future.cancel(true);
-        if (!started.get()) {
+        if (started.compareAndSet(false, true)) {
           busy.set(false);
         }
         return timeout;
@@ -194,23 +224,33 @@ public class ServiceStatusService {
     if (kafkaBootstrap == null || kafkaBootstrap.isBlank()) {
       return notConfigured("redpanda");
     }
-    int timeoutMs = (int) KAFKA_TIMEOUT.toMillis();
-    Admin admin =
-        Admin.create(
-            Map.of(
-                AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaBootstrap,
-                AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, timeoutMs,
-                AdminClientConfig.DEFAULT_API_TIMEOUT_MS_CONFIG, timeoutMs));
     try {
-      admin.describeCluster().nodes().get(KAFKA_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
+      admin().describeCluster().nodes().get(KAFKA_TIMEOUT.toMillis(), TimeUnit.MILLISECONDS);
       return new ServiceStatus("redpanda", UP, null, null);
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       return new ServiceStatus("redpanda", DOWN, "interrupted", null);
     } catch (Exception e) {
       return new ServiceStatus("redpanda", DOWN, "unreachable", null);
-    } finally {
-      admin.close(Duration.ofMillis(500));
+    }
+  }
+
+  /** The shared admin client, created on the first Kafka probe (creating one per probe is slow). */
+  private Admin admin() {
+    synchronized (adminLock) {
+      if (admin == null) {
+        int timeoutMs = (int) KAFKA_TIMEOUT.toMillis();
+        admin =
+            adminFactory.apply(
+                Map.of(
+                    AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, kafkaBootstrap,
+                    AdminClientConfig.REQUEST_TIMEOUT_MS_CONFIG, timeoutMs,
+                    AdminClientConfig.DEFAULT_API_TIMEOUT_MS_CONFIG, timeoutMs,
+                    AdminClientConfig.RETRY_BACKOFF_MS_CONFIG, 1000,
+                    AdminClientConfig.RETRY_BACKOFF_MAX_MS_CONFIG, KAFKA_RECONNECT_MAX_MS,
+                    AdminClientConfig.RECONNECT_BACKOFF_MAX_MS_CONFIG, KAFKA_RECONNECT_MAX_MS));
+      }
+      return admin;
     }
   }
 
