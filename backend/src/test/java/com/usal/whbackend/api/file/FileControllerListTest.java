@@ -4,7 +4,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -46,14 +48,29 @@ class FileControllerListTest {
   @WithMockUser(roles = "SUPERADMIN")
   void superadminGetsFilesInSnakeCaseEnvelope() throws Exception {
     when(storageService.list())
-        .thenReturn(List.of(new StorageService.StoredFile("products", "pallet-jack.png", 42L)));
+        .thenReturn(
+            new StorageService.Listing(
+                List.of(new StorageService.StoredFile("products", "pallet-jack.png", 42L)), true));
 
     mockMvc
         .perform(get("/api/v1/files"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.files[0].path").value("products"))
         .andExpect(jsonPath("$.files[0].filename").value("pallet-jack.png"))
-        .andExpect(jsonPath("$.files[0].size").value(42));
+        .andExpect(jsonPath("$.files[0].size").value(42))
+        .andExpect(jsonPath("$.truncated").value(true));
+  }
+
+  /**
+   * Only the exact GET /api/v1/files is authenticated ahead of the permit-all download rule: a
+   * trailing slash, or another method on the same path, must never reach the listing anonymously.
+   */
+  @Test
+  void anonymousVariantsOfTheListingPathNeverList() throws Exception {
+    mockMvc.perform(get("/api/v1/files/")).andExpect(status().is4xxClientError());
+    mockMvc.perform(post("/api/v1/files")).andExpect(status().is4xxClientError());
+    mockMvc.perform(delete("/api/v1/files")).andExpect(status().is4xxClientError());
+    verifyNoInteractions(storageService);
   }
 
   @Test

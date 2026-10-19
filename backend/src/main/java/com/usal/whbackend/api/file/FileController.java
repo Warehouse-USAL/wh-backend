@@ -6,7 +6,6 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import java.util.List;
 import java.util.Map;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.CacheControl;
@@ -65,12 +64,18 @@ public class FileController {
   @Operation(
       summary = "List stored files",
       description =
-          "SUPERADMIN only. Sorted by path then filename; capped at the first 1000 objects.")
+          "SUPERADMIN only. Sorted by path then filename; capped at the first 1000 objects,"
+              + " with `truncated: true` when the bucket holds more.")
   @PreAuthorize("hasRole('SUPERADMIN')")
   @GetMapping
-  public ResponseEntity<Map<String, List<StoredFileResponse>>> list() {
+  public ResponseEntity<Map<String, Object>> list() {
+    StorageService.Listing listing = storageService.list();
     return ResponseEntity.ok(
-        Map.of("files", storageService.list().stream().map(StoredFileResponse::from).toList()));
+        Map.of(
+            "files",
+            listing.files().stream().map(StoredFileResponse::from).toList(),
+            "truncated",
+            listing.truncated()));
   }
 
   @Operation(

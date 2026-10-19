@@ -1,6 +1,7 @@
 package com.usal.whbackend.service.storage;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -42,7 +43,7 @@ class MinioStorageServiceListTest {
     List<Result<Item>> found = List.of(result("products/pallet-jack.png", 42L));
     when(minioClient.listObjects(any(ListObjectsArgs.class))).thenReturn(found);
 
-    List<StorageService.StoredFile> files = storageService.list();
+    List<StorageService.StoredFile> files = storageService.list().files();
 
     assertEquals(List.of(new StorageService.StoredFile("products", "pallet-jack.png", 42L)), files);
   }
@@ -52,7 +53,7 @@ class MinioStorageServiceListTest {
     List<Result<Item>> found = List.of(result("a/b/c.png", 3L), result("root.png", 1L));
     when(minioClient.listObjects(any(ListObjectsArgs.class))).thenReturn(found);
 
-    List<StorageService.StoredFile> files = storageService.list();
+    List<StorageService.StoredFile> files = storageService.list().files();
 
     assertEquals("", files.get(0).path());
     assertEquals("root.png", files.get(0).filename());
@@ -67,7 +68,7 @@ class MinioStorageServiceListTest {
     when(minioClient.listObjects(any(ListObjectsArgs.class))).thenReturn(found);
 
     List<String> order =
-        storageService.list().stream().map(f -> f.path() + "/" + f.filename()).toList();
+        storageService.list().files().stream().map(f -> f.path() + "/" + f.filename()).toList();
 
     assertEquals(List.of("a/b.png", "a/z.png", "b/a.png"), order);
   }
@@ -94,10 +95,25 @@ class MinioStorageServiceListTest {
             };
     when(minioClient.listObjects(any(ListObjectsArgs.class))).thenReturn(endless);
 
-    List<StorageService.StoredFile> files = storageService.list();
+    List<StorageService.StoredFile> files = storageService.list().files();
 
     assertEquals(MinioStorageService.MAX_LISTED_FILES, files.size());
     assertEquals(MinioStorageService.MAX_LISTED_FILES, pulled.get());
+    assertTrue(storageService.list().truncated());
+  }
+
+  @Test
+  void exactlyTheCapIsNotTruncated() throws Exception {
+    List<Result<Item>> found = new ArrayList<>();
+    for (int i = 0; i < MinioStorageService.MAX_LISTED_FILES; i++) {
+      found.add(result("p/f" + i + ".png", 1));
+    }
+    when(minioClient.listObjects(any(ListObjectsArgs.class))).thenReturn(found);
+
+    StorageService.Listing listing = storageService.list();
+
+    assertEquals(MinioStorageService.MAX_LISTED_FILES, listing.files().size());
+    assertFalse(listing.truncated());
   }
 
   @Test
@@ -120,6 +136,8 @@ class MinioStorageServiceListTest {
     List<Result<Item>> all = new ArrayList<>(List.of(dirResult, result("x/y.png", 1)));
     when(minioClient.listObjects(any(ListObjectsArgs.class))).thenReturn(all);
 
-    assertEquals(1, storageService.list().size());
+    StorageService.Listing listing = storageService.list();
+    assertEquals(1, listing.files().size());
+    assertFalse(listing.truncated());
   }
 }

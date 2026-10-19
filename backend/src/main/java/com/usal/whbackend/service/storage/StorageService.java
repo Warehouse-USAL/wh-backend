@@ -17,11 +17,14 @@ public interface StorageService {
 
   /**
    * Lists stored objects sorted by path then filename. Bounded: at most the first 1000 objects in
-   * bucket order are returned, so a huge bucket cannot exhaust memory.
+   * bucket order are returned, so a huge bucket cannot exhaust memory; {@code truncated} says
+   * whether more remained.
    */
-  List<StoredFile> list();
+  Listing list();
 
   record StoredFile(String path, String filename, long size) {}
+
+  record Listing(List<StoredFile> files, boolean truncated) {}
 
   record StoredObject(java.io.InputStream inputStream, String contentType, long contentLength) {}
 }

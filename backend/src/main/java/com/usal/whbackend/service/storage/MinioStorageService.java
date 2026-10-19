@@ -149,8 +149,9 @@ public class MinioStorageService implements StorageService {
   }
 
   @Override
-  public List<StoredFile> list() {
+  public Listing list() {
     List<StoredFile> files = new ArrayList<>();
+    boolean truncated;
     try {
       Iterator<Result<Item>> objects =
           minioClient
@@ -167,11 +168,12 @@ public class MinioStorageService implements StorageService {
             new StoredFile(
                 slash < 0 ? "" : key.substring(0, slash), key.substring(slash + 1), item.size()));
       }
+      truncated = objects.hasNext();
     } catch (Exception e) {
       throw new StorageException("Error al listar archivos", e);
     }
     files.sort(Comparator.comparing(StoredFile::path).thenComparing(StoredFile::filename));
-    return files;
+    return new Listing(files, truncated);
   }
 
   public static String extractKey(String url, String requestBase) {
