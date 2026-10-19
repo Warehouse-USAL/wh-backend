@@ -30,12 +30,14 @@ import com.usal.whbackend.service.metrics.MetricsQueryService;
 import com.usal.whbackend.service.metrics.restock.RestockSuggestionService;
 import com.usal.whbackend.service.query.EntityQueryService;
 import com.usal.whbackend.service.storage.StorageService;
+import java.io.InputStream;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.beans.TypeMismatchException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.config.BeanDefinition;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -43,7 +45,10 @@ import org.springframework.context.annotation.ClassPathScanningCandidateComponen
 import org.springframework.context.annotation.Import;
 import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.core.type.filter.AnnotationTypeFilter;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpInputMessage;
 import org.springframework.http.HttpMethod;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -51,12 +56,18 @@ import org.springframework.security.config.annotation.method.configuration.Enabl
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.RequestBuilder;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.bind.ServletRequestBindingException;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.context.WebApplicationContext;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerMapping;
 
 /**
@@ -84,7 +95,8 @@ class SuperadminReachTest {
    * Spring MVC validates a @Valid @RequestBody before the proxied controller method (and its
    * @PreAuthorize) runs, so "{}" would answer 400 even if SUPERADMIN were excluded. Every @Valid
    * handler below therefore gets the smallest valid body (snake_case, as on the wire); the test
-   * also asserts no endpoint answers 400, so a body that stops being valid cannot hide a 403.
+   * also fails on any 400 raised before the handler (see BEFORE_AUTHORIZATION), so a body that
+   * stops being valid cannot hide a 403, while a 400 the handler itself answers still passes.
    * No @Valid handler is left to the reflection guard alone.
    */
   private static final String RESTOCK =
@@ -226,7 +238,14 @@ class SuperadminReachTest {
     mockMvc = MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build();
   }
 
+  /** What one call answered, and the exception Spring MVC resolved for it, if any. */
+  private record Outcome(int status, Exception resolved) {}
+
   private int statusOf(String[] endpoint) throws Exception {
+    return outcomeOf(endpoint).status();
+  }
+
+  private Outcome outcomeOf(String[] endpoint) throws Exception {
     RequestBuilder req;
     if ("UPLOAD".equals(endpoint[0])) {
       req =
@@ -240,11 +259,32 @@ class SuperadminReachTest {
       req = plain;
     }
     try {
-      return mockMvc.perform(req).andReturn().getResponse().getStatus();
+      MvcResult result = mockMvc.perform(req).andReturn();
+      return new Outcome(result.getResponse().getStatus(), result.getResolvedException());
     } catch (Exception e) {
       // An exception from a handler running against a mock service happens after authorization.
-      return 500;
+      return new Outcome(500, e);
     }
+  }
+
+  /**
+   * Exceptions Spring MVC raises while resolving arguments, before the proxied method and its
+   * {@code @PreAuthorize} run: a 400 for one of these could hide a 403. A 400 thrown from inside
+   * the handler or its (mocked) service came after authorization and is a legitimate answer.
+   */
+  private static final List<Class<? extends Exception>> BEFORE_AUTHORIZATION =
+      List.of(
+          MethodArgumentNotValidException.class,
+          HttpMessageNotReadableException.class,
+          ServletRequestBindingException.class,
+          TypeMismatchException.class,
+          MissingServletRequestPartException.class,
+          HandlerMethodValidationException.class);
+
+  static boolean mayMaskAuthorization(Outcome outcome) {
+    return outcome.status() == 400
+        && (outcome.resolved() == null
+            || BEFORE_AUTHORIZATION.stream().anyMatch(type -> type.isInstance(outcome.resolved())));
   }
 
   @Test
@@ -258,8 +298,9 @@ class SuperadminReachTest {
           == null) {
         unmapped.add(method + " " + endpoint[1]);
       }
-      int status = statusOf(endpoint);
-      if (status == 403 || status == 401 || status == 400) {
+      Outcome outcome = outcomeOf(endpoint);
+      int status = outcome.status();
+      if (status == 403 || status == 401 || mayMaskAuthorization(outcome)) {
         forbidden.add(endpoint[0] + " " + endpoint[1] + " -> " + status);
       }
     }
@@ -310,10 +351,60 @@ class SuperadminReachTest {
   private static final java.util.regex.Pattern QUOTED_SUPERADMIN =
       java.util.regex.Pattern.compile("'SUPERADMIN'");
 
-  /** Repo expressions: hasRole('X'), hasAnyRole(...), isAuthenticated(); only roles can exclude. */
-  private static boolean permitsSuperadmin(String expression) {
+  private static final java.util.regex.Pattern NEGATION =
+      java.util.regex.Pattern.compile("!|\\bnot\\b", java.util.regex.Pattern.CASE_INSENSITIVE);
+
+  /**
+   * Repo expressions: hasRole('X'), hasAnyRole(...), isAuthenticated(); only roles can exclude. A
+   * negated expression ({@code !hasRole('SUPERADMIN')}, {@code not ...}) is never read as a grant:
+   * it must be listed in {@link #EXCLUDED} or rewritten.
+   */
+  static boolean permitsSuperadmin(String expression) {
+    if (NEGATION.matcher(expression).find()) {
+      return false;
+    }
     return QUOTED_SUPERADMIN.matcher(expression).find()
         || expression.contains("isAuthenticated")
         || expression.contains("permitAll");
+  }
+
+  @Test
+  void negatedExpressionsNeverCountAsGrantingSuperadmin() {
+    assertThat(permitsSuperadmin("hasAnyRole('SUPERADMIN', 'ADMIN_SALES')")).isTrue();
+    assertThat(permitsSuperadmin("isAuthenticated()")).isTrue();
+    assertThat(permitsSuperadmin("hasRole('ADMIN_SALES')")).isFalse();
+    assertThat(permitsSuperadmin("!hasRole('SUPERADMIN')")).isFalse();
+    assertThat(permitsSuperadmin("isAuthenticated() and !hasRole('SUPERADMIN')")).isFalse();
+    assertThat(permitsSuperadmin("not hasRole('SUPERADMIN')")).isFalse();
+  }
+
+  @Test
+  void onlyA400RaisedBeforeTheHandlerCanMaskA403() {
+    assertThat(mayMaskAuthorization(new Outcome(400, null))).isTrue();
+    assertThat(
+            mayMaskAuthorization(
+                new Outcome(400, new HttpMessageNotReadableException("x", emptyInput()))))
+        .isTrue();
+    assertThat(
+            mayMaskAuthorization(
+                new Outcome(400, new MissingServletRequestParameterException("q", "String"))))
+        .isTrue();
+    // Thrown by the handler or its service: authorization already passed.
+    assertThat(mayMaskAuthorization(new Outcome(400, new IllegalArgumentException("x")))).isFalse();
+    assertThat(mayMaskAuthorization(new Outcome(404, null))).isFalse();
+  }
+
+  private static HttpInputMessage emptyInput() {
+    return new HttpInputMessage() {
+      @Override
+      public InputStream getBody() {
+        return InputStream.nullInputStream();
+      }
+
+      @Override
+      public HttpHeaders getHeaders() {
+        return new HttpHeaders();
+      }
+    };
   }
 }
