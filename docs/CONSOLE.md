@@ -291,8 +291,10 @@ token expiry; until then it holds one of its user's five streams.
 | `max-streams` | `50` | whole backend |
 | `queue-capacity` | `1000` | frames waiting per stream; keep above `max-subscriptions` |
 
-Observability: the stream is left out of `http.server.duration` and of the access log (it lasts as
-long as its token). One INFO line on open and one on close (subscription count, duration, reason,
+Observability: `http.server.duration` times only the stream's initial dispatch (the time to start
+streaming, never how long it stays open), so started streams and rejections (403 as `UNMATCHED`,
+429 as `/console/stream`) are counted like any request. The stream is left out of the access log
+(it lasts as long as its token). One INFO line on open and one on close (subscription count, duration, reason,
 `request_id`; never the user). `DEBUG` on `com.usal.whbackend.service.console.stream` logs each
 source start and stop with the number of active sources.
 

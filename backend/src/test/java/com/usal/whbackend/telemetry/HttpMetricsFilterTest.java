@@ -6,6 +6,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -134,23 +136,47 @@ class HttpMetricsFilterTest {
     assertThat(samples.get(0).method()).isEqualTo("POST");
   }
 
-  @Test
-  void theConsoleStreamIsNotRecorded() throws Exception {
+  /**
+   * The push stream is timed like any request: only its initial dispatch passes the filter, so a
+   * rejection (429) and a started stream are both counted, and neither holds the in-flight count.
+   */
+  @ParameterizedTest
+  @ValueSource(ints = {200, 403, 429})
+  void theConsoleStreamIsRecordedLikeAnyRequest(int status) throws Exception {
     MockHttpServletRequest request = new MockHttpServletRequest("POST", "/console/stream");
     MockFilterChain chain =
         new MockFilterChain() {
           @Override
           public void doFilter(
               jakarta.servlet.ServletRequest req, jakarta.servlet.ServletResponse res) {
-            req.setAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE, "/console/stream");
-            ((MockHttpServletResponse) res).setStatus(200);
+            if (status != 403) {
+              req.setAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE, "/console/stream");
+            }
+            ((MockHttpServletResponse) res).setStatus(status);
           }
         };
 
     filter.doFilter(request, new MockHttpServletResponse(), chain);
 
-    // A stream lasts as long as its token; its duration would only poison the latency histogram.
-    assertThat(samples).isEmpty();
+    String route = status == 403 ? "UNMATCHED" : "/console/stream";
+    assertThat(samples)
+        .singleElement()
+        .satisfies(
+            s -> {
+              assertThat(s.route()).isEqualTo(route);
+              assertThat(s.status()).isEqualTo(status);
+            });
     assertThat(filter.activeRequests()).isZero();
+  }
+
+  /** An async re-dispatch (the stream's completion) is not timed again. */
+  @Test
+  void asyncRedispatchesAreNotRecorded() throws Exception {
+    MockHttpServletRequest request = new MockHttpServletRequest("POST", "/console/stream");
+    request.setDispatcherType(jakarta.servlet.DispatcherType.ASYNC);
+
+    filter.doFilter(request, new MockHttpServletResponse(), new MockFilterChain());
+
+    assertThat(samples).isEmpty();
   }
 }
