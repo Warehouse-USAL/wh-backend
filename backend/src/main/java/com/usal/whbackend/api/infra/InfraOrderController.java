@@ -47,8 +47,9 @@ public class InfraOrderController {
     Order order =
         orderStatusService.apply(
             orderId, request.status(), request.vehicleId(), request.timestamp());
-    // Logged once applied, so the status is a valid one; the bridge forwards the request id.
-    log.info("callback order {} status -> {}", orderId, order.getStatus());
+    // Logged once applied, so the status and the stored id are valid ones (never the raw path
+    // variable); the bridge forwards the request id.
+    log.info("callback order {} status -> {}", order.getId(), order.getStatus());
     return ResponseEntity.ok(Map.of("order", OrderResponse.from(order)));
   }
 }

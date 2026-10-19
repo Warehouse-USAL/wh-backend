@@ -142,8 +142,9 @@ class InfraControllerTest {
 
   @Test
   void orderStatus_logsTheAppliedStatusUnderTheRequestId() throws Exception {
+    // The stored order's id is logged, never the raw path variable the caller sent.
     Order order = new Order();
-    order.setId("ord-1");
+    order.setId("ord-stored");
     order.setStatus(OrderStatus.IN_PROGRESS);
     when(orderStatusService.apply(anyString(), anyString(), any(), any())).thenReturn(order);
 
@@ -154,7 +155,7 @@ class InfraControllerTest {
         .satisfies(
             line -> {
               assertThat(line.getFormattedMessage())
-                  .isEqualTo("callback order ord-1 status -> IN_PROGRESS");
+                  .isEqualTo("callback order ord-stored status -> IN_PROGRESS");
               assertThat(line.getLevel()).isEqualTo(Level.INFO);
               assertThat(line.getMDCPropertyMap()).containsEntry("request_id", "req-1");
             });

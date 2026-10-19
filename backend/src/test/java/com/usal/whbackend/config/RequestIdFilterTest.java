@@ -242,9 +242,35 @@ class RequestIdFilterTest {
   }
 
   @ParameterizedTest
+  @ValueSource(strings = {"PROPFIND", "GET\nhttp POST /admin 200 1ms", "get"})
+  void aNonStandardMethodIsLoggedAsOther(String method) throws Exception {
+    serve(method, "/orders", "/orders", 200);
+
+    assertThat(logs.list)
+        .singleElement()
+        .extracting(ILoggingEvent::getFormattedMessage)
+        .asString()
+        .matches("http OTHER /orders 200 \\d+ms");
+  }
+
+  /** Security answers before the dispatcher matches a route, so no route is claimed. */
+  @ParameterizedTest
+  @ValueSource(ints = {401, 403})
+  void aRejectedRequestClaimsNoRoute(int status) throws Exception {
+    serve("DELETE", "/products/p-1", null, status);
+
+    assertThat(logs.list)
+        .singleElement()
+        .extracting(ILoggingEvent::getFormattedMessage)
+        .asString()
+        .matches("http DELETE UNMATCHED " + status + " \\d+ms");
+  }
+
+  @ParameterizedTest
   @CsvSource(
       nullValues = "null",
       value = {
+        "/console/stream, /console/stream",
         "/actuator/health, null",
         "/console/logs/query, /console/logs/query",
         "/console/status, /console/status",

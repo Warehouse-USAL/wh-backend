@@ -1,5 +1,6 @@
 package com.usal.whbackend.config;
 
+import com.usal.whbackend.telemetry.HttpMetricsFilter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -17,7 +18,6 @@ import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
-import org.springframework.web.servlet.HandlerMapping;
 
 /**
  * Gives every request an id: the caller's {@code X-Request-Id} when it is safe to log, otherwise a
@@ -30,7 +30,14 @@ import org.springframework.web.servlet.HandlerMapping;
  * or {@code ?token=}), the final status and the duration. INFO below 400, WARN for 4xx and ERROR
  * for 5xx, so failures stand out in the log store even when no handler logged them. Console
  * polling, metric queries, probes, websocket upgrades and vehicle telemetry are not logged: they
- * repeat every few seconds and would flood the store.
+ * repeat every few seconds and would flood the store. The method is one of the seven standard ones
+ * or {@code OTHER}, so a forged method cannot inject text into the line. A request rejected before
+ * the dispatcher (401/403 from security) has no route and is logged as {@code UNMATCHED}, the same
+ * value the metrics use.
+ *
+ * <p>Async requests: {@link OncePerRequestFilter} skips async re-dispatches, so an async endpoint
+ * gets one line when its initial dispatch returns, with the status and duration known at that point
+ * (the console push stream is under the quiet {@code /console/} prefix and gets none).
  */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 1)
@@ -51,9 +58,6 @@ public class RequestIdFilter extends OncePerRequestFilter {
   /** Routes never logged: the console's metric polls and per-message vehicle telemetry. */
   private static final Set<String> QUIET_ROUTES =
       Set.of("/metrics/query", "/infra/vehicles/{vehicleId}/telemetry");
-
-  /** What Spring reports for a path no controller maps. */
-  private static final String CATCH_ALL = "/**";
 
   /** Whether {@code id} may be logged or forwarded as a request id. */
   public static boolean isSafe(String id) {
@@ -82,9 +86,7 @@ public class RequestIdFilter extends OncePerRequestFilter {
 
   private static void logAccess(HttpServletRequest request, int status, long start) {
     String path = request.getRequestURI().substring(request.getContextPath().length());
-    Object pattern = request.getAttribute(HandlerMapping.BEST_MATCHING_PATTERN_ATTRIBUTE);
-    String route =
-        pattern == null || CATCH_ALL.equals(pattern.toString()) ? "UNMATCHED" : pattern.toString();
+    String route = HttpMetricsFilter.routeOf(request);
     if (QUIET_ROUTES.contains(route) || QUIET_PATHS.stream().anyMatch(path::startsWith)) {
       return;
     }
@@ -92,7 +94,7 @@ public class RequestIdFilter extends OncePerRequestFilter {
     log.atLevel(level)
         .log(
             "http {} {} {} {}ms",
-            request.getMethod(),
+            HttpMetricsFilter.methodOf(request),
             route,
             status,
             (System.nanoTime() - start) / 1_000_000);
