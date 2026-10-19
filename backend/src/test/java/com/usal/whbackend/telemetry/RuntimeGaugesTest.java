@@ -83,12 +83,24 @@ class RuntimeGaugesTest {
    * lower-camel ({@code currentThreadsBusy}); a standard MBean would capitalize them.
    */
   private static final class FakeThreadPool implements DynamicMBean {
-    private final Map<String, Object> attributes =
-        Map.of(
-            "currentThreadsBusy", 3,
-            "maxThreads", 200,
-            "connectionCount", 7L,
-            "maxConnections", 8192);
+    private final Map<String, Object> attributes;
+
+    FakeThreadPool() {
+      this(8192);
+    }
+
+    FakeThreadPool(int maxConnections) {
+      attributes =
+          Map.of(
+              "currentThreadsBusy",
+              3,
+              "maxThreads",
+              200,
+              "connectionCount",
+              7L,
+              "maxConnections",
+              maxConnections);
+    }
 
     @Override
     public Object getAttribute(String name) throws AttributeNotFoundException {
@@ -221,6 +233,21 @@ class RuntimeGaugesTest {
         .containsExactlyInAnyOrder("busy=3", "max=200");
     assertThat(longPoints(reader.metric(RuntimeGauges.TOMCAT_CONNECTIONS_METRIC).orElseThrow()))
         .containsExactlyInAnyOrder("current=7", "max=8192");
+  }
+
+  @Test
+  void unlimitedMaxConnectionsIsLeftOutInsteadOfSummed() throws Exception {
+    MBeanServer server = MBeanServerFactory.newMBeanServer();
+    server.registerMBean(
+        new FakeThreadPool(-1), new ObjectName("Tomcat:type=ThreadPool,name=\"http-nio-8080\""));
+    server.registerMBean(
+        new FakeThreadPool(), new ObjectName("Tomcat:type=ThreadPool,name=\"http-nio-8443\""));
+    new RuntimeGauges(provider.get("test"), server, () -> 0);
+
+    assertThat(longPoints(reader.metric(RuntimeGauges.TOMCAT_CONNECTIONS_METRIC).orElseThrow()))
+        .containsExactly("current=14");
+    assertThat(longPoints(reader.metric(RuntimeGauges.TOMCAT_THREADS_METRIC).orElseThrow()))
+        .containsExactlyInAnyOrder("busy=6", "max=400");
   }
 
   @Test

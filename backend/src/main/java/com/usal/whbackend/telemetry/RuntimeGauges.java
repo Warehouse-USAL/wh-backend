@@ -111,7 +111,11 @@ public class RuntimeGauges {
     }
   }
 
-  /** Sums two attributes over every Tomcat connector; records nothing when there is none. */
+  /**
+   * Sums two attributes over every Tomcat connector; records nothing when there is none. A negative
+   * limit is Tomcat's "unlimited" ({@code maxConnections=-1}): the limit is then left out rather
+   * than summed into a meaningless number.
+   */
   private static void recordPool(
       MBeanServer mbeans,
       ObservableLongMeasurement m,
@@ -121,6 +125,7 @@ public class RuntimeGauges {
       String secondState) {
     long a = 0;
     long b = 0;
+    boolean unlimited = false;
     try {
       Set<ObjectName> names = mbeans.queryNames(new ObjectName(THREAD_POOLS), null);
       if (names.isEmpty()) {
@@ -128,14 +133,18 @@ public class RuntimeGauges {
       }
       for (ObjectName name : names) {
         a += ((Number) mbeans.getAttribute(name, first)).longValue();
-        b += ((Number) mbeans.getAttribute(name, second)).longValue();
+        long limit = ((Number) mbeans.getAttribute(name, second)).longValue();
+        unlimited |= limit < 0;
+        b += limit;
       }
     } catch (JMException e) {
       log.warn("Failed to read Tomcat MBean: {}", e.getMessage());
       return;
     }
     m.record(a, Attributes.of(OtelTelemetryAdapter.STATE, firstState));
-    m.record(b, Attributes.of(OtelTelemetryAdapter.STATE, secondState));
+    if (!unlimited) {
+      m.record(b, Attributes.of(OtelTelemetryAdapter.STATE, secondState));
+    }
   }
 
   /** Runs on the SDK's export thread: throwing there would kill every other metric's export. */
