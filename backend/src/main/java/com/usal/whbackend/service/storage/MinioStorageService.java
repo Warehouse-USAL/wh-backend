@@ -34,7 +34,7 @@ public class MinioStorageService implements StorageService {
   static final int MAX_LISTED_FILES = 1000;
   private static final int MAGIC_BYTES_LENGTH = 12;
   private static final Pattern SAFE_SEGMENT = Pattern.compile("[a-zA-Z0-9._-]+");
-  private static final Pattern UPLOAD_PATH = Pattern.compile("[A-Za-z0-9_-]+");
+  private static final Pattern UPLOAD_PATH = Pattern.compile("[A-Za-z0-9_-]{1,64}");
 
   private final MinioClient minioClient;
   private final String bucket;
@@ -179,11 +179,15 @@ public class MinioStorageService implements StorageService {
     return idx != -1 ? url.substring(idx + requestBase.length()) : url;
   }
 
-  /** An upload folder: one segment of letters, digits, '_' or '-' (no dots, so no traversal). */
+  /**
+   * An upload folder: one segment of 1 to 64 letters, digits, '_' or '-' (no dots, so no traversal;
+   * bounded, so an over-long folder is a 400 here rather than a storage failure). The rejected
+   * value is not echoed back.
+   */
   public static String uploadPath(String path) {
     if (!UPLOAD_PATH.matcher(path).matches()) {
       throw new IllegalArgumentException(
-          "Invalid path: '" + path + "'. Use letters, digits, '_' or '-' only.");
+          "Invalid path: use 1 to 64 letters, digits, '_' or '-' only.");
     }
     return path;
   }

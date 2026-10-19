@@ -157,6 +157,15 @@ class MinioStorageServiceTest {
   void uploadPath_valid_returnsPath() {
     assertEquals("images", MinioStorageService.uploadPath("images"));
     assertEquals("product_photos-2", MinioStorageService.uploadPath("product_photos-2"));
+    assertEquals("a".repeat(64), MinioStorageService.uploadPath("a".repeat(64)));
+  }
+
+  @Test
+  void uploadPath_overLong_throwsWithoutEchoingIt() {
+    String path = "a".repeat(65);
+    IllegalArgumentException e =
+        assertThrows(IllegalArgumentException.class, () -> MinioStorageService.uploadPath(path));
+    assertFalse(e.getMessage().contains(path));
   }
 
   @ParameterizedTest

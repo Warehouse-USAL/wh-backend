@@ -41,13 +41,19 @@ public class FileController {
       summary = "Upload an image",
       description =
           "Stores the file as <path>/<uuid>.<ext> and returns the URL and key. The optional"
-              + " `path` part is one segment of letters, digits, '_' or '-' (default `images`)."
+              + " `path` part is one segment of 1 to 64 letters, digits, '_' or '-' (default"
+              + " `images`); anything else is a 400 BAD_REQUEST."
               + " Requires ADMIN_WAREHOUSE, ADMIN_SALES or SUPERADMIN role.")
   @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_WAREHOUSE', 'ADMIN_SALES')")
   @PostMapping("/upload")
   public ResponseEntity<FileUploadResponse> upload(
       @RequestParam("file") MultipartFile file,
-      @Parameter(description = "Folder for the file; defaults to images")
+      @Parameter(
+              description = "Folder for the file: 1 to 64 of [A-Za-z0-9_-]; defaults to images",
+              schema =
+                  @io.swagger.v3.oas.annotations.media.Schema(
+                      pattern = "^[A-Za-z0-9_-]{1,64}$",
+                      maxLength = 64))
           @RequestParam(value = "path", required = false)
           String path) {
     String folder = path == null ? IMAGES_PATH : MinioStorageService.uploadPath(path);

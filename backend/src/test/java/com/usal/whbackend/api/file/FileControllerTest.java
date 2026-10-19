@@ -79,7 +79,8 @@ class FileControllerTest {
   @Test
   @WithMockUser(roles = "SUPERADMIN")
   void upload_withUnsafePath_returnsBadRequestAndStoresNothing() throws Exception {
-    for (String path : new String[] {"../etc", "a/b", "my.dir", "", "sp ace"}) {
+    for (String path :
+        new String[] {"../etc", "a/b", "my.dir", "", "sp ace", "a".repeat(65), "a".repeat(5000)}) {
       mockMvc
           .perform(multipart("/api/v1/files/upload").file(jpeg()).param("path", path))
           .andExpect(status().isBadRequest())
