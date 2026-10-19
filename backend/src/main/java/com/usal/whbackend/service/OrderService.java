@@ -32,6 +32,8 @@ import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
@@ -57,14 +59,9 @@ public class OrderService implements OrderCompletionPort {
    * lock (e.g. Redis Redlock) or an atomic reservation counter in MongoDB.
    */
   private final ConcurrentHashMap<String, ReentrantLock> productLocks = new ConcurrentHashMap<>();
-  private final ConcurrentHashMap<String, ReentrantLock> idempotencyLocks = new ConcurrentHashMap<>();
 
   private ReentrantLock getProductLock(String productId) {
     return productLocks.computeIfAbsent(productId, k -> new ReentrantLock());
-  }
-
-  private ReentrantLock getIdempotencyLock(String key) {
-    return idempotencyLocks.computeIfAbsent(key, k -> new ReentrantLock());
   }
 
   @Autowired
@@ -152,53 +149,60 @@ public class OrderService implements OrderCompletionPort {
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "ORDER_NOT_FOUND"));
   }
 
+  @Transactional
   public Order createOrder(CreateOrderRequest request, String userId) {
-    return createOrder(request, userId, null);
+    Order order = executeCreateOrder(request, userId);
+    publishOrderUpdateAfterCommit(order);
+    return order;
   }
 
+  @Transactional
   public Order createOrder(CreateOrderRequest request, String userId, String idempotencyKey) {
     if (idempotencyKey != null
         && !idempotencyKey.isBlank()
         && idempotencyRecordRepository != null) {
       String trimmedKey = idempotencyKey.trim();
-      ReentrantLock lock = getIdempotencyLock(trimmedKey);
-      lock.lock();
-      try {
-        Optional<IdempotencyRecord> existing = idempotencyRecordRepository.findByKey(trimmedKey);
-        if (existing.isPresent()) {
-          IdempotencyRecord record = existing.get();
-          if (record.getUserId() != null && !record.getUserId().equals(userId)) {
-            throw new ResponseStatusException(
-                HttpStatus.CONFLICT, "IDEMPOTENCY_KEY_USER_MISMATCH");
-          }
-          return orderRepository
-              .findById(record.getOrderId())
-              .orElseThrow(
-                  () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "ORDER_NOT_FOUND"));
+      Optional<IdempotencyRecord> existing = idempotencyRecordRepository.findByKey(trimmedKey);
+      if (existing.isPresent()) {
+        IdempotencyRecord record = existing.get();
+        if (record.getUserId() != null && !record.getUserId().equals(userId)) {
+          throw new ResponseStatusException(HttpStatus.CONFLICT, "IDEMPOTENCY_KEY_USER_MISMATCH");
         }
-
-        Order order = executeCreateOrder(request, userId);
-        try {
-          idempotencyRecordRepository.save(
-              new IdempotencyRecord(trimmedKey, userId, order.getId(), Instant.now()));
-        } catch (DuplicateKeyException e) {
-          return idempotencyRecordRepository
-              .findByKey(trimmedKey)
-              .flatMap(rec -> orderRepository.findById(rec.getOrderId()))
-              .orElse(order);
+        if (record.getOrderId() == null || record.getOrderId().isBlank()) {
+          throw new ResponseStatusException(HttpStatus.CONFLICT, "IDEMPOTENCY_REQUEST_IN_PROGRESS");
         }
-        return order;
-      } finally {
-        lock.unlock();
-        if (!lock.hasQueuedThreads()) {
-          idempotencyLocks.remove(trimmedKey, lock);
-        }
+        return orderRepository
+            .findById(record.getOrderId())
+            .orElseThrow(
+                () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "ORDER_NOT_FOUND"));
       }
+
+      // The unique index is the cross-instance lock. Claim the key before creating an order or
+      // publishing its event. The transaction rolls this claim back if order creation fails.
+      IdempotencyRecord claim;
+      try {
+        claim =
+            idempotencyRecordRepository.save(
+                new IdempotencyRecord(trimmedKey, userId, null, Instant.now()));
+      } catch (DuplicateKeyException e) {
+        // Another instance claimed this key after our read. Do not create an order in this
+        // transaction; the caller can retry and will then receive the winning order.
+        throw new ResponseStatusException(
+            HttpStatus.CONFLICT, "IDEMPOTENCY_REQUEST_IN_PROGRESS", e);
+      }
+
+      Order order = executeCreateOrder(request, userId);
+      claim.setOrderId(order.getId());
+      idempotencyRecordRepository.save(claim);
+      publishOrderUpdateAfterCommit(order);
+      return order;
     }
-    return executeCreateOrder(request, userId);
+
+    Order order = executeCreateOrder(request, userId);
+    publishOrderUpdateAfterCommit(order);
+    return order;
   }
 
-  @Transactional
   protected Order executeCreateOrder(CreateOrderRequest request, String userId) {
     if (request.destinationArea() == null || request.destinationArea().isBlank()) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "DESTINATION_AREA_REQUIRED");
@@ -306,12 +310,30 @@ public class OrderService implements OrderCompletionPort {
         order.setTotal(total);
       }
 
-      Order saved = orderRepository.save(order);
-      orderEventPublishers.forEach(p -> p.broadcastOrderUpdate(saved));
+      Order saved = orderRepository.saveWithoutPublishing(order);
       return saved;
     } finally {
       locks.forEach(ReentrantLock::unlock);
     }
+  }
+
+  private void publishOrderUpdateAfterCommit(Order order) {
+    if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+      publishCreatedOrder(order);
+      return;
+    }
+    TransactionSynchronizationManager.registerSynchronization(
+        new TransactionSynchronization() {
+          @Override
+          public void afterCommit() {
+            publishCreatedOrder(order);
+          }
+        });
+  }
+
+  private void publishCreatedOrder(Order order) {
+    orderRepository.publishPendingOrder(order);
+    orderEventPublishers.forEach(p -> p.broadcastOrderUpdate(order));
   }
 
   public Order cancelOrder(String id, String reason) {

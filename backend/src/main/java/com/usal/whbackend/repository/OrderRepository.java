@@ -71,8 +71,21 @@ public class OrderRepository {
 
   public Order save(Order order) {
     Order saved = mongo.save(order);
-    publishOrder(saved, "pending");
+    publishPendingOrder(saved);
     return saved;
+  }
+
+  /**
+   * Persists a new order without publishing it, so callers can publish after their transaction
+   * commits.
+   */
+  public Order saveWithoutPublishing(Order order) {
+    return mongo.save(order);
+  }
+
+  /** Publishes a newly created order to Infra after it has been committed. */
+  public void publishPendingOrder(Order order) {
+    publishOrder(order, "pending");
   }
 
   public Order update(Order order) {

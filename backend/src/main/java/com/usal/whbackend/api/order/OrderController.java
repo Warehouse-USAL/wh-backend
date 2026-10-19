@@ -85,6 +85,10 @@ public class OrderController {
       responseCode = "400",
       description =
           "DESTINATION_AREA_REQUIRED, ITEMS_REQUIRED, PRODUCT_NOT_FOUND, INSUFFICIENT_STOCK, QUANTITY_EXCEEDS_LIMIT, etc.")
+  @ApiResponse(
+      responseCode = "409",
+      description =
+          "IDEMPOTENCY_KEY_USER_MISMATCH, or IDEMPOTENCY_REQUEST_IN_PROGRESS for a concurrent request")
   @ApiResponse(responseCode = "403", description = "Insufficient role")
   @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_SALES', 'ADMIN_WAREHOUSE')")
   @PostMapping
