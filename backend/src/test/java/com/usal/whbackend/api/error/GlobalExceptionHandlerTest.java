@@ -149,15 +149,15 @@ class GlobalExceptionHandlerTest {
   void maxUploadSizeExceeded_returns413WithCode() {
     ResponseEntity<ErrorResponse> r =
         handler.handleMaxUploadSize(new MaxUploadSizeExceededException(5L));
-    assertThat(r.getStatusCode()).isEqualTo(HttpStatus.PAYLOAD_TOO_LARGE);
+    assertThat(r.getStatusCode()).isEqualTo(HttpStatus.CONTENT_TOO_LARGE);
     assertThat(r.getBody().error().code()).isEqualTo("PAYLOAD_TOO_LARGE");
   }
 
   @Test
   void responseStatusException_withoutReason_fallsBackToStatusCode() {
     ResponseEntity<java.util.Map<String, Object>> r =
-        handler.handle(new ResponseStatusException(HttpStatus.I_AM_A_TEAPOT));
-    assertThat(r.getStatusCode()).isEqualTo(HttpStatus.I_AM_A_TEAPOT);
+        handler.handle(new ResponseStatusException(HttpStatus.GONE));
+    assertThat(r.getStatusCode()).isEqualTo(HttpStatus.GONE);
     assertThat(r.getBody()).isNotNull();
     assertThat(r.getBody().get("error")).isNotNull();
   }

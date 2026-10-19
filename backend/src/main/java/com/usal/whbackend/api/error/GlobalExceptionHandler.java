@@ -304,7 +304,7 @@ public class GlobalExceptionHandler {
 
   @ExceptionHandler(MaxUploadSizeExceededException.class)
   public ResponseEntity<ErrorResponse> handleMaxUploadSize(MaxUploadSizeExceededException ex) {
-    return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
+    return ResponseEntity.status(HttpStatus.CONTENT_TOO_LARGE)
         .body(ErrorResponse.of("PAYLOAD_TOO_LARGE", "El archivo supera el tamaño máximo de 5MB."));
   }
 }
