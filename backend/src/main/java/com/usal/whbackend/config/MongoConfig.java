@@ -1,9 +1,14 @@
 package com.usal.whbackend.config;
 
 import com.usal.whbackend.domain.StockSize;
+import com.usal.whbackend.telemetry.MongoMetricsListener;
+import com.usal.whbackend.telemetry.TelemetryPort;
+import com.usal.whbackend.telemetry.TelemetryProperties;
 import java.util.List;
+import org.springframework.boot.mongodb.autoconfigure.MongoClientSettingsBuilderCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.data.convert.ReadingConverter;
 import org.springframework.data.mongodb.MongoDatabaseFactory;
@@ -18,6 +23,24 @@ public class MongoConfig {
   @Bean
   MongoTransactionManager transactionManager(MongoDatabaseFactory dbFactory) {
     return new MongoTransactionManager(dbFactory);
+  }
+
+  /**
+   * The port is injected lazily: building the Mongo client must not wait on the telemetry graph,
+   * which reads fleet state through repositories that need that same client.
+   */
+  @Bean
+  MongoMetricsListener mongoMetricsListener(
+      @Lazy TelemetryPort telemetry, TelemetryProperties props) {
+    return new MongoMetricsListener(telemetry, props);
+  }
+
+  @Bean
+  MongoClientSettingsBuilderCustomizer mongoMetricsCustomizer(MongoMetricsListener listener) {
+    return builder ->
+        builder
+            .addCommandListener(listener)
+            .applyToConnectionPoolSettings(pool -> pool.addConnectionPoolListener(listener));
   }
 
   /**

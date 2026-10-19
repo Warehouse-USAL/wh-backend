@@ -2,7 +2,10 @@ package com.usal.whbackend.service.metrics;
 
 import com.usal.whbackend.api.metrics.MetricsQueryRequest;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
@@ -24,6 +27,16 @@ import org.springframework.web.server.ResponseStatusException;
  * The inner function collapses samples within a step bucket; the outer operator collapses series
  * down to exactly the requested {@code group_by} labels. The outer operator is always applied, so
  * incidental labels the exporter adds (such as {@code job}) never leak into the response.
+ *
+ * <p>A histogram reads one of its derived series instead: quantiles rate the bucket counters
+ * ({@link MetricDescriptor#bucketSeriesName()}, {@code <series>_bucket} unless the descriptor says
+ * otherwise) and keep {@code le} for {@code histogram_quantile}, rate and increase read {@code
+ * _count}:
+ *
+ * <pre>{@code
+ * histogram_quantile(<q>, sum by (le, <group_by>) (rate(<buckets>{<filters>}[<step>])))
+ * sum by (<group_by>) (<rate|increase>(<series>_count{<filters>}[<step>]))
+ * }</pre>
  */
 @Component
 public class MetricsQueryTranslator {
@@ -40,7 +53,11 @@ public class MetricsQueryTranslator {
     validateRange(request, step);
     validateDimensions(request, descriptor);
 
-    String selector = renderSelector(descriptor, request.filters());
+    if (descriptor.type() == MetricType.HISTOGRAM) {
+      return renderHistogram(request, descriptor, aggregation);
+    }
+
+    String selector = renderSelector(descriptor.seriesName(), request.filters());
     String inner =
         "%s(%s[%s])".formatted(aggregation.overTimeFunction(), selector, request.step().trim());
 
@@ -50,6 +67,24 @@ public class MetricsQueryTranslator {
             : " by (%s)".formatted(String.join(", ", request.groupBy()));
 
     return "%s%s(%s)".formatted(aggregation.operator(), grouping, inner);
+  }
+
+  private String renderHistogram(
+      MetricsQueryRequest request, MetricDescriptor descriptor, Aggregation aggregation) {
+    Optional<Double> quantile = aggregation.quantile();
+    String series =
+        quantile.isPresent() ? descriptor.bucketSeriesName() : descriptor.seriesName() + "_count";
+    String selector = renderSelector(series, request.filters());
+    String inner =
+        "%s(%s[%s])".formatted(aggregation.overTimeFunction(), selector, request.step().trim());
+
+    List<String> labels = new ArrayList<>();
+    quantile.ifPresent(q -> labels.add("le"));
+    labels.addAll(request.groupBy());
+    String grouping = labels.isEmpty() ? "" : " by (%s) ".formatted(String.join(", ", labels));
+    String summed = "%s%s(%s)".formatted(aggregation.operator(), grouping, inner);
+
+    return quantile.map(q -> "histogram_quantile(%s, %s)".formatted(q, summed)).orElse(summed);
   }
 
   private Aggregation validatedAggregation(
@@ -102,16 +137,16 @@ public class MetricsQueryTranslator {
     }
   }
 
-  private String renderSelector(MetricDescriptor descriptor, Map<String, String> filters) {
+  private String renderSelector(String seriesName, Map<String, String> filters) {
     if (filters.isEmpty()) {
-      return descriptor.seriesName();
+      return seriesName;
     }
     String matchers =
         filters.entrySet().stream()
             .sorted(Map.Entry.comparingByKey())
             .map(e -> "%s=\"%s\"".formatted(e.getKey(), escape(e.getValue())))
             .collect(Collectors.joining(", "));
-    return "%s{%s}".formatted(descriptor.seriesName(), matchers);
+    return "%s{%s}".formatted(seriesName, matchers);
   }
 
   /**

@@ -1,5 +1,9 @@
 server:
   port: 8080
+  # Registers Tomcat's MBeans; the tomcat.threads and tomcat.connections gauges read its ThreadPool.
+  tomcat:
+    mbeanregistry:
+      enabled: true
 
 spring:
   application:
@@ -10,6 +14,18 @@ spring:
     bootstrap-servers: localhost:9092
   jackson:
     property-naming-strategy: SNAKE_CASE
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 10MB
+  # Declared @Indexed / @CompoundIndex annotations are NOT created unless this is on — Spring Data
+  # MongoDB has defaulted it to false since 3.0. It was off here, so every declared index in the
+  # codebase (User.email, Product.sku, Zone, Line, Position, ...) existed only in the source, and
+  # every filtered query was a collection scan. Safe at this scale; if a collection ever grows
+  # large enough that a startup index build hurts, replace this with an explicit migration.
+  data:
+    mongodb:
+      auto-index-creation: ${SPRING_DATA_MONGODB_AUTO_INDEX_CREATION:true}
 
 jwt:
   secret: ${JWT_SECRET:dev-secret-change-in-prod-min-32-chars}
@@ -20,12 +36,6 @@ springdoc:
     path: /api-docs
   swagger-ui:
     path: /swagger-ui.html
-
-spring:
-  servlet:
-    multipart:
-      max-file-size: 5MB
-      max-request-size: 10MB
 
 minio:
   endpoint: http://localhost:9000
@@ -53,15 +63,14 @@ telemetry:
 victoriametrics:
   url: ${VICTORIAMETRICS_URL:http://victoriametrics:8428}
 
-# Declared @Indexed / @CompoundIndex annotations are NOT created unless this is on — Spring Data
-# MongoDB has defaulted it to false since 3.0. It was off here, so every declared index in the
-# codebase (User.email, Product.sku, Zone, Line, Position, ...) existed only in the source, and
-# every filtered query was a collection scan. Safe at this scale; if a collection ever grows large
-# enough that a startup index build hurts, replace this with an explicit migration.
-spring:
-  data:
-    mongodb:
-      auto-index-creation: ${SPRING_DATA_MONGODB_AUTO_INDEX_CREATION:true}
+# Backend console (SUPERADMIN only).
+console:
+  victorialogs-url: ${CONSOLE_VICTORIALOGS_URL:http://victorialogs:9428}
+  # Service-status probes (base URLs; a blank value reports the service as UNKNOWN).
+  bridge-url: ${CONSOLE_BRIDGE_URL:http://bridge:8081}
+  minio-url: ${CONSOLE_MINIO_URL:http://minio:9000}
+  victoriametrics-url: ${CONSOLE_VICTORIAMETRICS_URL:http://victoriametrics:8428}
+  collector-url: ${CONSOLE_COLLECTOR_URL:http://otel-collector:13133}
 
 infra:
   # Shared secret of the Infra bridge (X-Api-Key header on /infra/**). Blank rejects every call.

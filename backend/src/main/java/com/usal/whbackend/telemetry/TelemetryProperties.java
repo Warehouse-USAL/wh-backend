@@ -8,9 +8,11 @@ public class TelemetryProperties {
 
   private boolean enabled = false;
   private String endpoint = "http://otel-collector:4318/v1/metrics";
+  private String logsEndpoint = "http://otel-collector:4318/v1/logs";
   private String serviceName = "wh-backend";
   private long exportIntervalMs = 10000L;
   private long exportTimeoutMs = 5000L;
+  private long mongoSlowMs = 100L;
 
   public boolean isEnabled() {
     return enabled;
@@ -26,6 +28,14 @@ public class TelemetryProperties {
 
   public void setEndpoint(String endpoint) {
     this.endpoint = endpoint;
+  }
+
+  public String getLogsEndpoint() {
+    return logsEndpoint;
+  }
+
+  public void setLogsEndpoint(String logsEndpoint) {
+    this.logsEndpoint = logsEndpoint;
   }
 
   public String getServiceName() {
@@ -50,5 +60,13 @@ public class TelemetryProperties {
 
   public void setExportTimeoutMs(long exportTimeoutMs) {
     this.exportTimeoutMs = exportTimeoutMs;
+  }
+
+  public long getMongoSlowMs() {
+    return mongoSlowMs;
+  }
+
+  public void setMongoSlowMs(long mongoSlowMs) {
+    this.mongoSlowMs = mongoSlowMs;
   }
 }

@@ -2,7 +2,10 @@ package com.usal.whbackend.api.file;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -48,6 +51,47 @@ class FileControllerTest {
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.url").value("/api/v1/files/images/uuid.jpg"))
         .andExpect(jsonPath("$.key").value("images/uuid.jpg"));
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void upload_withoutPath_storesUnderImages() throws Exception {
+    when(storageService.upload(any(), anyString())).thenReturn("/api/v1/files/images/uuid.jpg");
+
+    mockMvc.perform(multipart("/api/v1/files/upload").file(jpeg())).andExpect(status().isOk());
+
+    verify(storageService).upload(any(), eq("images"));
+  }
+
+  @Test
+  @WithMockUser(roles = "SUPERADMIN")
+  void upload_withPath_storesUnderThatPath() throws Exception {
+    when(storageService.upload(any(), anyString())).thenReturn("/api/v1/files/products/uuid.jpg");
+
+    mockMvc
+        .perform(multipart("/api/v1/files/upload").file(jpeg()).param("path", "products"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.key").value("products/uuid.jpg"));
+
+    verify(storageService).upload(any(), eq("products"));
+  }
+
+  @Test
+  @WithMockUser(roles = "SUPERADMIN")
+  void upload_withUnsafePath_returnsBadRequestAndStoresNothing() throws Exception {
+    for (String path :
+        new String[] {"../etc", "a/b", "my.dir", "", "sp ace", "a".repeat(65), "a".repeat(5000)}) {
+      mockMvc
+          .perform(multipart("/api/v1/files/upload").file(jpeg()).param("path", path))
+          .andExpect(status().isBadRequest())
+          .andExpect(jsonPath("$.error.code").value("BAD_REQUEST"));
+    }
+    verifyNoInteractions(storageService);
+  }
+
+  private static MockMultipartFile jpeg() {
+    return new MockMultipartFile(
+        "file", "test.jpg", MediaType.IMAGE_JPEG_VALUE, "fake-image".getBytes());
   }
 
   @Test

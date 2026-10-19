@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
@@ -15,9 +14,11 @@ import com.usal.whbackend.domain.Address;
 import com.usal.whbackend.domain.Order;
 import com.usal.whbackend.domain.OrderItem;
 import com.usal.whbackend.domain.OrderStatus;
+import com.usal.whbackend.telemetry.NoOpTelemetryAdapter;
 import java.time.Instant;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import org.apache.kafka.clients.producer.ProducerRecord;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -44,11 +45,23 @@ class OrderRepositoryTest {
 
   @BeforeEach
   void setUp() {
-    orderRepository = new OrderRepository(mongo, kafka, mongoTemplate, new ObjectMapper());
+    orderRepository =
+        new OrderRepository(
+            mongo, kafka, mongoTemplate, new ObjectMapper(), new NoOpTelemetryAdapter());
     @SuppressWarnings("unchecked")
     CompletableFuture<SendResult<String, String>> future = CompletableFuture.completedFuture(null);
-    lenient().when(kafka.send(anyString(), anyString())).thenReturn(future);
-    lenient().when(kafka.send(anyString(), anyString(), anyString())).thenReturn(future);
+    lenient().when(kafka.send(any(ProducerRecord.class))).thenReturn(future);
+  }
+
+  /** The single record published, checked to go to {@code topic} under {@code key}. */
+  @SuppressWarnings("unchecked")
+  private String sentValue(String topic, String key) {
+    ArgumentCaptor<ProducerRecord<String, String>> record =
+        ArgumentCaptor.forClass(ProducerRecord.class);
+    verify(kafka).send(record.capture());
+    assertEquals(topic, record.getValue().topic());
+    assertEquals(key, record.getValue().key());
+    return record.getValue().value();
   }
 
   @Test
@@ -65,9 +78,7 @@ class OrderRepositoryTest {
     verify(mongo).save(order);
     // Kafka publish is async — wait briefly for the background thread to fire
     Thread.sleep(100);
-    ArgumentCaptor<String> payload = ArgumentCaptor.forClass(String.class);
-    verify(kafka).send(eq("orders"), eq("ord-1"), payload.capture());
-    JsonNode node = new ObjectMapper().readTree(payload.getValue());
+    JsonNode node = new ObjectMapper().readTree(sentValue("orders", "ord-1"));
     assertEquals("ord-1", node.get("order_id").asString());
     assertEquals("pending", node.get("status").asString());
     assertEquals("AREA-A", node.get("destination").asString());
@@ -90,10 +101,7 @@ class OrderRepositoryTest {
     orderRepository.publishCompleted(order);
 
     Thread.sleep(100);
-    ArgumentCaptor<String> json = ArgumentCaptor.forClass(String.class);
-    verify(kafka).send(eq("order.completed"), json.capture());
-    ObjectMapper mapper = new ObjectMapper();
-    JsonNode node = mapper.readTree(json.getValue());
+    JsonNode node = new ObjectMapper().readTree(sentValue("order.completed", null));
     assertEquals("o-0421", node.get("orderId").asString());
     assertEquals("u-operator-3", node.get("userId").asString());
     assertEquals("Sucursal Pocitos", node.get("destinationArea").asString());
@@ -113,9 +121,7 @@ class OrderRepositoryTest {
     orderRepository.publishCompleted(order);
 
     Thread.sleep(100);
-    ArgumentCaptor<String> json = ArgumentCaptor.forClass(String.class);
-    verify(kafka).send(eq("order.completed"), json.capture());
-    JsonNode node = new ObjectMapper().readTree(json.getValue());
+    JsonNode node = new ObjectMapper().readTree(sentValue("order.completed", null));
     assertEquals(0, node.get("items").size());
     assertTrue(node.get("completedAt").isNull());
   }
@@ -134,9 +140,7 @@ class OrderRepositoryTest {
     verify(mongo).save(order);
     // Kafka publish is async — wait briefly for the background thread to fire
     Thread.sleep(100);
-    ArgumentCaptor<String> payload = ArgumentCaptor.forClass(String.class);
-    verify(kafka).send(eq("orders"), eq("ord-1"), payload.capture());
-    JsonNode node = new ObjectMapper().readTree(payload.getValue());
+    JsonNode node = new ObjectMapper().readTree(sentValue("orders", "ord-1"));
     assertEquals("cancelled", node.get("status").asString());
     assertEquals("WH|A-L1-P01", node.get("stops").get(0).asString());
   }
@@ -198,7 +202,7 @@ class OrderRepositoryTest {
     assertSame(order, orderRepository.update(order));
 
     Thread.sleep(50);
-    verify(kafka, org.mockito.Mockito.never()).send(anyString(), anyString());
+    verify(kafka, org.mockito.Mockito.never()).send(any(ProducerRecord.class));
   }
 
   @Test
@@ -233,9 +237,7 @@ class OrderRepositoryTest {
     orderRepository.save(order);
 
     Thread.sleep(100);
-    ArgumentCaptor<String> payload = ArgumentCaptor.forClass(String.class);
-    verify(kafka).send(eq("orders"), eq("ord-1"), payload.capture());
-    JsonNode node = new ObjectMapper().readTree(payload.getValue());
+    JsonNode node = new ObjectMapper().readTree(sentValue("orders", "ord-1"));
     assertEquals(
         java.util.Set.of("order_id", "status", "stops", "destination", "published_at"),
         new java.util.HashSet<>(node.propertyNames()));
@@ -250,16 +252,14 @@ class OrderRepositoryTest {
     orderRepository.save(order);
 
     Thread.sleep(100);
-    ArgumentCaptor<String> payload = ArgumentCaptor.forClass(String.class);
-    verify(kafka).send(eq("orders"), eq("ord-1"), payload.capture());
-    assertTrue(payload.getValue().contains("\"stops\":[]"));
+    assertTrue(sentValue("orders", "ord-1").contains("\"stops\":[]"));
   }
 
   @Test
   void save_kafkaFailure_isLoggedAndDoesNotPropagate() throws Exception {
     CompletableFuture<SendResult<String, String>> failed = new CompletableFuture<>();
     failed.completeExceptionally(new IllegalStateException("broker down"));
-    when(kafka.send(anyString(), anyString(), anyString())).thenReturn(failed);
+    when(kafka.send(any(ProducerRecord.class))).thenReturn(failed);
 
     Order order = new Order();
     order.setId("ord-1");
@@ -269,7 +269,7 @@ class OrderRepositoryTest {
     orderRepository.save(order);
 
     Thread.sleep(100);
-    verify(kafka).send(eq("orders"), eq("ord-1"), anyString());
+    sentValue("orders", "ord-1");
   }
 
   @Test
@@ -279,7 +279,8 @@ class OrderRepositoryTest {
         .thenThrow(
             new tools.jackson.databind.exc.InvalidDefinitionException(
                 (tools.jackson.core.JsonGenerator) null, "boom", null) {});
-    OrderRepository repo = new OrderRepository(mongo, kafka, mongoTemplate, failing);
+    OrderRepository repo =
+        new OrderRepository(mongo, kafka, mongoTemplate, failing, new NoOpTelemetryAdapter());
     Order order = new Order();
     order.setId("ord-1");
     order.setItems(List.of());

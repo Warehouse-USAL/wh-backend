@@ -63,4 +63,14 @@ class JwtServiceTest {
     String tokenFromOtherService = otherService.generateToken(user);
     assertThat(jwtService.isTokenValid(tokenFromOtherService)).isFalse();
   }
+
+  @Test
+  void extractExpiration_isIssuedAtPlusTheConfiguredLifetime() {
+    JwtService shortLived = new JwtService("test-secret-key-for-unit-tests-min32ch", 60_000L);
+    java.time.Instant before = java.time.Instant.now().minusSeconds(1);
+
+    java.time.Instant expiry = shortLived.extractExpiration(shortLived.generateToken(user));
+
+    assertThat(expiry).isBetween(before.plusSeconds(60), java.time.Instant.now().plusSeconds(61));
+  }
 }

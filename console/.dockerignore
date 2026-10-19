@@ -1,0 +1,9 @@
+node_modules
+dist
+coverage
+*.local
+*.tsbuildinfo
+Dockerfile
+.dockerignore
+nginx.dev-tools.conf
+README.md

@@ -4,10 +4,18 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"time"
 
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/backend"
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/classify"
+	"github.com/Warehouse-USAL/wh-backend/bridge/internal/requestid"
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/retry"
+	"github.com/Warehouse-USAL/wh-backend/bridge/internal/telemetry"
+)
+
+const (
+	flowOrders   = "orders_in"
+	flowVehicles = "vehicles_in"
 )
 
 type runner struct {
@@ -15,6 +23,8 @@ type runner struct {
 	client backend.Client
 	policy retry.Policy
 	logger *slog.Logger
+	rec    telemetry.Recorder
+	ids    *requestid.Store
 }
 
 func (r *runner) Run(
@@ -48,50 +58,105 @@ func (r *runner) handle(
 	ctx context.Context,
 	delivery Delivery,
 ) {
+	start := time.Now()
+	flow, result := r.process(ctx, delivery)
+	r.rec.Processing(flow, result, time.Since(start))
+}
+
+func (r *runner) process(
+	ctx context.Context,
+	delivery Delivery,
+) (string, string) {
 	req, err := classify.Classify(delivery.Body())
 	if err != nil {
-		r.logger.Error("dropping unclassifiable message", "error", err, "payload", string(delivery.Body()))
+		r.logger.Error("dropping unclassifiable message", "reason", unclassifiableReason(err), "payload_bytes", len(delivery.Body()))
+		r.rec.Message(flowVehicles, "dropped")
 		r.ack(delivery)
-		return
+		return flowVehicles, "dropped"
 	}
-	err = retry.Retry(ctx, r.policy, func(
+	requestID := r.requestIDOf(req)
+	policy := r.policy
+	policy.OnRetry = r.retrying(flowOf(req), requestID)
+	err = retry.Retry(requestid.With(ctx, requestID), policy, func(
 		ctx context.Context,
 	) error {
 		return r.send(ctx, req)
 	})
-	r.settle(delivery, req, err)
+	return flowOf(req), r.settle(delivery, req, requestID, err)
+}
+
+func (r *runner) requestIDOf(
+	req classify.Request,
+) string {
+	if req.OrderID == "" {
+		return ""
+	}
+	return r.ids.Lookup(req.OrderID)
 }
 
 func (r *runner) send(
 	ctx context.Context,
 	req classify.Request,
 ) error {
+	start := time.Now()
 	err := r.client.Send(ctx, req)
+	r.rec.Callback(flowOf(req), time.Since(start))
 	if errors.Is(err, backend.ErrRejected) {
 		return retry.Permanent(err)
 	}
 	return err
 }
 
+func (r *runner) retrying(
+	flow string,
+	requestID string,
+) func(error, time.Duration) {
+	return func(
+		err error,
+		delay time.Duration,
+	) {
+		r.logRetry(requestID, err, delay)
+		r.rec.Message(flow, "retry")
+	}
+}
+
+func (r *runner) logRetry(
+	requestID string,
+	err error,
+	delay time.Duration,
+) {
+	var unavailable *backend.UnavailableError
+	if errors.As(err, &unavailable) {
+		r.logger.Warn("backend unavailable, retrying", requestid.Attr(requestID), "status", unavailable.Status, "retry_in", delay)
+		return
+	}
+	r.logger.Warn("backend unavailable, retrying", requestid.Attr(requestID), "error", err, "retry_in", delay)
+}
+
 func (r *runner) settle(
 	delivery Delivery,
 	req classify.Request,
+	requestID string,
 	err error,
-) {
+) string {
 	if err == nil {
-		r.logger.Info("delivered to backend", "kind", req.Kind, "path", req.Path)
+		r.logger.Info("delivered to backend", "kind", req.Kind, "path", req.Path, requestid.Attr(requestID))
+		r.rec.Message(flowOf(req), "ok")
 		r.ack(delivery)
-		return
+		return "ok"
 	}
 	if errors.Is(err, backend.ErrRejected) {
-		r.logger.Warn("backend rejected message, dropping", "kind", req.Kind, "path", req.Path, "error", err, "payload", string(req.Body))
+		r.logger.Warn("backend rejected message, dropping", "kind", req.Kind, "path", req.Path, requestid.Attr(requestID), "status", rejectedStatus(err), "body_bytes", len(req.Body))
+		r.rec.Message(flowOf(req), "dropped")
 		r.ack(delivery)
-		return
+		return "dropped"
 	}
-	r.logger.Info("stopping with a message in flight, requeueing", "kind", req.Kind, "path", req.Path)
+	r.logger.Info("stopping with a message in flight, requeueing", "kind", req.Kind, "path", req.Path, requestid.Attr(requestID))
+	r.rec.Message(flowOf(req), "error")
 	if requeueErr := delivery.Requeue(); requeueErr != nil {
 		r.logger.Error("requeue failed", "error", requeueErr)
 	}
+	return "error"
 }
 
 func (r *runner) ack(
@@ -100,4 +165,36 @@ func (r *runner) ack(
 	if err := delivery.Ack(); err != nil {
 		r.logger.Error("ack failed", "error", err)
 	}
+}
+
+func flowOf(
+	req classify.Request,
+) string {
+	if req.Kind == classify.KindOrderStatus {
+		return flowOrders
+	}
+	return flowVehicles
+}
+
+// unclassifiableReason names why a message could not be classified, without
+// echoing the message: decoder errors quote parts of their input.
+func unclassifiableReason(
+	err error,
+) string {
+	if errors.Is(err, classify.ErrUnclassifiable) {
+		return "no order_id or vehicle_id"
+	}
+	return "malformed message"
+}
+
+// rejectedStatus returns the HTTP status of a backend rejection, whose text
+// carries the response body and is therefore not logged.
+func rejectedStatus(
+	err error,
+) int {
+	var rejected *backend.RejectedError
+	if errors.As(err, &rejected) {
+		return rejected.Status
+	}
+	return 0
 }

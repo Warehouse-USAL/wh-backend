@@ -1,17 +1,22 @@
 package com.usal.whbackend.repository;
 
+import com.usal.whbackend.config.RequestIdFilter;
 import com.usal.whbackend.domain.Order;
 import com.usal.whbackend.domain.OrderStatus;
 import com.usal.whbackend.repository.kafka.OrderCompletedMessage;
 import com.usal.whbackend.repository.kafka.OrderMessage;
+import com.usal.whbackend.telemetry.TelemetryPort;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Executors;
+import org.apache.kafka.clients.producer.ProducerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
@@ -27,6 +32,9 @@ import tools.jackson.databind.ObjectMapper;
 public class OrderRepository {
 
   private static final Logger log = LoggerFactory.getLogger(OrderRepository.class);
+
+  /** Carries the request id to the bridge, so one id follows an order across the services. */
+  static final String REQUEST_ID_HEADER = "x-request-id";
 
   /**
    * Publishes off the request thread (send() blocks while the broker is unreachable) on a dedicated
@@ -46,16 +54,19 @@ public class OrderRepository {
   private final KafkaTemplate<String, String> kafka;
   private final MongoTemplate mongoTemplate;
   private final ObjectMapper objectMapper;
+  private final TelemetryPort telemetry;
 
   public OrderRepository(
       OrderMongoRepository mongo,
       KafkaTemplate<String, String> kafka,
       MongoTemplate mongoTemplate,
-      ObjectMapper objectMapper) {
+      ObjectMapper objectMapper,
+      TelemetryPort telemetry) {
     this.mongo = mongo;
     this.kafka = kafka;
     this.mongoTemplate = mongoTemplate;
     this.objectMapper = objectMapper;
+    this.telemetry = telemetry;
   }
 
   public Order save(Order order) {
@@ -146,28 +157,72 @@ public class OrderRepository {
   private void sendAsync(String topic, String key, Object payload) {
     try {
       String json = objectMapper.writeValueAsString(payload);
+      // The MDC is per thread: read the id here, on the request thread, not on the publisher.
+      String requestId = MDC.get(RequestIdFilter.MDC_KEY);
       CompletableFuture.runAsync(
-              () ->
-                  (key == null ? kafka.send(topic, json) : kafka.send(topic, key, json))
-                      .whenComplete(
-                          (result, ex) -> {
-                            if (ex != null) {
-                              log.error(
-                                  "Failed to publish to Kafka topic {}: {}",
-                                  topic,
-                                  ex.getMessage());
-                            }
-                          }),
+              () -> {
+                long start = System.nanoTime();
+                kafka
+                    .send(record(topic, key, json, requestId))
+                    .whenComplete(
+                        (result, ex) -> {
+                          double elapsedMs = (System.nanoTime() - start) / 1_000_000.0;
+                          telemetry.recordKafkaPublish(topic, ex == null, elapsedMs);
+                          telemetry.recordKafkaMessage(topic, "out", ex == null);
+                          long ms = (long) elapsedMs;
+                          withRequestId(
+                              requestId,
+                              () -> {
+                                if (ex == null) {
+                                  log.info("kafka publish {} ok {}ms", topic, ms);
+                                } else {
+                                  log.error(
+                                      "kafka publish {} failed {}ms: {}",
+                                      topic,
+                                      ms,
+                                      ex.getMessage());
+                                }
+                              });
+                        });
+              },
               KAFKA_PUBLISHER)
           // A throw from send() itself (e.g. the producer cannot be built) would otherwise vanish
           // inside the discarded future.
           .exceptionally(
               ex -> {
-                log.error("Failed to publish to Kafka topic {}", topic, ex);
+                telemetry.recordKafkaMessage(topic, "out", false);
+                withRequestId(requestId, () -> log.error("kafka publish {} failed", topic, ex));
                 return null;
               });
     } catch (JacksonException e) {
       throw new RuntimeException("Failed to serialize Kafka message for topic " + topic, e);
     }
+  }
+
+  /**
+   * Logs on the publisher or producer thread under the request id captured on the request thread,
+   * so the line joins that request's trail.
+   */
+  private static void withRequestId(String requestId, Runnable line) {
+    if (!RequestIdFilter.isSafe(requestId)) {
+      line.run();
+      return;
+    }
+    MDC.put(RequestIdFilter.MDC_KEY, requestId);
+    try {
+      line.run();
+    } finally {
+      MDC.remove(RequestIdFilter.MDC_KEY);
+    }
+  }
+
+  /** Same record {@code send(topic, [key,] value)} builds, plus the request id when it is safe. */
+  private static ProducerRecord<String, String> record(
+      String topic, String key, String json, String requestId) {
+    ProducerRecord<String, String> record = new ProducerRecord<>(topic, key, json);
+    if (RequestIdFilter.isSafe(requestId)) {
+      record.headers().add(REQUEST_ID_HEADER, requestId.getBytes(StandardCharsets.UTF_8));
+    }
+    return record;
   }
 }

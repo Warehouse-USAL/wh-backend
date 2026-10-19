@@ -37,6 +37,10 @@ The stack will be available at:
 | Health check | http://localhost:8080/actuator/health |
 | MongoDB Express | http://localhost:8081 |
 | Redpanda Console | http://localhost:8082 |
+| Backend console (SUPERADMIN) | http://localhost:8083/console/ |
+
+The backend console, its telemetry services, environment variables, production rollout and
+rollback are documented in [docs/CONSOLE.md](docs/CONSOLE.md).
 
 ---
 
@@ -102,10 +106,21 @@ feature/* ──► develop ──► beta/* ──► master
 | Code formatting | Spotless (Google Java Format) | Must pass — run `make format-fix` to auto-fix |
 | Static analysis | Checkstyle + SpotBugs | Zero violations |
 | Tests | JUnit 5 + Mockito | All tests must pass |
-| Coverage | JaCoCo | Minimum **80%** instruction coverage |
+| Coverage | JaCoCo | Minimum **95%** instruction coverage |
 | Architecture | ArchUnit | Services must not depend on controllers; repositories must not depend on services or controllers |
+| Bridge coverage | `scripts/go-coverage.sh` | Minimum **90%** statements over `./internal/...` (without `internal/fakeinfra`) |
+| Console coverage | Vitest | Minimum **90%** (thresholds in `console/vite.config.ts`) |
+| Diff coverage | diff-cover | Minimum **90%** of the changed lines, per component touched |
 
 Draft PRs are skipped by CI until marked ready for review.
+
+CI is path-aware: `scripts/ci-changes.sh` decides which components the PR touches (`backend/`,
+`bridge/` + `e2e/`, `console/`, and the platform files: compose, `.env.example`, `config/`,
+workflows, `scripts/`) and only their jobs run; a change to `ci.yml`, `scripts/ci-changes.sh` or
+the `Makefile` runs everything. The bridge's total and diff coverage measure `./internal/...` only
+(`cmd/` is not counted). The final `ci-ok` job passes when every job passed or was skipped, so **`ci-ok` is the
+only required status check** in the branch protection of `develop` and `master` (a repository
+setting: requiring the per-component jobs would block PRs that skip them).
 
 ---
 

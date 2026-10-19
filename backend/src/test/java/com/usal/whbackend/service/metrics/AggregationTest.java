@@ -27,6 +27,17 @@ class AggregationTest {
   }
 
   @Test
+  void quantilesCarryTheirFractionAndAreNotCounterDeltas() {
+    assertThat(Aggregation.P50.quantile()).contains(0.5);
+    assertThat(Aggregation.P95.quantile()).contains(0.95);
+    assertThat(Aggregation.P99.quantile()).contains(0.99);
+    assertThat(Aggregation.P95.isCounterDelta()).isFalse();
+    assertThat(Aggregation.AVG.quantile()).isEmpty();
+    assertThat(Aggregation.RATE.quantile()).isEmpty();
+    assertThat(Aggregation.parse("p95")).contains(Aggregation.P95);
+  }
+
+  @Test
   void parsesCaseInsensitivelyAndNeverThrows() {
     assertThat(Aggregation.parse("increase")).contains(Aggregation.INCREASE);
     assertThat(Aggregation.parse("  RaTe ")).contains(Aggregation.RATE);

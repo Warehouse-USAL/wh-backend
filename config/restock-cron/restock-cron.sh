@@ -21,6 +21,11 @@
 #   RESTOCK_RUN_ON_START     run once at container start (default true)
 #   RESTOCK_STARTUP_RETRIES  attempts (10s apart) for the first run on transient errors (default 60)
 #   RESTOCK_READY_TIMEOUT    seconds to wait for backend readiness before applying (default 900)
+#   RESTOCK_OTLP_URL         OTLP/HTTP metrics URL for the job.run gauge; blank = no push
+#
+# After each run (the startup run counts once, however many attempts it took) two job.run gauge
+# points go to the collector: field=duration_ms and field=suggestions (rows in the apply response,
+# 0 on failure), both tagged job=restock and result=ok|error. A failed push never fails the run.
 # ---------------------------------------------------------------------------
 set -eu
 
@@ -56,7 +61,32 @@ wait_ready() {
   fi
 }
 
+# Milliseconds from a monotonic clock (busybox date has no %N).
+now_ms() {
+  awk '{ printf "%d", $1 * 1000 }' /proc/uptime 2>/dev/null || echo $(($(date +%s) * 1000))
+}
+
+# POSTs one job.run gauge point. No service.name resource attribute on purpose: the remote-write
+# exporter would turn it into the job label and overwrite job=restock. Best effort, a few seconds
+# at most, never an error.
+push_point() {
+  [ -n "${RESTOCK_OTLP_URL:-}" ] || return 0
+  point=$(printf '{"resourceMetrics":[{"scopeMetrics":[{"scope":{"name":"restock-cron"},"metrics":[{"name":"job.run","gauge":{"dataPoints":[{"timeUnixNano":"%s000000000","asInt":"%s","attributes":[{"key":"job","value":{"stringValue":"restock"}},{"key":"result","value":{"stringValue":"%s"}},{"key":"field","value":{"stringValue":"%s"}}]}]}}]}]}]}' \
+    "$(date +%s)" "$3" "$1" "$2")
+  curl -s -o /dev/null --connect-timeout 2 -m 5 -X POST "$RESTOCK_OTLP_URL" \
+    -H 'Content-Type: application/json' -d "$point" || log "job.run push failed (ignored)"
+}
+
+# Reports a finished run: $1 = run_once status, $2 = its start (now_ms).
+report_run() {
+  result=ok
+  [ "$1" -eq 0 ] || { result=error; suggestions=0; }
+  push_point "$result" duration_ms "$(($(now_ms) - $2))" || true
+  push_point "$result" suggestions "${suggestions:-0}" || true
+}
+
 run_once() {
+  suggestions=0
   [ -f "$ENV_FILE" ] && . "$ENV_FILE"
 
   wait_ready || return 1
@@ -89,6 +119,7 @@ run_once() {
 
   products=$(printf '%s' "$payload" | grep -o '"product_id"' | wc -l | tr -d ' ')
   to_restock=$(printf '%s' "$payload" | grep -o '"should_restock":true' | wc -l | tr -d ' ')
+  suggestions=$products
   log "applied with params $body — $products products updated, $to_restock to restock"
 }
 
@@ -101,6 +132,8 @@ case "${1:-run}" in
     if [ "${RESTOCK_RUN_ON_START:-true}" = "true" ]; then
       attempt=1
       retries=${RESTOCK_STARTUP_RETRIES:-60}
+      # duration_ms of the startup run spans every attempt, retry waits included.
+      started=$(now_ms)
       while :; do
         rc=0
         run_once || rc=$?
@@ -116,6 +149,7 @@ case "${1:-run}" in
         attempt=$((attempt + 1))
         sleep 10
       done
+      report_run "$rc" "$started"
     fi
 
     mkdir -p /etc/crontabs
@@ -125,7 +159,11 @@ case "${1:-run}" in
     exec crond -f -l 8
     ;;
   run)
-    run_once
+    rc=0
+    started=$(now_ms)
+    run_once || rc=$?
+    report_run "$rc" "$started"
+    exit "$rc"
     ;;
   *)
     echo "usage: $0 entrypoint|run" >&2

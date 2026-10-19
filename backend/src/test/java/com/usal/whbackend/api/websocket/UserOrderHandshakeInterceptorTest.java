@@ -26,10 +26,11 @@ class UserOrderHandshakeInterceptorTest {
   @Mock ServerHttpResponse response;
 
   UserOrderHandshakeInterceptor interceptor;
+  WsActivity activity = mock(WsActivity.class);
 
   @BeforeEach
   void setUp() {
-    interceptor = new UserOrderHandshakeInterceptor(jwtService);
+    interceptor = new UserOrderHandshakeInterceptor(jwtService, activity);
   }
 
   @Test
@@ -52,6 +53,22 @@ class UserOrderHandshakeInterceptorTest {
     Map<String, Object> attrs = new HashMap<>();
     assertFalse(interceptor.beforeHandshake(request, response, handler, attrs));
     verify(response).setStatusCode(HttpStatus.FORBIDDEN);
+  }
+
+  @Test
+  void beforeHandshake_rejectionsAreRecordedWithoutTheTokenOrUserId() throws Exception {
+    when(request.getURI()).thenReturn(URI.create("/ws/v1/orders/usr-2?token=valid-token"));
+    when(jwtService.isTokenValid("valid-token")).thenReturn(true);
+    when(jwtService.extractUserId("valid-token")).thenReturn("usr-1");
+    interceptor.beforeHandshake(request, response, handler, new HashMap<>());
+    verify(activity)
+        .rejected(
+            eq(WsActivity.USER_ORDERS),
+            argThat(d -> !d.contains("valid-token") && !d.contains("usr-")));
+
+    when(request.getURI()).thenReturn(URI.create("/ws/v1/orders/usr-1"));
+    interceptor.beforeHandshake(request, response, handler, new HashMap<>());
+    verify(activity, times(2)).rejected(eq(WsActivity.USER_ORDERS), anyString());
   }
 
   @Test

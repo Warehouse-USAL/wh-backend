@@ -1,0 +1,21 @@
+# CI-only addition to scripts/console-smoke.compose.yml (SMOKE_EXTRA_COMPOSE in the console-smoke
+# job): BuildKit layer cache for the three images the smoke builds, kept in the GitHub Actions
+# cache per image. Needs a docker-container builder and the Actions runtime token
+# (docker/setup-buildx-action + crazy-max/ghaction-github-runtime).
+services:
+  backend:
+    build:
+      context: ./backend
+      # Each spec must be one quoted string: an unquoted flow sequence splits on the commas.
+      cache_from: ["type=gha,scope=smoke-backend"]
+      cache_to: ["type=gha,scope=smoke-backend,mode=max"]
+  bridge:
+    build:
+      context: ./bridge
+      cache_from: ["type=gha,scope=smoke-bridge"]
+      cache_to: ["type=gha,scope=smoke-bridge,mode=max"]
+  console:
+    build:
+      context: ./console
+      cache_from: ["type=gha,scope=smoke-console"]
+      cache_to: ["type=gha,scope=smoke-console,mode=max"]

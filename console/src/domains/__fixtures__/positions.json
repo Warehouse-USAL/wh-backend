@@ -1,0 +1,30 @@
+{
+  "positions": [
+    {
+      "id_position": "pos-l-B-1-P01",
+      "id_line": "l-B-1",
+      "id_zone": "z-B",
+      "position_name": "P01",
+      "is_active": true,
+      "maximum_capacity": 500,
+      "size_stock_to_save": "CAJA",
+      "product_id": "p-TEC-001",
+      "qr_code": "WH|B-L1-P01",
+      "current_stock": 30,
+      "created_at": "2024-10-09T19:45:36.357Z"
+    },
+    {
+      "id_position": "pos-l-B-1-P02",
+      "id_line": "l-B-1",
+      "id_zone": "z-B",
+      "position_name": "P02",
+      "is_active": true,
+      "maximum_capacity": 500,
+      "size_stock_to_save": "MEDIO_PALLET",
+      "product_id": "p-TEC-002",
+      "qr_code": "WH|B-L1-P02",
+      "current_stock": 144,
+      "created_at": "2024-10-09T20:45:36.357Z"
+    }
+  ]
+}

@@ -21,6 +21,7 @@ public class OrderWebSocketHandler extends TextWebSocketHandler implements Order
 
   private static final Logger log = LoggerFactory.getLogger(OrderWebSocketHandler.class);
   private final Map<String, WebSocketSession> sessions = new ConcurrentHashMap<>();
+  private final WsActivity wsActivity;
   private final ObjectMapper objectMapper =
       new ObjectMapper()
           .registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule())
@@ -28,33 +29,48 @@ public class OrderWebSocketHandler extends TextWebSocketHandler implements Order
           .setPropertyNamingStrategy(
               com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE);
 
+  public OrderWebSocketHandler(WsActivity wsActivity) {
+    this.wsActivity = wsActivity;
+  }
+
   @Override
   public void afterConnectionEstablished(WebSocketSession session) {
     sessions.put(session.getId(), new ConcurrentWebSocketSessionDecorator(session, 1000, 65536));
+    wsActivity.connected(WsActivity.ORDERS, "session opened");
   }
 
   @Override
   public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
-    sessions.remove(session.getId());
+    dropSession(session, "session closed");
   }
 
   @Override
   public void handleTransportError(WebSocketSession session, Throwable exception) {
-    sessions.remove(session.getId());
+    dropSession(session, "session closed");
+  }
+
+  private void dropSession(WebSocketSession session, String detail) {
+    if (sessions.remove(session.getId()) != null) {
+      wsActivity.closed(WsActivity.ORDERS, detail);
+    }
   }
 
   @Override
   public void broadcastOrderUpdate(Order order) {
-    broadcast(buildOrderEvent(order));
+    broadcast(
+        buildOrderEvent(order), "order.updated " + order.getId() + " status " + order.getStatus());
   }
 
-  protected void broadcast(String json) {
+  protected void broadcast(String json, String summary) {
     for (WebSocketSession session : sessions.values()) {
       if (session.isOpen()) {
         try {
           session.sendMessage(new TextMessage(json));
+          wsActivity.pushed(WsActivity.ORDERS, summary);
         } catch (IOException e) {
           log.warn("Failed to send order event to session {}: {}", session.getId(), e.getMessage());
+          // A failed write leaves the session unreliable: stop pushing to it and count it closed.
+          dropSession(session, "send failed");
         }
       }
     }

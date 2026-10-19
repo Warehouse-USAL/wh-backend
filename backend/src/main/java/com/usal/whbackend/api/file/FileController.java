@@ -3,8 +3,10 @@ package com.usal.whbackend.api.file;
 import com.usal.whbackend.service.storage.MinioStorageService;
 import com.usal.whbackend.service.storage.StorageService;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import java.util.Map;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.CacheControl;
 import org.springframework.http.MediaType;
@@ -37,13 +39,43 @@ public class FileController {
   @Operation(
       summary = "Upload an image",
       description =
-          "Returns the URL and key. Requires ADMIN_WAREHOUSE, ADMIN_SALES or SUPERADMIN role.")
+          "Stores the file as <path>/<uuid>.<ext> and returns the URL and key. The optional"
+              + " `path` part is one segment of 1 to 64 letters, digits, '_' or '-' (default"
+              + " `images`); anything else is a 400 BAD_REQUEST."
+              + " Requires ADMIN_WAREHOUSE, ADMIN_SALES or SUPERADMIN role.")
   @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_WAREHOUSE', 'ADMIN_SALES')")
   @PostMapping("/upload")
-  public ResponseEntity<FileUploadResponse> upload(@RequestParam("file") MultipartFile file) {
-    String url = storageService.upload(file, IMAGES_PATH);
+  public ResponseEntity<FileUploadResponse> upload(
+      @RequestParam("file") MultipartFile file,
+      @Parameter(
+              description = "Folder for the file: 1 to 64 of [A-Za-z0-9_-]; defaults to images",
+              schema =
+                  @io.swagger.v3.oas.annotations.media.Schema(
+                      pattern = "^[A-Za-z0-9_-]{1,64}$",
+                      maxLength = 64))
+          @RequestParam(value = "path", required = false)
+          String path) {
+    String folder = path == null ? IMAGES_PATH : MinioStorageService.uploadPath(path);
+    String url = storageService.upload(file, folder);
     String key = MinioStorageService.extractKey(url, REQUEST_BASE);
     return ResponseEntity.ok(new FileUploadResponse(url, key));
+  }
+
+  @Operation(
+      summary = "List stored files",
+      description =
+          "SUPERADMIN only. Sorted by path then filename; capped at the first 1000 objects,"
+              + " with `truncated: true` when the bucket holds more.")
+  @PreAuthorize("hasRole('SUPERADMIN')")
+  @GetMapping
+  public ResponseEntity<Map<String, Object>> list() {
+    StorageService.Listing listing = storageService.list();
+    return ResponseEntity.ok(
+        Map.of(
+            "files",
+            listing.files().stream().map(StoredFileResponse::from).toList(),
+            "truncated",
+            listing.truncated()));
   }
 
   @Operation(

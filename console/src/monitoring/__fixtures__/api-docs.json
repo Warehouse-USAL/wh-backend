@@ -1,0 +1,770 @@
+{
+ "openapi": "3.1.0",
+ "paths": {
+  "/warehouse/zones": {
+   "get": {
+    "tags": [
+     "Warehouse - Zones"
+    ],
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   },
+   "post": {
+    "tags": [
+     "Warehouse - Zones"
+    ],
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/warehouse/zones/{zoneId}/lines": {
+   "get": {
+    "tags": [
+     "Warehouse - Lines"
+    ],
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   },
+   "post": {
+    "tags": [
+     "Warehouse - Lines"
+    ],
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/warehouse/positions/validate-fit": {
+   "post": {
+    "tags": [
+     "Warehouse - Positions"
+    ],
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/warehouse/lines/{lineId}/positions": {
+   "get": {
+    "tags": [
+     "Warehouse - Positions"
+    ],
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   },
+   "post": {
+    "tags": [
+     "Warehouse - Positions"
+    ],
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/vehicles": {
+   "get": {
+    "tags": [
+     "Vehicles"
+    ],
+    "summary": "List vehicles",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   },
+   "post": {
+    "tags": [
+     "Vehicles"
+    ],
+    "summary": "Register vehicle",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/users": {
+   "get": {
+    "tags": [
+     "Users"
+    ],
+    "summary": "List users",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   },
+   "post": {
+    "tags": [
+     "Users"
+    ],
+    "summary": "Create user",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/users/{id}/reset-password": {
+   "post": {
+    "tags": [
+     "Users"
+    ],
+    "summary": "Reset user password",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/users/me/change-password": {
+   "post": {
+    "tags": [
+     "Users"
+    ],
+    "summary": "Self-service change password",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/restock/receptions": {
+   "get": {
+    "tags": [
+     "Receptions"
+    ],
+    "summary": "List receptions",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   },
+   "post": {
+    "tags": [
+     "Receptions"
+    ],
+    "summary": "Register reception",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/restock/orders": {
+   "get": {
+    "tags": [
+     "Restock Orders"
+    ],
+    "summary": "List restock orders",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   },
+   "post": {
+    "tags": [
+     "Restock Orders"
+    ],
+    "summary": "Create restock order",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/query/{entity}": {
+   "post": {
+    "tags": [
+     "Query"
+    ],
+    "summary": "Query an entity",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/products": {
+   "get": {
+    "tags": [
+     "Products"
+    ],
+    "summary": "List products",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   },
+   "post": {
+    "tags": [
+     "Products"
+    ],
+    "summary": "Create product",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/orders": {
+   "get": {
+    "tags": [
+     "Orders"
+    ],
+    "summary": "List orders",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   },
+   "post": {
+    "tags": [
+     "Orders"
+    ],
+    "summary": "Create order",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/orders/{id}/cancel": {
+   "post": {
+    "tags": [
+     "Orders"
+    ],
+    "summary": "Cancel order",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/metrics/restock-suggestions": {
+   "post": {
+    "tags": [
+     "Metrics"
+    ],
+    "summary": "Restock suggestions",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/metrics/restock-suggestions/apply": {
+   "post": {
+    "tags": [
+     "Metrics"
+    ],
+    "summary": "Apply restock suggestions (daily run)",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/metrics/query": {
+   "post": {
+    "tags": [
+     "Metrics"
+    ],
+    "summary": "Query a metric over time",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/infra/vehicles/{vehicleId}/telemetry": {
+   "post": {
+    "tags": [
+     "Infra"
+    ],
+    "summary": "Report a vehicle telemetry reading",
+    "security": [
+     {
+      "infra-api-key": []
+     }
+    ]
+   }
+  },
+  "/infra/orders/{orderId}/status": {
+   "post": {
+    "tags": [
+     "Infra"
+    ],
+    "summary": "Report an order status change",
+    "security": [
+     {
+      "infra-api-key": []
+     }
+    ]
+   }
+  },
+  "/console/logs/query": {
+   "post": {
+    "tags": [
+     "Console"
+    ],
+    "summary": "Search logs",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/auth/login": {
+   "post": {
+    "tags": [
+     "Authentication"
+    ],
+    "summary": "Login"
+   }
+  },
+  "/api/v1/files/upload": {
+   "post": {
+    "tags": [
+     "Files"
+    ],
+    "summary": "Upload an image",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/warehouse/zones/{id}": {
+   "delete": {
+    "tags": [
+     "Warehouse - Zones"
+    ],
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   },
+   "patch": {
+    "tags": [
+     "Warehouse - Zones"
+    ],
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/warehouse/positions/{id}": {
+   "get": {
+    "tags": [
+     "Warehouse - Positions"
+    ],
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   },
+   "delete": {
+    "tags": [
+     "Warehouse - Positions"
+    ],
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   },
+   "patch": {
+    "tags": [
+     "Warehouse - Positions"
+    ],
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/warehouse/lines/{id}": {
+   "delete": {
+    "tags": [
+     "Warehouse - Lines"
+    ],
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   },
+   "patch": {
+    "tags": [
+     "Warehouse - Lines"
+    ],
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/users/{id}": {
+   "get": {
+    "tags": [
+     "Users"
+    ],
+    "summary": "Get user by ID",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   },
+   "patch": {
+    "tags": [
+     "Users"
+    ],
+    "summary": "Update user",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/users/me": {
+   "patch": {
+    "tags": [
+     "Users"
+    ],
+    "summary": "Update own profile (name and/or address)",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/restock/receptions/{id}": {
+   "get": {
+    "tags": [
+     "Receptions"
+    ],
+    "summary": "Get reception by ID",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   },
+   "patch": {
+    "tags": [
+     "Receptions"
+    ],
+    "summary": "Assign positions to reception",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/products/{id}": {
+   "get": {
+    "tags": [
+     "Products"
+    ],
+    "summary": "Get product by ID",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   },
+   "delete": {
+    "tags": [
+     "Products"
+    ],
+    "summary": "Delete product (soft delete)",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   },
+   "patch": {
+    "tags": [
+     "Products"
+    ],
+    "summary": "Update product",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/internal/vehicles/{id}": {
+   "patch": {
+    "tags": [
+     "Internal - Vehicles"
+    ],
+    "summary": "Patch vehicle state",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/internal/orders/{id}/status": {
+   "patch": {
+    "tags": [
+     "Internal"
+    ],
+    "summary": "Change order status",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/internal/orders/{id}/assign-vehicle": {
+   "patch": {
+    "tags": [
+     "Internal"
+    ],
+    "summary": "Assign vehicle to order",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/warehouse/positions": {
+   "get": {
+    "tags": [
+     "Warehouse - Positions"
+    ],
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/warehouse/positions/available": {
+   "get": {
+    "tags": [
+     "Warehouse - Positions"
+    ],
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/vehicles/{id}": {
+   "get": {
+    "tags": [
+     "Vehicles"
+    ],
+    "summary": "Get vehicle by ID",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/restock/orders/{id}": {
+   "get": {
+    "tags": [
+     "Restock Orders"
+    ],
+    "summary": "Get restock order by ID",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/query/catalog": {
+   "get": {
+    "tags": [
+     "Query"
+    ],
+    "summary": "List queryable entities",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/products/{id}/location": {
+   "get": {
+    "tags": [
+     "Products"
+    ],
+    "summary": "Get product locations",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/products/categories": {
+   "get": {
+    "tags": [
+     "Products"
+    ],
+    "summary": "List product categories",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/orders/{id}": {
+   "get": {
+    "tags": [
+     "Orders"
+    ],
+    "summary": "Get order by ID",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/metrics/catalog": {
+   "get": {
+    "tags": [
+     "Metrics"
+    ],
+    "summary": "List queryable metrics",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/console/ws-events/{feed}": {
+   "get": {
+    "tags": [
+     "Console"
+    ],
+    "summary": "Recent WebSocket events of a feed",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/console/status": {
+   "get": {
+    "tags": [
+     "Console"
+    ],
+    "summary": "Service status",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/api/v1/files": {
+   "get": {
+    "tags": [
+     "Files"
+    ],
+    "summary": "List stored files",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/api/v1/files/{path}/{filename}": {
+   "get": {
+    "tags": [
+     "Files"
+    ],
+    "summary": "Serve an image by path and filename",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   },
+   "delete": {
+    "tags": [
+     "Files"
+    ],
+    "summary": "Delete an image by path and filename",
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  }
+ },
+ "components": {
+  "schemas": {}
+ }
+}

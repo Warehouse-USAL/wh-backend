@@ -4,6 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import com.usal.whbackend.service.exception.AccountDisabledException;
 import com.usal.whbackend.service.exception.EmailAlreadyExistsException;
 import com.usal.whbackend.service.exception.InvalidCredentialsException;
@@ -15,9 +18,11 @@ import com.usal.whbackend.service.storage.FileNotFoundException;
 import com.usal.whbackend.service.storage.StorageException;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.mock.http.MockHttpInputMessage;
 import org.springframework.validation.BindingResult;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -65,6 +70,26 @@ class GlobalExceptionHandlerTest {
     assertThat(r.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     assertThat(r.getBody()).isNotNull();
     assertThat(r.getBody().error().code()).isEqualTo("MALFORMED_REQUEST");
+  }
+
+  @Test
+  void malformedRequest_logsTheExceptionTypeButNoBodyFragment() {
+    Logger logger = (Logger) LoggerFactory.getLogger(GlobalExceptionHandler.class);
+    ListAppender<ILoggingEvent> appender = new ListAppender<>();
+    appender.start();
+    logger.addAppender(appender);
+    try {
+      handler.handleMalformedRequest(
+          new HttpMessageNotReadableException(
+              "Unexpected character ('s3cret-pw' at line 1)",
+              new MockHttpInputMessage(new byte[0])));
+    } finally {
+      logger.detachAppender(appender);
+    }
+
+    assertThat(appender.list).hasSize(1);
+    String line = appender.list.get(0).getFormattedMessage();
+    assertThat(line).contains("HttpMessageNotReadableException").doesNotContain("s3cret-pw");
   }
 
   @Test
@@ -124,15 +149,15 @@ class GlobalExceptionHandlerTest {
   void maxUploadSizeExceeded_returns413WithCode() {
     ResponseEntity<ErrorResponse> r =
         handler.handleMaxUploadSize(new MaxUploadSizeExceededException(5L));
-    assertThat(r.getStatusCode()).isEqualTo(HttpStatus.PAYLOAD_TOO_LARGE);
+    assertThat(r.getStatusCode()).isEqualTo(HttpStatus.CONTENT_TOO_LARGE);
     assertThat(r.getBody().error().code()).isEqualTo("PAYLOAD_TOO_LARGE");
   }
 
   @Test
   void responseStatusException_withoutReason_fallsBackToStatusCode() {
     ResponseEntity<java.util.Map<String, Object>> r =
-        handler.handle(new ResponseStatusException(HttpStatus.I_AM_A_TEAPOT));
-    assertThat(r.getStatusCode()).isEqualTo(HttpStatus.I_AM_A_TEAPOT);
+        handler.handle(new ResponseStatusException(HttpStatus.GONE));
+    assertThat(r.getStatusCode()).isEqualTo(HttpStatus.GONE);
     assertThat(r.getBody()).isNotNull();
     assertThat(r.getBody().get("error")).isNotNull();
   }
