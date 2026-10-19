@@ -55,7 +55,8 @@ public class ConsoleStreamController {
               + " frame of a subscription), update (mode replace for metric/status, append for"
               + " logs/ws-events), error {id, code, message}, end {reason: token-expired |"
               + " server-shutdown | limit}; data is {id, mode, data} with the REST payload."
-              + " Heartbeat ': ping' every 15 s. At most 5 streams per user and 50 in total.")
+              + " Heartbeat ': ping' every 15 s. At most 10 streams per user (the user's oldest is ended with"
+              + " limit when a new one exceeds that) and 50 in total.")
   @io.swagger.v3.oas.annotations.parameters.RequestBody(
       content = @Content(schema = @Schema(implementation = StreamRequest.class)))
   @ApiResponse(
@@ -65,7 +66,9 @@ public class ConsoleStreamController {
   @ApiResponse(
       responseCode = "400",
       description = "INVALID_SUBSCRIPTION, INVALID_FILTER_VALUE, MALFORMED_REQUEST")
-  @ApiResponse(responseCode = "429", description = "STREAM_LIMIT")
+  @ApiResponse(
+      responseCode = "429",
+      description = "STREAM_LIMIT: the global cap of open streams is reached")
   @PostMapping
   public ResponseEntity<ResponseBodyEmitter> stream(
       @RequestBody StreamRequest request,

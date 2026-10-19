@@ -115,24 +115,70 @@ class ConsoleStreamServiceTest {
   }
 
   @Test
-  void enforcesThePerPrincipalAndGlobalStreamLimits() {
+  void aPrincipalAtItsLimitEvictsItsOldestStreamInsteadOfBeingRefused() {
+    properties.getStream().setMaxStreamsPerPrincipal(2);
+    service();
+    RecordingSink oldest = new RecordingSink();
+    RecordingSink middle = new RecordingSink();
+    RecordingSink newest = new RecordingSink();
+    open("u1", oldest, ws("w", "orders"), logs("l", null, null, "5m"));
+    open("u1", middle, ws("w", "orders"));
+    assertThat(service.activeSources()).isEqualTo(2);
+
+    open("u1", newest, ws("w", "orders"));
+
+    await().atMost(WAIT).until(oldest::completed);
+    assertThat(oldest.frames()).last().isEqualTo("event: end\ndata: {\"reason\":\"limit\"}\n\n");
+    // Its logs source had no other listener, so it is released exactly once with the stream.
+    await().atMost(WAIT).until(() -> service.activeSources() == 1 && service.openStreams() == 2);
+    assertThat(middle.completed()).isFalse();
+    assertThat(newest.completed()).isFalse();
+    buffer.record("/ws/v1/orders", event("fresh"));
+    await().atMost(WAIT).until(() -> middle.text().contains("fresh"));
+    assertThat(newest.text()).contains("fresh");
+    assertThat(oldest.text()).doesNotContain("fresh");
+  }
+
+  @Test
+  void evictionLeavesOtherPrincipalsStreamsUntouched() {
+    properties.getStream().setMaxStreamsPerPrincipal(2);
+    service();
+    RecordingSink other = new RecordingSink();
+    open("u2", other, ws("w", "orders"));
+    open("u1", new RecordingSink(), ws("w", "orders"));
+    open("u1", new RecordingSink(), ws("w", "orders"));
+
+    open("u1", new RecordingSink(), ws("w", "orders"));
+
+    await().atMost(WAIT).until(() -> service.openStreams() == 3);
+    assertThat(other.completed()).isFalse();
+    assertThat(other.text()).doesNotContain("\"reason\":\"limit\"");
+    buffer.record("/ws/v1/orders", event("broadcast"));
+    await().atMost(WAIT).until(() -> other.text().contains("broadcast"));
+  }
+
+  @Test
+  void theGlobalLimitStillAnswers429EvenForAPrincipalUnderItsOwnLimit() {
     properties.getStream().setMaxStreamsPerPrincipal(2);
     properties.getStream().setMaxStreams(3);
     service();
     RecordingSink first = new RecordingSink();
-
     open("u1", first, ws("w", "orders"));
     open("u1", new RecordingSink(), ws("w", "orders"));
-    assertThatThrownBy(() -> open("u1", new RecordingSink(), ws("w", "orders")))
+    open("u2", new RecordingSink(), ws("w", "orders"));
+    assertThatThrownBy(() -> open("u3", new RecordingSink(), ws("w", "orders")))
         .isInstanceOfSatisfying(
             ResponseStatusException.class,
             e -> {
               assertThat(e.getStatusCode().value()).isEqualTo(429);
               assertThat(e.getReason()).isEqualTo("STREAM_LIMIT");
             });
-    open("u2", new RecordingSink(), ws("w", "orders"));
-    assertThatThrownBy(() -> open("u3", new RecordingSink(), ws("w", "orders")))
+    assertThat(first.completed()).isFalse();
+
+    // Global cap is also checked before eviction, so the principal's own oldest is not closed.
+    assertThatThrownBy(() -> open("u1", new RecordingSink(), ws("w", "orders")))
         .hasMessageContaining("STREAM_LIMIT");
+    assertThat(first.completed()).isFalse();
 
     first.clientGone();
     await().atMost(WAIT).until(() -> service.openStreams() == 2);

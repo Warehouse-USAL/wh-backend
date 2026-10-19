@@ -231,15 +231,12 @@ class ConsoleStreamControllerTest {
   }
 
   @Test
-  void aThirdStreamOfTheSameUserIsRefused() throws Exception {
+  void aThirdStreamOfTheSameUserIsAdmittedAndTheFirstIsEvicted() throws Exception {
     String token = token(UserRole.SUPERADMIN);
     mockMvc.perform(stream(token, WS)).andExpect(request().asyncStarted());
     mockMvc.perform(stream(token, WS)).andExpect(request().asyncStarted());
 
-    mockMvc
-        .perform(stream(token, WS))
-        .andExpect(status().isTooManyRequests())
-        .andExpect(jsonPath("$.error.code").value("STREAM_LIMIT"));
+    mockMvc.perform(stream(token, WS)).andExpect(request().asyncStarted());
     // Another user is not affected.
     mockMvc.perform(stream(token(UserRole.SUPERADMIN), WS)).andExpect(request().asyncStarted());
   }

@@ -22,7 +22,7 @@ class ConsolePropertiesTest {
     assertThat(stream.getHeartbeat()).isEqualTo(Duration.ofSeconds(15));
     assertThat(stream.getSendTimeout()).isEqualTo(Duration.ofSeconds(30));
     assertThat(stream.getMaxSubscriptions()).isEqualTo(200);
-    assertThat(stream.getMaxStreamsPerPrincipal()).isEqualTo(5);
+    assertThat(stream.getMaxStreamsPerPrincipal()).isEqualTo(10);
     assertThat(stream.getMaxStreams()).isEqualTo(50);
     assertThat(stream.getQueueCapacity()).isEqualTo(1000);
   }

@@ -11,7 +11,9 @@ import jakarta.annotation.PreDestroy;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -47,11 +49,14 @@ import tools.jackson.databind.json.JsonMapper;
  *
  * <p>A stream ends with {@code event: end} when its token expires ({@code token-expired}), when the
  * server shuts down ({@code server-shutdown}, before the web server's graceful shutdown waits on
- * open requests), or when its client cannot keep up ({@code limit}). A client that stops reading
- * for {@code console.stream.send-timeout} is dropped; one that disconnects is noticed by the
- * container or by the first write that fails (heartbeats guarantee one every 15 s; a half-open
- * connection only fails once the kernel gives up retransmitting). Either way every source it held
- * is released at once.
+ * open requests), when its client cannot keep up ({@code limit}), or when its principal opens more
+ * streams than {@code console.stream.max-streams-per-principal} and it is the principal's oldest
+ * ({@code limit}). A client that stops reading for {@code console.stream.send-timeout} is dropped;
+ * one that disconnects is noticed by the container or by the first write that fails (heartbeats
+ * guarantee one every 15 s; a half-open connection only fails once the kernel gives up
+ * retransmitting). Either way every source it held is released at once.
+ *
+ * <p>Only the global cap ({@code console.stream.max-streams}) refuses a new stream with 429.
  */
 @Service
 public class ConsoleStreamService implements SmartLifecycle {
@@ -77,8 +82,8 @@ public class ConsoleStreamService implements SmartLifecycle {
   private final ExecutorService writers;
   private final Set<OpenStream> streams = ConcurrentHashMap.newKeySet();
 
-  // Guarded by this.
-  private final Map<String, Integer> perPrincipal = new HashMap<>();
+  // Guarded by this. Each principal's open streams, oldest first.
+  private final Map<String, Deque<OpenStream>> perPrincipal = new HashMap<>();
   private int total;
 
   private volatile boolean running;
@@ -120,9 +125,10 @@ public class ConsoleStreamService implements SmartLifecycle {
   }
 
   /**
-   * Validates the request (400 before anything opens), checks the stream limits (429 {@code
-   * STREAM_LIMIT}) and returns the response body. {@code expiresAt} is the token's expiry, after
-   * which the stream ends; {@code principal} is only used for counting.
+   * Validates the request (400 before anything opens), checks the global stream cap (429 {@code
+   * STREAM_LIMIT}) and returns the response body. A principal at its own limit has its oldest
+   * stream ended with {@code limit} instead. {@code expiresAt} is the token's expiry, after which
+   * the stream ends; {@code principal} is only used for counting.
    */
   public ResponseBodyEmitter open(
       StreamRequest request,
@@ -148,12 +154,17 @@ public class ConsoleStreamService implements SmartLifecycle {
       String requestId,
       FrameSink sink) {
     List<ParsedSubscription> subscriptions = parser.parse(request, roles);
-    int open = reserve(principal);
     OpenStream stream = new OpenStream(principal, requestId, subscriptions.size());
     StreamSession session =
         new StreamSession(sink, config.getQueueCapacity(), writers, s -> closed(stream, s));
     stream.session = session;
+    OpenStream evicted = reserve(stream);
     streams.add(stream);
+    if (evicted != null) {
+      // Outside the lock: ending only queues the goodbye, and the close callback releases the
+      // evicted stream's sources and count exactly once.
+      evicted.session.end(StreamSession.LIMIT);
+    }
     synchronized (stream) {
       for (ParsedSubscription sub : subscriptions) {
         if (stream.released) {
@@ -170,7 +181,9 @@ public class ConsoleStreamService implements SmartLifecycle {
           scheduler.schedule(() -> session.end(TOKEN_EXPIRED), delay, TimeUnit.MILLISECONDS);
     }
     log.info(
-        "Console stream opened: {} subscriptions, {} streams open", subscriptions.size(), open);
+        "Console stream opened: {} subscriptions, {} streams open",
+        subscriptions.size(),
+        streams.size());
     return session;
   }
 
@@ -232,17 +245,32 @@ public class ConsoleStreamService implements SmartLifecycle {
     writers.shutdownNow();
   }
 
-  private synchronized int reserve(String principal) {
-    int mine = perPrincipal.getOrDefault(principal, 0);
-    if (total >= config.getMaxStreams() || mine >= config.getMaxStreamsPerPrincipal()) {
+  /**
+   * Counts the stream against the global cap and its principal. At the principal's limit the
+   * principal's oldest stream leaves the count and is returned for the caller to end outside this
+   * lock; it stays in {@code total} until its close callback runs.
+   */
+  private synchronized OpenStream reserve(OpenStream stream) {
+    if (total >= config.getMaxStreams()) {
       throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, STREAM_LIMIT);
     }
-    perPrincipal.put(principal, mine + 1);
-    return ++total;
+    Deque<OpenStream> mine =
+        perPrincipal.computeIfAbsent(stream.principal, p -> new ArrayDeque<>());
+    OpenStream evicted =
+        mine.size() >= config.getMaxStreamsPerPrincipal() ? mine.pollFirst() : null;
+    mine.addLast(stream);
+    total++;
+    return evicted;
   }
 
-  private synchronized void unreserve(String principal) {
-    perPrincipal.computeIfPresent(principal, (p, n) -> n > 1 ? n - 1 : null);
+  private synchronized void unreserve(OpenStream stream) {
+    Deque<OpenStream> mine = perPrincipal.get(stream.principal);
+    if (mine != null) {
+      mine.remove(stream);
+      if (mine.isEmpty()) {
+        perPrincipal.remove(stream.principal);
+      }
+    }
     total--;
   }
 
@@ -272,7 +300,7 @@ public class ConsoleStreamService implements SmartLifecycle {
       expiry.cancel(false);
     }
     if (streams.remove(stream)) {
-      unreserve(stream.principal);
+      unreserve(stream);
     }
     String previous = MDC.get(RequestIdFilter.MDC_KEY);
     if (stream.requestId != null) {

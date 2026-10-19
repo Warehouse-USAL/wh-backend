@@ -257,11 +257,14 @@ data: {"reason":"token-expired"}
   `SOURCE_UNAVAILABLE`) is retried on the next evaluation, and the next good result is pushed even
   if it equals the last one. The message is fixed per class and never names the metric.
 - `end` then the response completes: `token-expired` (the stream never outlives its JWT),
-  `server-shutdown`, or `limit` (the client fell too far behind). The client reconnects and gets
+  `server-shutdown`, or `limit` (the client fell too far behind, or it opened more streams than
+  `max-streams-per-principal` allows and this was its oldest). The client reconnects and gets
   fresh snapshots.
 - Rejected before the stream starts, with the usual `{"error":{"code","message"}}`: 400
   `INVALID_SUBSCRIPTION` (bad id, duplicate id, unknown kind, bad range or step, too many),
-  `INVALID_FILTER_VALUE` (log filters), `MALFORMED_REQUEST`; 429 `STREAM_LIMIT`.
+  `INVALID_FILTER_VALUE` (log filters), `MALFORMED_REQUEST`; 429 `STREAM_LIMIT` only when the
+  backend-wide `max-streams` cap is reached. A user at their own limit is never refused: the
+  oldest of their streams is ended with `limit` and the new one is admitted.
 
 How the server produces it: sources are shared by canonical params across every stream, start with
 their first subscriber and stop with their last. WebSocket events are pushed by a listener on the
@@ -276,7 +279,8 @@ A client that closes the connection is noticed on the next write that fails (mea
 Docker Desktop's port forwarder, i.e. after two to three heartbeats). A client whose network
 vanishes without closing (half-open TCP) is only noticed when the kernel stops retransmitting (about
 15 minutes on Linux; measured 961 s), when its send buffer fills and `send-timeout` fires, or at
-token expiry; until then it holds one of its user's five streams.
+token expiry; until then it holds one of its user's ten streams, and the user's next stream past
+the limit ends it (oldest first) with `limit`.
 
 | Key (`console.stream.`) | Default | |
 |---|---|---|
@@ -287,7 +291,7 @@ token expiry; until then it holds one of its user's five streams.
 | `heartbeat` | `15s` | `: ping` comment |
 | `send-timeout` | `30s` | drop a client that stopped reading |
 | `max-subscriptions` | `200` | per stream |
-| `max-streams-per-principal` | `5` | per user |
+| `max-streams-per-principal` | `10` | per user; the oldest is evicted with `limit` |
 | `max-streams` | `50` | whole backend |
 | `queue-capacity` | `1000` | frames waiting per stream; keep above `max-subscriptions` |
 
@@ -365,7 +369,8 @@ What it asserts (each a row in the summary table; exit 1 on any failure):
   subscription, `error` `UNKNOWN_METRIC` without the metric's name, an `update` on the `orders`
   feed pushed after a rejected WebSocket handshake with no new request from the client, `: ping`
   within 20 s, `end` `token-expired` for a token minted (dev JWT secret) to expire 25 s in, and 429
-  `STREAM_LIMIT` for a user's sixth stream.
+  `STREAM_LIMIT` only when the backend-wide cap is reached; a user's eleventh stream ends their
+  oldest with `end` `limit` and is admitted.
 - Dev tools: 8091/8092 answer 502 without the `dev` profile, 200 without `X-Frame-Options` with it.
 - No JWT used in the run and not the demo password appear in `docker compose logs`.
 

@@ -75,7 +75,7 @@ public class ConsoleProperties {
     private Duration heartbeat = Duration.ofSeconds(15);
     private Duration sendTimeout = Duration.ofSeconds(30);
     private int maxSubscriptions = 200;
-    private int maxStreamsPerPrincipal = 5;
+    private int maxStreamsPerPrincipal = 10;
     private int maxStreams = 50;
     private int queueCapacity = 1000;
 
