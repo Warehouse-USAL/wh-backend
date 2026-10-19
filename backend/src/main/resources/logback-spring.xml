@@ -21,6 +21,12 @@
     <appender-ref ref="CONSOLE"/>
   </logger>
 
+  <!--
+    The status page's Kafka admin client logs every failed metadata refresh at INFO while the
+    broker is down (dozens a minute); connection failures still show as NetworkClient WARNs.
+  -->
+  <logger name="org.apache.kafka.clients.admin" level="WARN"/>
+
   <root level="INFO">
     <appender-ref ref="CONSOLE"/>
     <appender-ref ref="OTEL"/>
