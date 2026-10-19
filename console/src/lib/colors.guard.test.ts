@@ -29,7 +29,7 @@ const code = (line: string) =>
     .replace(/^\s*\*.*$/, '')
 
 const FORBIDDEN = [
-  /(?<=[:'"`\[(,=]\s*)#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})\b/,
+  /(?<=[:'"`[(,=]\s*)#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})\b/,
   new RegExp(`\\b(?:color|background|backgroundColor|borderColor|fill|stroke|outlineColor)\\s*[:=]\\s*\\{?\\s*['"\`]${NAMED}\\b`, 'i'),
   new RegExp(`\\b(?:bg|text|border|ring|fill|stroke|outline|shadow)-\\[${NAMED}\\]`),
   /\brgba?\(/,
