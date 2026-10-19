@@ -416,8 +416,8 @@ Las respuestas de error siguen el formato:
 |---|---|---|
 | `GET /users` | Listado de usuarios. Params: `role`, `isActive`. | `admin_system` |
 | `GET /users/:id` | Detalle de un usuario. | `admin_system` |
-| `POST /users` | Crea un usuario con contraseña inicial. | `admin_system` |
-| `PATCH /users/:id` | Actualiza nombre, rol o estado. El email no se puede modificar. | `admin_system` |
+| `POST /users` | Crea un usuario con contraseña inicial. `supplier` es opcional; un `provider` sin vínculo no puede usar operaciones de proveedor. | `admin_system` |
+| `PATCH /users/:id` | Actualiza nombre, rol, estado o `supplier`. El email no se puede modificar; `supplier` puede omitirse. | `admin_system` |
 | `POST /users/:id/reset-password` | Setea una nueva contraseña. | `admin_system` |
 
 ### 9.3. Productos

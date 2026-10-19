@@ -153,6 +153,10 @@ public final class DemoDataset {
     u.setPasswordHash(passwordHasher.apply(SHARED_PASSWORD));
     u.setCreatedAt(catalogueEpoch.minus(daysAgo, ChronoUnit.DAYS));
     u.setAddress(montevideoAddress(id.hashCode()));
+    // Demo providers are named after the supplier they deliver for (see DemoHistory.SUPPLIERS).
+    if (role == UserRole.PROVIDER) {
+      u.setSupplier(name);
+    }
     return u;
   }
 
