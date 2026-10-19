@@ -85,8 +85,18 @@ public class RestockOrderService {
   }
 
   public RestockOrder getRestockOrder(String id) {
+    return getRestockOrder(id, null);
+  }
+
+  /**
+   * Same as {@link #getRestockOrder(String)}, limited to one supplier's orders when {@code
+   * supplier} is set: another supplier's order is reported as not found rather than forbidden, so a
+   * provider cannot probe for ids.
+   */
+  public RestockOrder getRestockOrder(String id, String supplier) {
     return restockOrderRepository
         .findById(id)
+        .filter(order -> supplier == null || supplier.equals(order.getSupplier()))
         .orElseThrow(() -> new RestockOrderNotFoundException(id));
   }
 

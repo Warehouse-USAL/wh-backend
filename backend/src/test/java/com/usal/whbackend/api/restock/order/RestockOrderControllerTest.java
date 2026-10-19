@@ -11,6 +11,7 @@ import com.usal.whbackend.config.JwtService;
 import com.usal.whbackend.config.SecurityConfig;
 import com.usal.whbackend.domain.RestockOrder;
 import com.usal.whbackend.service.RestockOrderService;
+import com.usal.whbackend.service.UserService;
 import com.usal.whbackend.service.exception.RestockOrderNotFoundException;
 import java.time.Instant;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,6 +38,7 @@ class RestockOrderControllerTest {
   MockMvc mockMvc;
   @MockitoBean RestockOrderService restockOrderService;
   @MockitoBean JwtService jwtService;
+  @MockitoBean UserService userService;
 
   @BeforeEach
   void setUp() {
@@ -128,7 +130,7 @@ class RestockOrderControllerTest {
   @Test
   @WithMockUser(roles = "ADMIN_WAREHOUSE")
   void getRestockOrder_found_includesReceivedSoFar() throws Exception {
-    when(restockOrderService.getRestockOrder("rso-1")).thenReturn(order("rso-1"));
+    when(restockOrderService.getRestockOrder("rso-1", null)).thenReturn(order("rso-1"));
     when(restockOrderService.computeReceivedSoFar("rso-1")).thenReturn(30);
 
     mockMvc
@@ -141,12 +143,60 @@ class RestockOrderControllerTest {
   @Test
   @WithMockUser(roles = "ADMIN_WAREHOUSE")
   void getRestockOrder_notFound_returns404() throws Exception {
-    when(restockOrderService.getRestockOrder("bad"))
+    when(restockOrderService.getRestockOrder("bad", null))
         .thenThrow(new RestockOrderNotFoundException("bad"));
 
     mockMvc
         .perform(get("/restock/orders/bad"))
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.error.code").value("RESTOCK_ORDER_NOT_FOUND"));
+  }
+
+  // ── PROVIDER: sees only its own supplier's orders ───────────────────────
+
+  @Test
+  @WithMockUser(username = "provider-1", roles = "PROVIDER")
+  void getRestockOrders_asProvider_forcesItsOwnSupplier() throws Exception {
+    when(userService.supplierOf("provider-1")).thenReturn("Distribuidora XYZ");
+    when(restockOrderService.getRestockOrders(any(), eq("Distribuidora XYZ"), any(), any(), any()))
+        .thenReturn(new PageImpl<>(java.util.List.of(order("rso-1")), PageRequest.of(0, 10), 1));
+
+    mockMvc
+        .perform(get("/restock/orders").param("supplier", "Otro Proveedor"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.restock_orders[0].id").value("rso-1"));
+  }
+
+  @Test
+  @WithMockUser(username = "provider-1", roles = "PROVIDER")
+  void getRestockOrder_asProvider_isLimitedToItsSupplier() throws Exception {
+    when(userService.supplierOf("provider-1")).thenReturn("Otro Proveedor");
+    when(restockOrderService.getRestockOrder("rso-1", "Otro Proveedor"))
+        .thenThrow(new RestockOrderNotFoundException("rso-1"));
+
+    mockMvc
+        .perform(get("/restock/orders/rso-1"))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.error.code").value("RESTOCK_ORDER_NOT_FOUND"));
+  }
+
+  @Test
+  @WithMockUser(username = "provider-1", roles = "PROVIDER")
+  void getRestockOrders_asProviderWithoutSupplier_returns403() throws Exception {
+    when(userService.supplierOf("provider-1"))
+        .thenThrow(
+            new org.springframework.web.server.ResponseStatusException(
+                org.springframework.http.HttpStatus.FORBIDDEN, "PROVIDER_WITHOUT_SUPPLIER"));
+
+    mockMvc
+        .perform(get("/restock/orders"))
+        .andExpect(status().isForbidden())
+        .andExpect(jsonPath("$.error.code").value("PROVIDER_WITHOUT_SUPPLIER"));
+  }
+
+  @Test
+  @WithMockUser(roles = "OPERATOR")
+  void getRestockOrders_withUnauthorizedRole_returns403() throws Exception {
+    mockMvc.perform(get("/restock/orders")).andExpect(status().isForbidden());
   }
 }

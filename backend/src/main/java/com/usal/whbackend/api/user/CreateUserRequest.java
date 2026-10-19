@@ -8,4 +8,11 @@ public record CreateUserRequest(
     @NotBlank @Email String email,
     @NotBlank String name,
     @NotBlank String role,
-    @NotBlank @JsonProperty("initial_password") String initialPassword) {}
+    @NotBlank @JsonProperty("initial_password") String initialPassword,
+    String supplier) {
+
+  /** Without a supplier, for every role but PROVIDER. */
+  public CreateUserRequest(String email, String name, String role, String initialPassword) {
+    this(email, name, role, initialPassword, null);
+  }
+}

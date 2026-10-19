@@ -93,7 +93,7 @@ No tiene efecto sobre stock (RN‑03) — es puramente informativo, un registro 
 
 ## 6. Contratos de API
 
-Todos los endpoints requieren JWT y rol `SUPERADMIN` o `ADMIN_WAREHOUSE`, siguiendo la convención de `PositionController`. Los listados son endpoints dedicados (`GET /restock/orders`, `GET /restock/receptions`), mismo patrón que `GET /orders` en `OrderController` — no se reusa `POST /query/{entity}`: esa Query API es el catálogo whitelisted para el equipo de dashboards (`EntityRegistry`/`EntityQueryController`), con su propio modelo de roles y de proyección de campos, y no es el canal pensado para el CRUD interno de este equipo.
+Todos los endpoints requieren JWT y rol `SUPERADMIN` o `ADMIN_WAREHOUSE`, siguiendo la convención de `PositionController`, salvo lo que puede hacer un `PROVIDER` (ver 6.6). Los listados son endpoints dedicados (`GET /restock/orders`, `GET /restock/receptions`), mismo patrón que `GET /orders` en `OrderController` — no se reusa `POST /query/{entity}`: esa Query API es el catálogo whitelisted para el equipo de dashboards (`EntityRegistry`/`EntityQueryController`), con su propio modelo de roles y de proyección de campos, y no es el canal pensado para el CRUD interno de este equipo.
 
 ### 6.1. Restock Orders
 
@@ -243,6 +243,18 @@ Se evaluó resolver ambos listados registrando `restock_orders`/`receptions` en 
 |---|---|---|
 | 404 | `PRODUCT_NOT_FOUND` | `productId` no existe o está inactivo. |
 | 400 | `INVALID_QUANTITY` | `quantity` es cero o negativo. |
+
+### 6.6. Acceso del proveedor (`PROVIDER`)
+
+Cada usuario `PROVIDER` está vinculado a su proveedor por `User.supplier`, el mismo texto que llevan `RestockOrder.supplier` y `Reception.supplier`. Un admin lo define al crear o editar el usuario (`supplier` en `POST /users` y `PATCH /users/:id`); es obligatorio para el rol `PROVIDER` (`400 SUPPLIER_REQUIRED`) y se descarta para cualquier otro rol. Un proveedor sin vínculo recibe `403 PROVIDER_WITHOUT_SUPPLIER`.
+
+| Endpoint | Qué puede hacer el `PROVIDER` |
+|---|---|
+| `GET /restock/orders` | Ve solo los pedidos de su proveedor: el filtro `supplier` se fuerza al suyo. |
+| `GET /restock/orders/:id` | Solo encuentra los pedidos de su proveedor; los de otro dan `404 RESTOCK_ORDER_NOT_FOUND`. |
+| `POST /restock/receptions` | Registra su entrega: `restock_order_id` es obligatorio (`400 RESTOCK_ORDER_REQUIRED`) y debe ser de su proveedor, `assignments` no se permite (`400 ASSIGNMENTS_NOT_ALLOWED`) y `supplier` es siempre el suyo. La recepción queda `PENDING_LOCATION` y no suma stock. |
+
+Un admin valida la entrega y le asigna la posición con `PATCH /restock/receptions/:id`; recién ahí aumenta el stock. El resto de los endpoints (crear pedidos, listar recepciones, asignar posiciones) sigue siendo solo de admins. Llevar la mercadería del muelle a la posición con un rover queda fuera de alcance: la posición se asigna a mano.
 
 ## 7. Decisiones de diseño
 
