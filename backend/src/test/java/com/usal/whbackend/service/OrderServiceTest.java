@@ -696,8 +696,7 @@ class OrderServiceTest {
 
   @Test
   void createOrder_withIdempotencyKey_concurrentClaimConflictDoesNotCreateOrder() {
-    when(idempotencyRecordRepository.findByKey("key-1"))
-        .thenReturn(Optional.empty());
+    when(idempotencyRecordRepository.findByKey("key-1")).thenReturn(Optional.empty());
     when(idempotencyRecordRepository.save(any(IdempotencyRecord.class)))
         .thenThrow(new DuplicateKeyException("duplicate"));
 

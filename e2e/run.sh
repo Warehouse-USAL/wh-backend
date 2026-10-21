@@ -65,7 +65,7 @@ docker info >/dev/null 2>&1 || { echo "Docker daemon is not reachable (docker in
 
 echo "== starting stack (project $PROJECT) =="
 PROFILES=(--profile infra); [ "$MODE" = real ] && PROFILES=(--profile infra --profile real)
-"${DC[@]}" "${PROFILES[@]}" up -d --build backend bridge rabbitmq || { echo "compose up failed"; exit 1; }
+"${DC[@]}" "${PROFILES[@]}" up -d --build backend bridge rabbitmq otel-collector || { echo "compose up failed"; exit 1; }
 wait_for 240 "backend health" curl -sf "$BASE/actuator/health" || exit 1
 
 TOKEN=$(curl -s -X POST "$BASE/auth/login" -H 'Content-Type: application/json' \
@@ -92,6 +92,38 @@ QR_MISS="WH|$ZC|L3|MISS"; POS_M=$(mkpos "$L3" PM "$QR_MISS" "$P3")
 INFRA_VID="VHC-E2E"
 VID=$(python3 -c 'import uuid,sys;print(uuid.uuid5(uuid.UUID("6f0a5d3e-2b7c-4c1e-9a58-3d1f7b2e4a90"),sys.argv[1]))' "$INFRA_VID")
 [ -n "$P1" ] && [ -n "$POS_A" ] && ok "fixtures created (Infra vehicle $INFRA_VID -> backend $VID)" || { bad "fixtures"; exit 1; }
+
+# Faults must reach both the dashboard (WebSocket) and the metrics store, under the category Infra reported.
+errors_section() {
+  echo "== E. vehicle errors reach the WebSocket and VictoriaMetrics =="
+  local wslog; wslog=$(mktemp)
+  python3 e2e/ws_listen.py "ws://localhost:8080/ws/v1/vehicles?token=$TOKEN" 45 "$wslog" &
+  wait_for 10 "vehicle websocket open" test -f "$wslog" || return
+  telemetry() { # STATUS [CODE MESSAGE]: what Infra puts on the 'vehicles' topic
+    local err=null
+    [ -n "${2:-}" ] && err="{\\\"code\\\":\\\"$2\\\",\\\"message\\\":\\\"$3\\\"}"
+    curl -s -u admin_admin:admin -H 'content-type: application/json' -X POST http://localhost:15672/api/exchanges/%2F/amq.topic/publish \
+      -d "{\"properties\":{\"delivery_mode\":2,\"content_type\":\"application/json\"},\"routing_key\":\"vehicles\",\"payload_encoding\":\"string\",\"payload\":\"{\\\"vehicle_id\\\":\\\"$INFRA_VID\\\",\\\"status\\\":\\\"$1\\\",\\\"battery\\\":60,\\\"last_qr\\\":null,\\\"error\\\":$err,\\\"timestamp\\\":\\\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\\\"}\"}" >/dev/null
+  }
+  telemetry idle; sleep 3
+  telemetry error CONNECTION_LOST "Sin conexion con rover"; sleep 3
+  telemetry idle; sleep 3
+  telemetry error STOP_NOT_DETECTED "STOP_NOT_DETECTED: WH|E2E"; sleep 3
+  telemetry idle
+  for code in CONNECTION_LOST STOP_NOT_DETECTED; do
+    wait_for 20 "WebSocket vehicle.error $code" grep -q "\"error_code\":\"$code\"" "$wslog" \
+      && ok "WebSocket got vehicle.error $code for the backend vehicle id" \
+      || continue
+    grep "\"error_code\":\"$code\"" "$wslog" | grep -q "\"id\":\"$VID\"" || bad "vehicle.error $code carries a different vehicle id"
+  done
+  vm() { curl -s --data-urlencode "query=sum by (category) ({__name__=~\"wh_vehicle_transitions.*\",vehicle_id=\"$VID\"})" http://localhost:8428/api/v1/query; }
+  for code in CONNECTION_LOST STOP_NOT_DETECTED; do
+    wait_for 150 "VictoriaMetrics transitions with category=$code" bash -c "curl -s --data-urlencode 'query=sum by (category) ({__name__=~\"wh_vehicle_transitions.*\",vehicle_id=\"$VID\"})' http://localhost:8428/api/v1/query | grep -q '\"category\":\"$code\"'" \
+      && ok "VictoriaMetrics has the transition counted under category $code" \
+      || { echo "  last VM answer: $(vm)"; }
+  done
+  wait; rm -f "$wslog"
+}
 
 if [ "$MODE" = real ]; then
   echo "== Infra's real central + simulated rover/camera for vehicle $INFRA_VID =="
@@ -121,15 +153,19 @@ if [ "$MODE" = real ]; then
   wait_for 120 "cancelled by central" status_is "$OID2" cancelled && ok "central's cancelled (STOP_NOT_DETECTED) cancelled the order in the backend"
   check "no stock drained for the aborted order" "$(stock "$POS_M")" "100"
 
-  echo "== R4. backend cancels mid-flight =="
+  echo "== R4. backend cancels mid-flight: a request that Infra confirms =="
   wait_for 60 "vehicle idle again" bash -c "curl -s -H 'Authorization: Bearer $TOKEN' $BASE/vehicles/$VID | grep -qi '\"status\" *: *\"idle\"'"
   OID3=$(neworder "$(item "$P1" 1)")
   wait_for 40 "in_progress" status_is "$OID3" in_progress
   call POST "/orders/$OID3/cancel" '{"reason":"e2e real"}' >/dev/null
-  status_is "$OID3" cancelled && ok "backend cancelled immediately"
+  [ -n "$(jget cancellation_requested_at)" ] && ok "cancelling an in-progress order only requests the cancellation" || bad "no cancellation request recorded"
+  # Infra's PROTOCOLO.md says the central does NOT answer a backend-initiated cancel, while the backend now waits for that answer.
+  wait_for 90 "central confirms the cancellation (Infra does not answer a backend cancel today)" status_is "$OID3" cancelled && ok "central put the goods back and confirmed: order cancelled"
   wait_for 90 "vehicle released" bash -c "curl -s -H 'Authorization: Bearer $TOKEN' $BASE/vehicles/$VID | grep -qi '\"status\" *: *\"idle\"'" && ok "central returned the rover and freed the vehicle"
   sleep 5; status_is "$OID3" cancelled && ok "order stays cancelled" || bad "cancelled order changed state"
   check "cancelled order did not drain stock" "$(stock "$POS_A")" "97"
+
+  errors_section
 
   echo "== R5. rover drops off =="
   curl -s -u admin_admin:admin -H 'content-type: application/json' -X POST http://localhost:15672/api/exchanges/%2F/amq.topic/publish \
@@ -177,16 +213,31 @@ check "no api key -> 401" "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BA
 check "wrong api key -> 401" "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/infra/orders/$OID/status" -H 'X-Api-Key: nope' -H 'Content-Type: application/json' -d '{"status":"completed"}')" "401"
 check "unknown order -> 404" "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$BASE/infra/orders/does-not-exist/status" -H "X-Api-Key: $API_KEY" -H 'Content-Type: application/json' -d '{"status":"completed","vehicle_id":"x"}')" "404"
 
-echo "== 3. cancellation: backend cancels at once, a late Infra 'completed' is ignored =="
+echo "== 3a. cancelling a pending order: cancelled at once, a late Infra 'completed' is ignored =="
+# Fake Infra is stopped so the order cannot be taken before the cancel lands. Its queue is durable: it gets both messages afterwards.
+"${DC[@]}" "${PROFILES[@]}" stop fakeinfra >/dev/null 2>&1
 call POST /orders "{\"items\":[{\"product_id\":\"$P1\",\"quantity\":1}],\"destination_area\":\"$ZC\",\"address\":{\"street\":\"1 Test\",\"department\":\"X\",\"floor\":\"1\",\"postal_code\":\"00001\"}}" >/dev/null
 OID2=$(jget id)
 call POST "/orders/$OID2/cancel" '{"reason":"e2e"}' >/dev/null
-status_is "$OID2" cancelled && ok "order cancelled immediately by backend" || bad "order not cancelled"
+status_is "$OID2" cancelled && ok "pending order cancelled immediately by backend" || bad "order not cancelled"
 CANCELLED_MSG=$(kafka_orders | grep "\"order_id\":\"$OID2\"" | grep cancelled | head -1)
 check "orders topic: cancelled republished" "$(echo "$CANCELLED_MSG" | python3 -c 'import sys,json;d=json.loads(sys.stdin.readline());print(d["order_id"]==sys.argv[1], d["status"], d["stops"]==[sys.argv[2]])' "$OID2" "$QR2")" "True cancelled True"
-sleep 8   # let fake Infra (which may have started it) try to complete it
+FAKE_VEHICLE_ID="$INFRA_VID" "${DC[@]}" "${PROFILES[@]}" start fakeinfra >/dev/null 2>&1
+sleep 8   # fake Infra now replays the pending order (walks it to 'completed') and then the cancellation
 status_is "$OID2" cancelled && ok "still cancelled after Infra's late status" || bad "cancelled order was resurrected"
 call GET "/warehouse/positions/$POS_A" >/dev/null; check "cancelled order did not drain stock" "$(jget current_stock)" "97"
+
+echo "== 3b. cancelling an in-progress order: only a request, plus the cancellation sent to Infra =="
+call POST /orders "{\"items\":[{\"product_id\":\"$P1\",\"quantity\":1}],\"destination_area\":\"$ZC\",\"address\":{\"street\":\"1 Test\",\"department\":\"X\",\"floor\":\"1\",\"postal_code\":\"00001\"}}" >/dev/null
+OID4=$(jget id)
+wait_for 30 "order in progress" status_is "$OID4" in_progress
+call POST "/orders/$OID4/cancel" '{"reason":"e2e"}' >/dev/null
+[ -n "$(jget cancellation_requested_at)" ] && ok "cancellation requested, order not cancelled by the backend alone" || bad "no cancellation request recorded"
+cancel_on_topic() { local all; all=$(kafka_orders); echo "$all" | grep "\"order_id\":\"$OID4\"" | grep -q cancelled; }
+wait_for 20 "cancel message on orders topic" cancel_on_topic && ok "orders topic: cancellation sent to Infra"
+wait_for 60 "Infra settles the order" bash -c "curl -s -H 'Authorization: Bearer $TOKEN' $BASE/orders/$OID4 | grep -qiE '\"status\" *: *\"(completed|cancelled)\"'" && ok "Infra settled the requested cancellation"
+
+errors_section
 
 echo "== 4. bridge survives the backend being down =="
 "${DC[@]}" stop backend >/dev/null 2>&1
