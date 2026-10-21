@@ -437,7 +437,7 @@ Las respuestas de error siguen el formato:
 | `GET /orders` | Listado filtrado por rol. Params: `status`, `from`, `to`, `vehicleId`. | Todos los roles |
 | `GET /orders/:id` | Detalle completo de una orden. | Todos los roles |
 | `POST /orders` | Crea una nueva orden. Valida stock y publica en Redpanda. | `admin_sales`, `admin_warehouse`, `operator` |
-| `POST /orders/:id/cancel` | Cancela una orden `pending` al instante. Una `in_progress` sigue así, con `timestamps.cancellation_requested_at`, hasta que Infra la reporte `cancelled`. `operator` solo cancela las órdenes que pidió (`403 ORDER_NOT_OWNED`). | `admin_warehouse`, `admin_sales`, `operator` |
+| `POST /orders/:id/cancel` | Cancela la orden al instante, esté `pending` o `in_progress`, y avisa a Infra por el topic `orders`; si había un vehículo en la orden, Infra lo libera por su cuenta. `operator` solo cancela las órdenes que pidió (`403 ORDER_NOT_OWNED`). | `admin_warehouse`, `admin_sales`, `operator` |
 
 **Request `POST /orders`:**
 
@@ -834,25 +834,15 @@ sequenceDiagram
 
     alt Orden ya completada o cancelada
         Backend-->>App: 409 ORDER_NOT_CANCELLABLE
-    else Orden en estado pending
+    else Orden en estado pending o in_progress
         Backend->>MongoDB: Actualiza Order { status: cancelled }
-        Backend->>MongoDB: Devuelve stock reservado
-        Backend->>WS: Broadcast order.updated { status: cancelled }
-        Backend-->>App: 200 { order }
-        App-->>Usuario: Muestra orden cancelada
-    else Orden en estado in_progress
-        Backend->>MongoDB: Actualiza Order { cancellation_requested_at }\n(status sigue in_progress)
+        Backend->>MongoDB: Devuelve stock reservado (y libera el vehículo si lo había)
         Backend->>Redpanda: Publica en orders { status: cancelled }
-        Backend->>WS: Broadcast order.updated { cancellation_requested_at }
-        Backend-->>App: 200 { order }
-        App-->>Usuario: Muestra cancelación pendiente
-        Redpanda-->>Central: El bridge reenvía la cancelación
-        Central->>Central: El rover devuelve la mercadería a su posición
-        Central->>Backend: POST /infra/orders/:id/status { status: cancelled }\n(vía bridge)
-        Backend->>MongoDB: Actualiza Order { status: cancelled }
-        Backend->>MongoDB: Devuelve stock reservado y libera el vehículo
         Backend->>WS: Broadcast order.updated { status: cancelled }
+        Backend-->>App: 200 { order }
         App-->>Usuario: Muestra orden cancelada
+        Redpanda-->>Central: El bridge reenvía la cancelación
+        Central->>Central: Si había un rover en ruta, vuelve al inicio y queda libre\n(no le contesta nada al backend)
     end
 ```
 

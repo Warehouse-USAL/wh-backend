@@ -153,14 +153,12 @@ if [ "$MODE" = real ]; then
   wait_for 120 "cancelled by central" status_is "$OID2" cancelled && ok "central's cancelled (STOP_NOT_DETECTED) cancelled the order in the backend"
   check "no stock drained for the aborted order" "$(stock "$POS_M")" "100"
 
-  echo "== R4. backend cancels mid-flight: a request that Infra confirms =="
+  echo "== R4. backend cancels mid-flight: cancelled at once, the central frees the rover =="
   wait_for 60 "vehicle idle again" bash -c "curl -s -H 'Authorization: Bearer $TOKEN' $BASE/vehicles/$VID | grep -qi '\"status\" *: *\"idle\"'"
   OID3=$(neworder "$(item "$P1" 1)")
   wait_for 40 "in_progress" status_is "$OID3" in_progress
   call POST "/orders/$OID3/cancel" '{"reason":"e2e real"}' >/dev/null
-  [ -n "$(jget cancellation_requested_at)" ] && ok "cancelling an in-progress order only requests the cancellation" || bad "no cancellation request recorded"
-  # Infra's PROTOCOLO.md says the central does NOT answer a backend-initiated cancel, while the backend now waits for that answer.
-  wait_for 90 "central confirms the cancellation (Infra does not answer a backend cancel today)" status_is "$OID3" cancelled && ok "central put the goods back and confirmed: order cancelled"
+  status_is "$OID3" cancelled && ok "backend cancelled the in-progress order immediately" || bad "in-progress order not cancelled"
   wait_for 90 "vehicle released" bash -c "curl -s -H 'Authorization: Bearer $TOKEN' $BASE/vehicles/$VID | grep -qi '\"status\" *: *\"idle\"'" && ok "central returned the rover and freed the vehicle"
   sleep 5; status_is "$OID3" cancelled && ok "order stays cancelled" || bad "cancelled order changed state"
   check "cancelled order did not drain stock" "$(stock "$POS_A")" "97"
@@ -227,15 +225,16 @@ sleep 8   # fake Infra now replays the pending order (walks it to 'completed') a
 status_is "$OID2" cancelled && ok "still cancelled after Infra's late status" || bad "cancelled order was resurrected"
 call GET "/warehouse/positions/$POS_A" >/dev/null; check "cancelled order did not drain stock" "$(jget current_stock)" "97"
 
-echo "== 3b. cancelling an in-progress order: only a request, plus the cancellation sent to Infra =="
+echo "== 3b. cancelling an in-progress order: cancelled at once and sent to Infra =="
 call POST /orders "{\"items\":[{\"product_id\":\"$P1\",\"quantity\":1}],\"destination_area\":\"$ZC\",\"address\":{\"street\":\"1 Test\",\"department\":\"X\",\"floor\":\"1\",\"postal_code\":\"00001\"}}" >/dev/null
 OID4=$(jget id)
 wait_for 30 "order in progress" status_is "$OID4" in_progress
 call POST "/orders/$OID4/cancel" '{"reason":"e2e"}' >/dev/null
-[ -n "$(jget cancellation_requested_at)" ] && ok "cancellation requested, order not cancelled by the backend alone" || bad "no cancellation request recorded"
+status_is "$OID4" cancelled && ok "in-progress order cancelled immediately by backend" || bad "in-progress order not cancelled"
 cancel_on_topic() { local all; all=$(kafka_orders); echo "$all" | grep "\"order_id\":\"$OID4\"" | grep -q cancelled; }
 wait_for 20 "cancel message on orders topic" cancel_on_topic && ok "orders topic: cancellation sent to Infra"
-wait_for 60 "Infra settles the order" bash -c "curl -s -H 'Authorization: Bearer $TOKEN' $BASE/orders/$OID4 | grep -qiE '\"status\" *: *\"(completed|cancelled)\"'" && ok "Infra settled the requested cancellation"
+sleep 8   # the fake keeps walking the order and reports it 'completed': the backend must ignore that
+status_is "$OID4" cancelled && ok "still cancelled after Infra's late completed" || bad "cancelled in-progress order was resurrected"
 
 errors_section
 
