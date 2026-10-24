@@ -1,0 +1,56 @@
+# Infra's real central (orquestador) + PostgreSQL, built from THEIR source, plus a rover/camera simulator.
+# Their code is never copied into this repo: INFRA_DIR points at an unzipped delivery elsewhere on disk.
+# Used by `e2e/run.sh real`, layered on top of docker-compose.e2e.yml (which provides the RabbitMQ).
+services:
+  infra-db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: admin_iot
+      POSTGRES_PASSWORD: admin
+      POSTGRES_DB: rovers_db
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin_iot -d rovers_db"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    networks:
+      - wh-network
+    profiles: [real]
+
+  central:
+    build:
+      context: ${INFRA_DIR:?set INFRA_DIR to the unzipped Infra delivery}
+    environment:
+      Mqtt__Host: rabbitmq
+      ConnectionStrings__Db: "Host=infra-db;Port=5432;Username=admin_iot;Password=admin;Database=rovers_db;"
+      # shortened timings so the run takes seconds instead of minutes
+      Orchestration__TelemetryIntervalSec: "10"
+      Orchestration__DeviceOfflineTimeoutSec: "25"
+      Orchestration__DwellSec: "2"
+      Orchestration__LegTimeoutSec: "12"
+      ASPNETCORE_HTTP_PORTS: "8080"
+    ports:
+      - "8090:8080"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      infra-db:
+        condition: service_healthy
+    networks:
+      - wh-network
+    profiles: [real]
+
+  devices:
+    image: python:3.12-slim
+    command: sh -c "pip install -q --no-cache-dir paho-mqtt && python /sim.py"
+    environment:
+      VEHICLE_ID: ${SIM_VEHICLE_ID:-VHC-001}
+      MQTT_HOST: rabbitmq
+    volumes:
+      - ./e2e/devices/sim.py:/sim.py:ro
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - wh-network
+    profiles: [real]

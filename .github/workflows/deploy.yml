@@ -83,6 +83,35 @@ jobs:
           docker logs --tail 80 wh-backend-backend-1 2>&1 | tail -60 >> /tmp/wh-deploy.log
           exit 1
 
+      - name: Verify bridge is up
+        run: |
+          for i in $(seq 1 24); do
+            state=$(docker inspect -f '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' wh-backend-bridge-1 2>/dev/null || echo missing)
+            if [ "$state" = "running healthy" ]; then
+              echo "bridge healthy"; exit 0
+            fi
+            sleep 5
+          done
+          echo "bridge not healthy (state: $state) — check INFRA_AMQP_URL / INFRA_API_KEY in /opt/wh/wh-backend/.env:" | tee -a /tmp/wh-deploy.log
+          docker logs --tail 40 wh-backend-bridge-1 2>&1 | tail -30 >> /tmp/wh-deploy.log
+          exit 1
+
+      - name: Verify console is up
+        run: |
+          # The compose healthcheck covers nginx and the SPA; the wget proves its /api proxy reaches
+          # the backend (the same path the browser takes behind Caddy).
+          for _ in $(seq 1 24); do
+            state=$(docker inspect -f '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' wh-backend-console-1 2>/dev/null || echo missing)
+            if [ "$state" = "running healthy" ] \
+              && docker exec wh-backend-console-1 wget -q -O /dev/null http://127.0.0.1/api/actuator/health; then
+              echo "console healthy, /api proxy reaches the backend"; exit 0
+            fi
+            sleep 5
+          done
+          echo "console not healthy or /api proxy failing (state: $state):" | tee -a /tmp/wh-deploy.log
+          docker logs --tail 40 wh-backend-console-1 2>&1 | tail -30 >> /tmp/wh-deploy.log
+          exit 1
+
       - name: Comment — deploy succeeded
         if: success() && steps.ctx.outputs.pr != ''
         run: |

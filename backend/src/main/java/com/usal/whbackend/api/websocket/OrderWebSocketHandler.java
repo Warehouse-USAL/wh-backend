@@ -1,0 +1,90 @@
+package com.usal.whbackend.api.websocket;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.usal.whbackend.api.order.OrderResponse;
+import com.usal.whbackend.domain.Order;
+import com.usal.whbackend.service.OrderEventPublisher;
+import java.io.IOException;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
+import org.springframework.web.socket.CloseStatus;
+import org.springframework.web.socket.TextMessage;
+import org.springframework.web.socket.WebSocketSession;
+import org.springframework.web.socket.handler.ConcurrentWebSocketSessionDecorator;
+import org.springframework.web.socket.handler.TextWebSocketHandler;
+
+@Component
+public class OrderWebSocketHandler extends TextWebSocketHandler implements OrderEventPublisher {
+
+  private static final Logger log = LoggerFactory.getLogger(OrderWebSocketHandler.class);
+  private final Map<String, WebSocketSession> sessions = new ConcurrentHashMap<>();
+  private final WsActivity wsActivity;
+  private final ObjectMapper objectMapper =
+      new ObjectMapper()
+          .registerModule(new com.fasterxml.jackson.datatype.jsr310.JavaTimeModule())
+          .disable(com.fasterxml.jackson.databind.SerializationFeature.WRITE_DATES_AS_TIMESTAMPS)
+          .setPropertyNamingStrategy(
+              com.fasterxml.jackson.databind.PropertyNamingStrategies.SNAKE_CASE);
+
+  public OrderWebSocketHandler(WsActivity wsActivity) {
+    this.wsActivity = wsActivity;
+  }
+
+  @Override
+  public void afterConnectionEstablished(WebSocketSession session) {
+    sessions.put(session.getId(), new ConcurrentWebSocketSessionDecorator(session, 1000, 65536));
+    wsActivity.connected(WsActivity.ORDERS, "session opened");
+  }
+
+  @Override
+  public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
+    dropSession(session, "session closed");
+  }
+
+  @Override
+  public void handleTransportError(WebSocketSession session, Throwable exception) {
+    dropSession(session, "session closed");
+  }
+
+  private void dropSession(WebSocketSession session, String detail) {
+    if (sessions.remove(session.getId()) != null) {
+      wsActivity.closed(WsActivity.ORDERS, detail);
+    }
+  }
+
+  @Override
+  public void broadcastOrderUpdate(Order order) {
+    broadcast(
+        buildOrderEvent(order), "order.updated " + order.getId() + " status " + order.getStatus());
+  }
+
+  protected void broadcast(String json, String summary) {
+    for (WebSocketSession session : sessions.values()) {
+      if (session.isOpen()) {
+        try {
+          session.sendMessage(new TextMessage(json));
+          wsActivity.pushed(WsActivity.ORDERS, summary);
+        } catch (IOException e) {
+          log.warn("Failed to send order event to session {}: {}", session.getId(), e.getMessage());
+          // A failed write leaves the session unreliable: stop pushing to it and count it closed.
+          dropSession(session, "send failed");
+        }
+      }
+    }
+  }
+
+  protected String buildOrderEvent(Order order) {
+    try {
+      return objectMapper.writeValueAsString(
+          Map.of("event", "order.updated", "payload", OrderResponse.from(order)));
+    } catch (IOException e) {
+      throw new RuntimeException(e);
+    }
+  }
+
+  @Override
+  protected void handleTextMessage(WebSocketSession session, TextMessage message) {}
+}

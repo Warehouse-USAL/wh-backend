@@ -1,0 +1,20 @@
+# Prod-only additions, merged over collector-config.yml by a second --config flag
+# (docker-compose.prod.yml). Maps merge; lists are replaced, hence the full receivers list.
+#
+# Caddy lives on the shared wh-proxy network, outside this repo, and only exposes metrics once
+# its owner applies the manual step in docs/CONSOLE.md. Until then this job only reports up=0
+# and logs one "Failed to scrape" warning per interval (hence 60s); the rest of the metrics
+# pipeline is unaffected.
+receivers:
+  prometheus/caddy:
+    config:
+      scrape_configs:
+        - job_name: caddy
+          scrape_interval: 60s
+          static_configs:
+            - targets: [caddy:2019]
+
+service:
+  pipelines:
+    metrics:
+      receivers: [otlp, prometheus, prometheus/caddy]

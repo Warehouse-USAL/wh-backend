@@ -3,7 +3,7 @@
 build/
 out/
 target/
-!gradle/wrapper/gradle-wrapper.jar
+!**/gradle/wrapper/gradle-wrapper.jar
 !**/src/main/**/build/
 !**/src/test/**/build/
 
@@ -48,8 +48,8 @@ logs/
 
 # ─── Config / properties (ignore actuals, keep examples) ──────────────────────
 *.properties
-!gradle/wrapper/gradle-wrapper.properties
-!src/test/resources/application.properties
+!**/gradle/wrapper/gradle-wrapper.properties
+!**/src/test/resources/application.properties
 *.yml
 *.yaml
 !*.example.properties
@@ -64,6 +64,7 @@ logs/
 
 # ─── Local data (bind-mounted Docker volumes) ─────────────────────────────────
 data/
+!console/src/data/
 
 # ─── Superpowers internal docs ────────────────────────────────────────────────
 docs/superpowers/
@@ -73,7 +74,7 @@ docs/specs/
 # ─── Java ─────────────────────────────────────────────────────────────────────
 *.class
 *.jar
-!gradle/wrapper/gradle-wrapper.jar
+!**/gradle/wrapper/gradle-wrapper.jar
 *.war
 *.ear
 hs_err_pid*
@@ -81,6 +82,8 @@ hs_err_pid*
 # ─── Test reports & coverage ──────────────────────────────────────────────────
 test-results/
 coverage/
+bridge/coverage.out
+bridge/coverage.xml
 
 # ─── Bruno ────────────────────────────────────────────────────────────────────
 docs/bruno/collection.bru

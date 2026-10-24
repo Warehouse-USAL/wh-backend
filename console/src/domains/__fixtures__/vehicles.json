@@ -1,0 +1,36 @@
+{
+  "pagination": {
+    "page": 0,
+    "size": 2,
+    "total_elements": 6,
+    "total_pages": 3
+  },
+  "vehicles": [
+    {
+      "id": "veh-agv-01",
+      "name": "AGV-01",
+      "status": "idle",
+      "position": {
+        "x": 12.5,
+        "y": 4.0
+      },
+      "battery": 96,
+      "current_order_id": null,
+      "last_seen_at": "2026-10-18T19:42:36.357Z",
+      "operation_since": "2026-09-03T19:45:36.357Z"
+    },
+    {
+      "id": "veh-agv-02",
+      "name": "AGV-02",
+      "status": "idle",
+      "position": {
+        "x": 30.0,
+        "y": 8.0
+      },
+      "battery": 88,
+      "current_order_id": null,
+      "last_seen_at": "2026-10-18T19:40:36.357Z",
+      "operation_since": "2026-06-20T19:45:36.357Z"
+    }
+  ]
+}

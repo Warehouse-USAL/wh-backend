@@ -1,0 +1,402 @@
+{
+  "computed_metrics" : [ {
+    "name" : "restock_suggestions",
+    "path" : "/metrics/restock-suggestions",
+    "display_name" : "Sugerencia de reposición",
+    "description" : "Demanda diaria ponderada y, por producto, si hay que reponer y cuánto.",
+    "params" : [ {
+      "name" : "alpha",
+      "type" : "number",
+      "min" : 0.0,
+      "max" : 1.0,
+      "description" : "Peso de la demanda reciente frente a la de largo plazo"
+    }, {
+      "name" : "recent_days",
+      "type" : "integer",
+      "min" : 1.0,
+      "max" : 364.0,
+      "description" : "Días hacia atrás que cuentan como período reciente"
+    }, {
+      "name" : "long_days",
+      "type" : "integer",
+      "min" : 2.0,
+      "max" : 365.0,
+      "description" : "Días hacia atrás del período largo; debe ser mayor que recent_days"
+    }, {
+      "name" : "safety_days",
+      "type" : "number",
+      "min" : 0.0,
+      "description" : "Días de demanda que cubre el stock de seguridad"
+    }, {
+      "name" : "lead_time_days",
+      "type" : "number",
+      "min" : 0.0,
+      "description" : "Días que tarda en llegar una reposición"
+    }, {
+      "name" : "coverage_days",
+      "type" : "number",
+      "min" : 0.0,
+      "description" : "Días de stock que se busca cubrir después de reponer"
+    } ],
+    "filters" : [ {
+      "name" : "product_ids",
+      "type" : "string[]",
+      "description" : "Limita a estos productos; vacío o ausente = todos los activos"
+    }, {
+      "name" : "category",
+      "type" : "string",
+      "description" : "Limita a una categoría del catálogo"
+    } ]
+  } ],
+  "metrics" : [ {
+    "name" : "wh.vehicle.battery",
+    "display_name" : "Vehicle battery",
+    "unit" : "%",
+    "type" : "gauge",
+    "dimensions" : [ "vehicle_id" ],
+    "permitted_aggregations" : [ "avg", "min", "max", "last" ]
+  }, {
+    "name" : "wh.vehicle.state",
+    "display_name" : "Vehicle state",
+    "unit" : "1",
+    "type" : "gauge",
+    "dimensions" : [ "vehicle_id", "state" ],
+    "permitted_aggregations" : [ "count", "avg", "max", "last" ]
+  }, {
+    "name" : "wh.vehicle.transitions",
+    "display_name" : "Vehicle status transitions",
+    "unit" : "1",
+    "type" : "counter",
+    "dimensions" : [ "vehicle_id", "from", "to", "category" ],
+    "permitted_aggregations" : [ "increase", "rate" ]
+  }, {
+    "name" : "http.server.duration",
+    "display_name" : "HTTP request duration",
+    "unit" : "ms",
+    "type" : "histogram",
+    "dimensions" : [ "route", "method", "status_class" ],
+    "permitted_aggregations" : [ "p50", "p95", "p99", "rate", "increase" ]
+  }, {
+    "name" : "mongo.command.duration",
+    "display_name" : "Mongo command duration",
+    "unit" : "ms",
+    "type" : "histogram",
+    "dimensions" : [ "collection", "command", "outcome" ],
+    "permitted_aggregations" : [ "p50", "p95", "p99", "rate", "increase" ]
+  }, {
+    "name" : "kafka.messages",
+    "display_name" : "Kafka messages",
+    "unit" : "1",
+    "type" : "counter",
+    "dimensions" : [ "topic", "direction", "result" ],
+    "permitted_aggregations" : [ "rate", "increase" ]
+  }, {
+    "name" : "kafka.publish.duration",
+    "display_name" : "Kafka publish duration",
+    "unit" : "ms",
+    "type" : "histogram",
+    "dimensions" : [ "topic", "result" ],
+    "permitted_aggregations" : [ "p50", "p95", "p99", "rate", "increase" ]
+  }, {
+    "name" : "ws.sessions",
+    "display_name" : "WebSocket sessions",
+    "unit" : "1",
+    "type" : "gauge",
+    "dimensions" : [ "feed" ],
+    "permitted_aggregations" : [ "avg", "max", "last" ]
+  }, {
+    "name" : "ws.messages",
+    "display_name" : "WebSocket messages",
+    "unit" : "1",
+    "type" : "counter",
+    "dimensions" : [ "feed", "result" ],
+    "permitted_aggregations" : [ "rate", "increase" ]
+  }, {
+    "name" : "jvm.heap.used",
+    "display_name" : "JVM heap used",
+    "unit" : "By",
+    "type" : "gauge",
+    "dimensions" : [ ],
+    "permitted_aggregations" : [ "avg", "max", "last" ]
+  }, {
+    "name" : "jvm.threads",
+    "display_name" : "JVM threads",
+    "unit" : "1",
+    "type" : "gauge",
+    "dimensions" : [ ],
+    "permitted_aggregations" : [ "avg", "max", "last" ]
+  }, {
+    "name" : "jvm.gc.time",
+    "display_name" : "JVM GC time",
+    "unit" : "ms",
+    "type" : "counter",
+    "dimensions" : [ "gc" ],
+    "permitted_aggregations" : [ "rate", "increase" ]
+  }, {
+    "name" : "tomcat.threads",
+    "display_name" : "Tomcat threads",
+    "unit" : "1",
+    "type" : "gauge",
+    "dimensions" : [ "state" ],
+    "permitted_aggregations" : [ "avg", "max", "last" ]
+  }, {
+    "name" : "tomcat.connections",
+    "display_name" : "Tomcat connections",
+    "unit" : "1",
+    "type" : "gauge",
+    "dimensions" : [ "state" ],
+    "permitted_aggregations" : [ "avg", "max", "last" ]
+  }, {
+    "name" : "http.server.active",
+    "display_name" : "HTTP requests in flight",
+    "unit" : "1",
+    "type" : "gauge",
+    "dimensions" : [ ],
+    "permitted_aggregations" : [ "avg", "max", "last" ]
+  }, {
+    "name" : "mongo.pool.connections",
+    "display_name" : "Mongo pool connections",
+    "unit" : "1",
+    "type" : "gauge",
+    "dimensions" : [ "state" ],
+    "permitted_aggregations" : [ "avg", "max", "last" ]
+  }, {
+    "name" : "mongo.pool.checkout",
+    "display_name" : "Mongo pool checkout time",
+    "unit" : "ms",
+    "type" : "histogram",
+    "dimensions" : [ ],
+    "permitted_aggregations" : [ "p50", "p95", "p99", "rate", "increase" ]
+  }, {
+    "name" : "mongo.pool.checkout.failed",
+    "display_name" : "Mongo pool checkouts failed",
+    "unit" : "1",
+    "type" : "counter",
+    "dimensions" : [ "reason" ],
+    "permitted_aggregations" : [ "rate", "increase" ]
+  }, {
+    "name" : "bridge.messages",
+    "display_name" : "Bridge messages",
+    "unit" : "1",
+    "type" : "counter",
+    "dimensions" : [ "flow", "result" ],
+    "permitted_aggregations" : [ "rate", "increase" ]
+  }, {
+    "name" : "bridge.callback.duration",
+    "display_name" : "Bridge callback duration",
+    "unit" : "ms",
+    "type" : "histogram",
+    "dimensions" : [ "flow" ],
+    "permitted_aggregations" : [ "p50", "p95", "p99", "rate", "increase" ]
+  }, {
+    "name" : "bridge.publish.duration",
+    "display_name" : "Bridge publish duration",
+    "unit" : "ms",
+    "type" : "histogram",
+    "dimensions" : [ "flow", "result" ],
+    "permitted_aggregations" : [ "p50", "p95", "p99", "rate", "increase" ]
+  }, {
+    "name" : "bridge.processing.duration",
+    "display_name" : "Bridge processing duration",
+    "unit" : "ms",
+    "type" : "histogram",
+    "dimensions" : [ "flow", "result" ],
+    "permitted_aggregations" : [ "p50", "p95", "p99", "rate", "increase" ]
+  }, {
+    "name" : "bridge.consumer.lag",
+    "display_name" : "Bridge consumer lag",
+    "unit" : "1",
+    "type" : "gauge",
+    "dimensions" : [ "flow" ],
+    "permitted_aggregations" : [ "avg", "max", "last" ]
+  }, {
+    "name" : "job.run",
+    "display_name" : "Cron job run",
+    "unit" : "1",
+    "type" : "gauge",
+    "dimensions" : [ "job", "result", "field" ],
+    "permitted_aggregations" : [ "avg", "max", "last" ]
+  }, {
+    "name" : "minio.bucket.size",
+    "display_name" : "MinIO bucket size",
+    "unit" : "By",
+    "type" : "gauge",
+    "dimensions" : [ ],
+    "permitted_aggregations" : [ "avg", "max", "last" ]
+  }, {
+    "name" : "minio.objects",
+    "display_name" : "MinIO objects",
+    "unit" : "1",
+    "type" : "gauge",
+    "dimensions" : [ ],
+    "permitted_aggregations" : [ "avg", "max", "last" ]
+  }, {
+    "name" : "minio.requests",
+    "display_name" : "MinIO S3 requests",
+    "unit" : "1",
+    "type" : "counter",
+    "dimensions" : [ "api" ],
+    "permitted_aggregations" : [ "rate", "increase" ]
+  }, {
+    "name" : "minio.errors",
+    "display_name" : "MinIO S3 errors",
+    "unit" : "1",
+    "type" : "counter",
+    "dimensions" : [ "api", "class" ],
+    "permitted_aggregations" : [ "rate", "increase" ]
+  }, {
+    "name" : "minio.latency",
+    "display_name" : "MinIO S3 time to first byte",
+    "unit" : "s",
+    "type" : "histogram",
+    "dimensions" : [ "api" ],
+    "permitted_aggregations" : [ "p50", "p95", "p99" ]
+  }, {
+    "name" : "minio.traffic.received",
+    "display_name" : "MinIO S3 traffic received",
+    "unit" : "By",
+    "type" : "counter",
+    "dimensions" : [ ],
+    "permitted_aggregations" : [ "rate", "increase" ]
+  }, {
+    "name" : "minio.traffic.sent",
+    "display_name" : "MinIO S3 traffic sent",
+    "unit" : "By",
+    "type" : "counter",
+    "dimensions" : [ ],
+    "permitted_aggregations" : [ "rate", "increase" ]
+  }, {
+    "name" : "collector.received",
+    "display_name" : "Collector points received",
+    "unit" : "1",
+    "type" : "counter",
+    "dimensions" : [ "receiver", "transport" ],
+    "permitted_aggregations" : [ "rate", "increase" ]
+  }, {
+    "name" : "collector.refused",
+    "display_name" : "Collector points refused",
+    "unit" : "1",
+    "type" : "counter",
+    "dimensions" : [ "receiver", "transport" ],
+    "permitted_aggregations" : [ "rate", "increase" ]
+  }, {
+    "name" : "collector.exported",
+    "display_name" : "Collector points exported",
+    "unit" : "1",
+    "type" : "counter",
+    "dimensions" : [ "exporter" ],
+    "permitted_aggregations" : [ "rate", "increase" ]
+  }, {
+    "name" : "collector.export.failed",
+    "display_name" : "Collector points failed to export",
+    "unit" : "1",
+    "type" : "counter",
+    "dimensions" : [ "exporter" ],
+    "permitted_aggregations" : [ "rate", "increase" ]
+  }, {
+    "name" : "collector.export.duration",
+    "display_name" : "Collector export duration",
+    "unit" : "ms",
+    "type" : "histogram",
+    "dimensions" : [ "net_peer_name", "http_status_code" ],
+    "permitted_aggregations" : [ "p50", "p95", "p99", "rate", "increase" ]
+  }, {
+    "name" : "collector.dropped",
+    "display_name" : "Collector points dropped",
+    "unit" : "1",
+    "type" : "counter",
+    "dimensions" : [ "exporter" ],
+    "permitted_aggregations" : [ "rate", "increase" ]
+  }, {
+    "name" : "collector.queue.size",
+    "display_name" : "Collector export queue size",
+    "unit" : "1",
+    "type" : "gauge",
+    "dimensions" : [ "exporter", "data_type" ],
+    "permitted_aggregations" : [ "avg", "max", "last" ]
+  }, {
+    "name" : "vm.rows.ingested",
+    "display_name" : "VictoriaMetrics rows ingested",
+    "unit" : "1",
+    "type" : "counter",
+    "dimensions" : [ "type" ],
+    "permitted_aggregations" : [ "rate", "increase" ]
+  }, {
+    "name" : "vm.rows.rejected",
+    "display_name" : "VictoriaMetrics rows rejected",
+    "unit" : "1",
+    "type" : "counter",
+    "dimensions" : [ "reason" ],
+    "permitted_aggregations" : [ "rate", "increase" ]
+  }, {
+    "name" : "vm.series.active",
+    "display_name" : "VictoriaMetrics cache entries",
+    "unit" : "1",
+    "type" : "gauge",
+    "dimensions" : [ "type" ],
+    "permitted_aggregations" : [ "avg", "max", "last" ]
+  }, {
+    "name" : "vm.disk.used",
+    "display_name" : "VictoriaMetrics data size",
+    "unit" : "By",
+    "type" : "gauge",
+    "dimensions" : [ "type" ],
+    "permitted_aggregations" : [ "avg", "max", "last", "count" ]
+  }, {
+    "name" : "vm.disk.free",
+    "display_name" : "VictoriaMetrics free disk",
+    "unit" : "By",
+    "type" : "gauge",
+    "dimensions" : [ "path" ],
+    "permitted_aggregations" : [ "avg", "max", "last" ]
+  }, {
+    "name" : "vm.query.duration",
+    "display_name" : "VictoriaMetrics request duration",
+    "unit" : "s",
+    "type" : "gauge",
+    "dimensions" : [ "path", "quantile" ],
+    "permitted_aggregations" : [ "avg", "max", "last" ]
+  }, {
+    "name" : "vm.requests",
+    "display_name" : "VictoriaMetrics requests",
+    "unit" : "1",
+    "type" : "counter",
+    "dimensions" : [ "path" ],
+    "permitted_aggregations" : [ "rate", "increase" ]
+  }, {
+    "name" : "vm.errors",
+    "display_name" : "VictoriaMetrics request errors",
+    "unit" : "1",
+    "type" : "counter",
+    "dimensions" : [ "path" ],
+    "permitted_aggregations" : [ "rate", "increase" ]
+  }, {
+    "name" : "edge.up",
+    "display_name" : "Edge scrape up",
+    "unit" : "1",
+    "type" : "gauge",
+    "dimensions" : [ ],
+    "permitted_aggregations" : [ "avg", "max", "last" ]
+  }, {
+    "name" : "edge.requests",
+    "display_name" : "Edge requests",
+    "unit" : "1",
+    "type" : "counter",
+    "dimensions" : [ "server", "handler", "host" ],
+    "permitted_aggregations" : [ "rate", "increase" ]
+  }, {
+    "name" : "edge.duration",
+    "display_name" : "Edge request duration",
+    "unit" : "s",
+    "type" : "histogram",
+    "dimensions" : [ "server", "handler", "host", "code", "method" ],
+    "permitted_aggregations" : [ "p50", "p95", "p99", "rate", "increase" ]
+  }, {
+    "name" : "edge.errors",
+    "display_name" : "Edge handler errors",
+    "unit" : "1",
+    "type" : "counter",
+    "dimensions" : [ "server", "handler", "host" ],
+    "permitted_aggregations" : [ "rate", "increase" ]
+  } ]
+}
