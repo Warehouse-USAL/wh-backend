@@ -4,6 +4,7 @@ import com.usal.whbackend.api.Pagination;
 import com.usal.whbackend.domain.StockAdjustment;
 import com.usal.whbackend.service.StockAdjustmentResult;
 import com.usal.whbackend.service.StockAdjustmentService;
+import com.usal.whbackend.service.StockChangeConflicts;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -59,8 +60,10 @@ public class StockAdjustmentController {
   public ResponseEntity<Map<String, Object>> adjustStock(
       @PathVariable String id, @Valid @RequestBody CreateStockAdjustmentRequest request) {
     StockAdjustmentResult result =
-        stockAdjustmentService.adjust(
-            id, request.quantity().intValueExact(), request.type(), request.reason());
+        StockChangeConflicts.translating(
+            () ->
+                stockAdjustmentService.adjust(
+                    id, request.quantity().intValueExact(), request.type(), request.reason()));
     return ResponseEntity.status(HttpStatus.CREATED)
         .body(
             Map.of(

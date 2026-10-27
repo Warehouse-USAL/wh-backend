@@ -46,6 +46,12 @@ pedido creado en el mismo instante que un ajuste puede quedar evaluado contra el
 alta de pedidos no toma el guarda (hoy serializa solo con candados en memoria), así que esa carrera
 sigue acotada a la ventana de dos transacciones solapadas.
 
+El mismo `409 STOCK_CHANGE_CONFLICT` se responde cuando dos cambios simultáneos tocan **la misma
+posición** (`POST /warehouse/positions/{id}/stock-adjustments` y `PATCH /warehouse/positions/{id}`):
+el segundo choca con un `WriteConflict` de Mongo (código 112, `TransientTransactionError`) al
+escribir la posición o al confirmar la transacción. Nunca se responde 500 por esto; el perdedor no
+cambió nada y se puede reintentar.
+
 ## Endpoints
 
 - `POST /warehouse/positions/{id}/stock-adjustments` (SUPERADMIN, ADMIN_WAREHOUSE): body

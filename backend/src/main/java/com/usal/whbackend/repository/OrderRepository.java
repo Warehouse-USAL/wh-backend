@@ -1,11 +1,11 @@
 package com.usal.whbackend.repository;
 
-import com.mongodb.MongoException;
 import com.usal.whbackend.config.RequestIdFilter;
 import com.usal.whbackend.domain.Order;
 import com.usal.whbackend.domain.OrderStatus;
 import com.usal.whbackend.repository.kafka.OrderCompletedMessage;
 import com.usal.whbackend.repository.kafka.OrderMessage;
+import com.usal.whbackend.service.StockChangeConflicts;
 import com.usal.whbackend.telemetry.TelemetryPort;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
@@ -26,10 +26,8 @@ import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
-import org.springframework.http.HttpStatus;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
-import org.springframework.web.server.ResponseStatusException;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 
@@ -134,21 +132,11 @@ public class OrderRepository {
           new Update().inc("version", 1),
           STOCK_GUARDS);
     } catch (DataAccessException e) {
-      if (isTransientTransactionError(e)) {
-        throw new ResponseStatusException(HttpStatus.CONFLICT, "STOCK_CHANGE_CONFLICT", e);
+      if (StockChangeConflicts.isTransientConflict(e)) {
+        throw StockChangeConflicts.conflict(e);
       }
       throw e;
     }
-  }
-
-  private static boolean isTransientTransactionError(Throwable error) {
-    for (Throwable t = error; t != null; t = t.getCause()) {
-      if (t instanceof MongoException m
-          && m.hasErrorLabel(MongoException.TRANSIENT_TRANSACTION_ERROR_LABEL)) {
-        return true;
-      }
-    }
-    return false;
   }
 
   /** Pending and in-progress orders that include {@code productId} — the ones holding its stock. */

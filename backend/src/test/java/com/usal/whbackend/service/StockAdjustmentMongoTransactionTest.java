@@ -10,9 +10,14 @@ import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 
 import com.mongodb.client.MongoClient;
 import com.mongodb.client.MongoClients;
+import com.usal.whbackend.api.error.GlobalExceptionHandler;
+import com.usal.whbackend.api.stock.StockAdjustmentController;
+import com.usal.whbackend.api.warehouse.position.PositionController;
 import com.usal.whbackend.api.warehouse.position.UpdatePositionRequest;
 import com.usal.whbackend.domain.Order;
 import com.usal.whbackend.domain.OrderItem;
@@ -51,7 +56,12 @@ import org.springframework.data.mongodb.MongoTransactionManager;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.SimpleMongoClientDatabaseFactory;
 import org.springframework.data.mongodb.repository.support.MongoRepositoryFactory;
+import org.springframework.http.MediaType;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 import org.springframework.transaction.support.TransactionTemplate;
@@ -370,5 +380,93 @@ class StockAdjustmentMongoTransactionTest {
     assertThat(stockOf("pos-a")).isEqualTo(3);
     assertThat(stockOf("pos-b")).isEqualTo(5);
     assertThat(historyCount()).isEqualTo(1);
+  }
+
+  /**
+   * Holds a first change of {@code pos-1} uncommitted (its position write is in flight), runs a
+   * second HTTP request against the same position and returns its response; then lets the first one
+   * commit. The second request must lose with a clean 409, never a 500.
+   */
+  private MvcResult requestWhileAnotherChangeOfTheSamePositionIsInFlight(
+      MockHttpServletRequestBuilder request) throws Exception {
+    StockAdjustmentService service = context.getBean(StockAdjustmentService.class);
+    MockMvc mvc =
+        MockMvcBuilders.standaloneSetup(
+                new StockAdjustmentController(service),
+                new PositionController(
+                    context.getBean(PositionService.class),
+                    context.getBean(ProductRepository.class)))
+            .setControllerAdvice(new GlobalExceptionHandler())
+            .build();
+    TransactionTemplate tx =
+        new TransactionTemplate(context.getBean(PlatformTransactionManager.class));
+    CountDownLatch firstHasWritten = new CountDownLatch(1);
+    CountDownLatch secondDone = new CountDownLatch(1);
+    ExecutorService pool = Executors.newFixedThreadPool(2);
+    try {
+      Future<?> first =
+          pool.submit(
+              () ->
+                  tx.executeWithoutResult(
+                      s -> {
+                        service.adjust("pos-1", 2, StockAdjustmentType.MANUAL_DECREASE, null);
+                        firstHasWritten.countDown();
+                        try {
+                          secondDone.await(30, TimeUnit.SECONDS);
+                        } catch (InterruptedException e) {
+                          Thread.currentThread().interrupt();
+                        }
+                      }));
+      assertThat(firstHasWritten.await(30, TimeUnit.SECONDS)).isTrue();
+      Future<MvcResult> second =
+          pool.submit(
+              () -> {
+                try {
+                  return mvc.perform(request).andReturn();
+                } finally {
+                  secondDone.countDown();
+                }
+              });
+      MvcResult result = second.get(30, TimeUnit.SECONDS);
+      first.get(30, TimeUnit.SECONDS);
+      return result;
+    } finally {
+      pool.shutdownNow();
+    }
+  }
+
+  @Test
+  void concurrentAdjustmentsOfTheSamePosition_theLoserAnswers409_notA500() throws Exception {
+    seedSpecExample();
+
+    MvcResult loser =
+        requestWhileAnotherChangeOfTheSamePositionIsInFlight(
+            post("/warehouse/positions/pos-1/stock-adjustments")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"quantity\": 1}"));
+
+    assertThat(loser.getResponse().getStatus()).isEqualTo(409);
+    assertThat(loser.getResponse().getContentAsString()).contains("STOCK_CHANGE_CONFLICT");
+    // Only the first adjustment landed; the loser changed nothing.
+    assertThat(stockOf("pos-1")).isEqualTo(12);
+    assertThat(historyCount()).isEqualTo(1);
+  }
+
+  @Test
+  void concurrentPatchOfTheSamePositionAsAnAdjustment_theLoserAnswers409_notA500()
+      throws Exception {
+    seedSpecExample();
+
+    MvcResult loser =
+        requestWhileAnotherChangeOfTheSamePositionIsInFlight(
+            patch("/warehouse/positions/pos-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"currentStock\": 8}"));
+
+    assertThat(loser.getResponse().getStatus()).isEqualTo(409);
+    assertThat(loser.getResponse().getContentAsString()).contains("STOCK_CHANGE_CONFLICT");
+    assertThat(stockOf("pos-1")).isEqualTo(12);
+    assertThat(historyCount()).isEqualTo(1);
+    assertThat(statusOf("pending-4")).isEqualTo(OrderStatus.PENDING);
   }
 }
