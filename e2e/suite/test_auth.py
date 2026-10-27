@@ -68,7 +68,6 @@ def test_login_disabled_account_is_403(admin, factory, anon):
     anon.post("/auth/login", json={"email": u.email, "password": u.password}).expect(200)
 
 
-@pytest.mark.known_failure(bug="BUG-AUTH-1", reason="a JWT issued before the account was deactivated keeps working until it expires (JwtAuthFilter never consults the user store)")
 def test_deactivated_user_existing_token_is_rejected(admin, factory):
     """Deactivating a user invalidates the tokens it already holds"""
     u = factory.user(admin, "OPERATOR")

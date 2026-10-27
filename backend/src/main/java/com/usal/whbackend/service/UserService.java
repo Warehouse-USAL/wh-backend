@@ -2,12 +2,14 @@ package com.usal.whbackend.service;
 
 import com.usal.whbackend.api.user.CreateUserRequest;
 import com.usal.whbackend.api.user.UpdateUserRequest;
+import com.usal.whbackend.config.UserActivityCache;
 import com.usal.whbackend.domain.User;
 import com.usal.whbackend.domain.UserRole;
 import com.usal.whbackend.repository.UserRepository;
 import com.usal.whbackend.service.exception.EmailAlreadyExistsException;
 import com.usal.whbackend.service.exception.UserNotFoundException;
 import java.time.Instant;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
@@ -20,6 +22,7 @@ public class UserService {
 
   private final UserRepository userRepository;
   private final PasswordEncoder passwordEncoder;
+  private UserActivityCache userActivityCache;
 
   public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder) {
     this.userRepository = userRepository;
@@ -67,6 +70,12 @@ public class UserService {
     return userRepository.save(user);
   }
 
+  /** Forgets the cached "is this user active" answer as soon as the account changes. */
+  @Autowired(required = false)
+  public void setUserActivityCache(UserActivityCache userActivityCache) {
+    this.userActivityCache = userActivityCache;
+  }
+
   public User updateUser(String id, UpdateUserRequest request) {
     User user = userRepository.findById(id).orElseThrow(() -> new UserNotFoundException(id));
     if (request.name() != null) user.setName(request.name());
@@ -74,7 +83,11 @@ public class UserService {
     if (request.active() != null) user.setActive(request.active());
     if (request.supplier() != null) user.setSupplier(request.supplier());
     normalizeSupplierForRole(user);
-    return userRepository.save(user);
+    User saved = userRepository.save(user);
+    if (userActivityCache != null) {
+      userActivityCache.evict(id);
+    }
+    return saved;
   }
 
   /**
