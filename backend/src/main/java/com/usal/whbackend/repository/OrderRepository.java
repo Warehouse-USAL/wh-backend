@@ -93,11 +93,34 @@ public class OrderRepository {
   }
 
   public Order cancel(Order order, String reason) {
+    Order saved = cancelWithoutPublishing(order, reason);
+    publishCancelled(saved);
+    return saved;
+  }
+
+  /**
+   * Cancels an order without telling Infra, so callers can publish after their transaction commits.
+   */
+  public Order cancelWithoutPublishing(Order order, String reason) {
     order.setCancelReason(reason);
     order.setStatus(OrderStatus.CANCELLED);
-    Order saved = mongo.save(order);
-    publishOrder(saved, "cancelled");
-    return saved;
+    return mongo.save(order);
+  }
+
+  /** Tells Infra, on the {@code orders} topic, that an order was cancelled. */
+  public void publishCancelled(Order order) {
+    publishOrder(order, "cancelled");
+  }
+
+  /** Pending and in-progress orders that include {@code productId} — the ones holding its stock. */
+  public List<Order> findActiveByProductId(String productId) {
+    Query query =
+        Query.query(
+            Criteria.where("status")
+                .in(OrderStatus.PENDING, OrderStatus.IN_PROGRESS)
+                .and("items.productId")
+                .is(productId));
+    return mongoTemplate.find(query, Order.class);
   }
 
   /**

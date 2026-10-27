@@ -315,4 +315,48 @@ class OrderRepositoryTest {
 
     assertThrows(RuntimeException.class, () -> repo.save(order));
   }
+
+  @Test
+  void cancelWithoutPublishing_persistsTheCancellationAndSendsNothing() throws Exception {
+    Order order = new Order();
+    order.setId("ord-1");
+    order.setStatus(OrderStatus.PENDING);
+    when(mongo.save(order)).thenReturn(order);
+
+    Order saved = orderRepository.cancelWithoutPublishing(order, "INSUFFICIENT_STOCK: x");
+
+    assertEquals(OrderStatus.CANCELLED, saved.getStatus());
+    assertEquals("INSUFFICIENT_STOCK: x", saved.getCancelReason());
+    Thread.sleep(100);
+    org.mockito.Mockito.verifyNoInteractions(kafka);
+  }
+
+  @Test
+  void publishCancelled_sendsTheCancelledMessageKeyedByOrderId() throws Exception {
+    Order order = new Order();
+    order.setId("ord-1");
+    order.setStops(List.of("WH|A-L1-P01"));
+
+    orderRepository.publishCancelled(order);
+
+    Thread.sleep(100);
+    JsonNode node = new ObjectMapper().readTree(sentValue("orders", "ord-1"));
+    assertEquals("cancelled", node.get("status").asString());
+  }
+
+  @Test
+  void findActiveByProductId_queriesPendingAndInProgressOrdersWithTheProduct() {
+    Order order = new Order();
+    when(mongoTemplate.find(any(Query.class), eq(Order.class))).thenReturn(List.of(order));
+
+    assertEquals(List.of(order), orderRepository.findActiveByProductId("prod-1"));
+
+    ArgumentCaptor<Query> query = ArgumentCaptor.forClass(Query.class);
+    verify(mongoTemplate).find(query.capture(), eq(Order.class));
+    org.bson.Document criteria = query.getValue().getQueryObject();
+    assertEquals("prod-1", criteria.get("items.productId"));
+    assertEquals(
+        List.of(OrderStatus.PENDING, OrderStatus.IN_PROGRESS),
+        ((org.bson.Document) criteria.get("status")).get("$in"));
+  }
 }

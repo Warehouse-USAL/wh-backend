@@ -69,9 +69,10 @@ public class PositionController {
   }
 
   @PatchMapping("/warehouse/positions/{id}")
-  public ResponseEntity<PositionResponse> updatePosition(
+  public ResponseEntity<UpdatePositionResponse> updatePosition(
       @PathVariable String id, @Valid @RequestBody UpdatePositionRequest request) {
-    return ResponseEntity.ok(PositionResponse.from(positionService.updatePosition(id, request)));
+    return ResponseEntity.ok(
+        UpdatePositionResponse.from(positionService.updatePosition(id, request)));
   }
 
   @DeleteMapping("/warehouse/positions/{id}")
