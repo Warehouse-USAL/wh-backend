@@ -113,17 +113,16 @@ def test_idempotency_key_replay_returns_original_even_if_body_differs(operator, 
     assert factory.stock(s.id)["reserved"] == 2
 
 
-@pytest.mark.known_failure(bug="BUG-ORDERS-2", reason="racing requests with the same Idempotency-Key: the losers answer 500 (DataIntegrityViolationException, Mongo WriteConflict 112 on the idempotency claim) instead of replaying the order or 409 IDEMPOTENCY_REQUEST_IN_PROGRESS as the OpenAPI contract says; no duplicate order is created, but the client gets a 5xx")
 def test_idempotency_key_concurrent_requests_create_one_order(operator, factory):
-    """Racing requests with one key create exactly one order (others replay it or get IDEMPOTENCY_REQUEST_IN_PROGRESS)"""
+    """Racing requests with one key create exactly one order and every request gets it back (201)"""
     s = factory.stocked(10)
     key = str(uuid.uuid4())
     body = factory.order_body([(s.id, 2)])
     with ThreadPoolExecutor(max_workers=6) as pool:
         rs = list(pool.map(lambda _: operator.post("/orders", json=body, headers={"Idempotency-Key": key}), range(6)))
-    assert all(r.status in (201, 409) for r in rs), [(r.status, r.text[:100]) for r in rs]
-    assert all(r.code == "IDEMPOTENCY_REQUEST_IN_PROGRESS" for r in rs if r.status == 409)
-    ids = {r.json_("order", "id") for r in rs if r.status == 201}
+    # the losers replay the winner's order instead of failing with a 5xx
+    assert all(r.status == 201 for r in rs), [(r.status, r.text[:100]) for r in rs]
+    ids = {r.json_("order", "id") for r in rs}
     assert len(ids) == 1
     assert factory.stock(s.id)["reserved"] == 2
 
@@ -384,7 +383,6 @@ def test_internal_order_admin_endpoints(warehouse, operator, factory, vehicle_id
 
 
 # ───────────────────────────── concurrency ─────────────────────────────
-@pytest.mark.known_failure(bug="BUG-ORDERS-1", reason="OVERSELL: OrderService.createOrder is @Transactional but the per-product ReentrantLock is released at the end of executeCreateOrder, BEFORE the transaction commits, so concurrent requests all read the same available/reserved snapshot and all pass the stock check (12 parallel orders of 3 units on 10 units all got 201)")
 def test_concurrent_orders_on_scarce_stock_never_oversell(operator, operator2, factory):
     """12 parallel orders of 3 units on 10 units in stock: at most 3 win, the rest get INSUFFICIENT_STOCK, reserved never exceeds physical"""
     s = factory.stocked(10)
