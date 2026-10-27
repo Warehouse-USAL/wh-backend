@@ -30,12 +30,12 @@ Safety: the stack uses compose project `whsuite`, publishes no host ports, uses 
 
 | Area | Total | Pass | Fail | Known failure | Skipped |
 |---|---|---|---|---|---|
-| auth | 56 | 53 | 0 | 3 | 0 |
+| auth | 56 | 54 | 0 | 2 | 0 |
 | bridge | 8 | 8 | 0 | 0 | 0 |
 | catalog | 30 | 29 | 0 | 1 | 0 |
 | console | 23 | 23 | 0 | 0 | 0 |
-| metrics_query | 30 | 29 | 0 | 1 | 0 |
-| orders | 39 | 36 | 0 | 3 | 0 |
+| metrics_query | 30 | 30 | 0 | 0 | 0 |
+| orders | 39 | 38 | 0 | 1 | 0 |
 | platform | 12 | 11 | 0 | 1 | 0 |
 | restock | 12 | 11 | 0 | 1 | 0 |
 | stock_adjustments | 23 | 22 | 0 | 1 | 0 |
@@ -44,8 +44,8 @@ Safety: the stack uses compose project `whsuite`, publishes no host ports, uses 
 | warehouse | 17 | 16 | 0 | 1 | 0 |
 | websockets | 16 | 16 | 0 | 0 | 0 |
 | flow | 7 | 7 | 0 | 0 | 0 |
-| resilience | 9 | 8 | 0 | 1 | 0 |
-| **all** | 302 | 287 | 0 | 15 | 0 |
+| resilience | 9 | 9 | 0 | 0 | 0 |
+| **all** | 302 | 292 | 0 | 10 | 0 |
 
 ### Coverage matrix: capability -> test id -> status
 
@@ -65,7 +65,7 @@ Group `default` plays Infra by hand, `flow` uses the real chain, `resilience` st
 | `test_auth.py::test_login_malformed_and_missing_fields` | Malformed JSON is 400 MALFORMED_REQUEST; missing fields never 500 | default | passed |  |
 | `test_auth.py::test_login_has_no_lockout_valid_login_still_works_after_failures` | No account lockout exists: 8 bad attempts do not block the next valid login (documented behaviour) | default | passed |  |
 | `test_auth.py::test_login_disabled_account_is_403` | A deactivated user cannot log in (403 ACCOUNT_DISABLED) and can again once reactivated | default | passed |  |
-| `test_auth.py::test_deactivated_user_existing_token_is_rejected` | Deactivating a user invalidates the tokens it already holds | default | known-failure | BUG-AUTH-1: a JWT issued before the account was deactivated keeps working until it expires (JwtAuthFilter never consults the user store) |
+| `test_auth.py::test_deactivated_user_existing_token_is_rejected` | Deactivating a user invalidates the tokens it already holds | default | passed |  |
 | `test_auth.py::test_no_token_is_401_with_json_error` | Protected endpoint without a token -> 401 UNAUTHORIZED JSON | default | passed |  |
 | `test_auth.py::test_jwt_tampering_is_rejected` | Altered payload (role escalation) or stripped signature -> 401 | default | passed |  |
 | `test_auth.py::test_jwt_signed_with_other_secret_is_rejected` | A well-formed token signed with a different secret -> 401 | default | passed |  |
@@ -181,7 +181,7 @@ Group `default` plays Infra by hand, `flow` uses the real chain, `resilience` st
 | `test_metrics_query.py::test_metrics_query_returns_chart_ready_series_for_a_live_vehicle` | A vehicle reported through /infra shows up in wh.vehicle.battery as [epochSeconds, value] points (backend -> OTEL -> VictoriaMetrics -> API) | default | passed |  |
 | `test_metrics_query.py::test_restock_suggestions_row_shape_and_stock_link` | A row per active product with demand/safety/reorder/target/inventory fields, available_stock matching the product's stock; filters narrow it | default | passed |  |
 | `test_metrics_query.py::test_restock_suggestions_count_open_restock_orders` | on_order_stock = quantity of open restock orders minus what has been LOCATED on shelves | default | passed |  |
-| `test_metrics_query.py::test_restock_suggestions_ignore_cancelled_restock_orders` | A cancelled restock order is not stock on order | default | known-failure | BUG-RESTOCK-1: cancelled restock orders still count as stock on order: RestockSuggestionService.findOnOrder reads every RestockOrder of the product (it projects only productId/quantityRequested, never status), so after #147 a cancelled order keeps inflating inventory_position and suppresses the restock suggestion |
+| `test_metrics_query.py::test_restock_suggestions_ignore_cancelled_restock_orders` | A cancelled restock order is not stock on order | default | passed |  |
 | `test_metrics_query.py::test_restock_suggestions_param_validation[patch0-alpha]` | Out-of-range or missing params -> 400 INVALID_METRIC_PARAMS naming the offender | default | passed |  |
 | `test_metrics_query.py::test_restock_suggestions_param_validation[patch1-alpha]` | Out-of-range or missing params -> 400 INVALID_METRIC_PARAMS naming the offender | default | passed |  |
 | `test_metrics_query.py::test_restock_suggestions_param_validation[patch2-recent_days]` | Out-of-range or missing params -> 400 INVALID_METRIC_PARAMS naming the offender | default | passed |  |
@@ -219,7 +219,7 @@ Group `default` plays Infra by hand, `flow` uses the real chain, `resilience` st
 | `test_orders.py::test_idempotency_key_replays_the_same_order` | Same Idempotency-Key + same user: the retry returns the original order, reserves once and publishes once | default | passed |  |
 | `test_orders.py::test_idempotency_key_of_another_user_conflicts` | The same key used by a different user -> 409 IDEMPOTENCY_KEY_USER_MISMATCH and no order | default | passed |  |
 | `test_orders.py::test_idempotency_key_replay_returns_original_even_if_body_differs` | A replayed key with a different body gets the original order back (no second reservation) | default | passed |  |
-| `test_orders.py::test_idempotency_key_concurrent_requests_create_one_order` | Racing requests with one key create exactly one order (others replay it or get IDEMPOTENCY_REQUEST_IN_PROGRESS) | default | known-failure | BUG-ORDERS-2: racing requests with the same Idempotency-Key: the losers answer 500 (DataIntegrityViolationException, Mongo WriteConflict 112 on the idempotency claim) instead of replaying the order or 409 IDEMPOTENCY_REQUEST_IN_PROGRESS as the OpenAPI contract says; no duplicate order is created, but the client gets a 5xx |
+| `test_orders.py::test_idempotency_key_concurrent_requests_create_one_order` | Racing requests with one key create exactly one order (others replay it or get IDEMPOTENCY_REQUEST_IN_PROGRESS) | default | passed |  |
 | `test_orders.py::test_orders_topic_message_has_ordered_stops_from_qr_codes` | The pending message on topic `orders` is exactly {order_id,status,stops,destination,published_at}; stops are the positions' QR codes in zone/line/position order | default | passed |  |
 | `test_orders.py::test_stops_are_deduplicated_and_ordered_by_line_then_position_name` | Two positions of one product in one zone: stops are in line-number then position-name order, one per position | default | passed |  |
 | `test_orders.py::test_order_without_any_qr_still_created_with_empty_stops` | Positions without a QR are left out of the stops; an order with no stops at all is still created and published | default | passed |  |
@@ -237,7 +237,7 @@ Group `default` plays Infra by hand, `flow` uses the real chain, `resilience` st
 | `test_orders.py::test_infra_cancel_and_late_status_on_finished_orders` | Infra may cancel a pending order; a different status on a finished order is 409 ORDER_NOT_MODIFIABLE, the same status a 200 no-op | default | passed |  |
 | `test_orders.py::test_bad_timestamp_does_not_block_a_real_status_change` | An unparseable Infra timestamp falls back to now instead of failing the transition | default | passed |  |
 | `test_orders.py::test_internal_order_admin_endpoints` | /internal/orders: assign-vehicle and status let WAREHOUSE force a transition; terminal orders refuse | default | passed |  |
-| `test_orders.py::test_concurrent_orders_on_scarce_stock_never_oversell` | 12 parallel orders of 3 units on 10 units in stock: at most 3 win, the rest get INSUFFICIENT_STOCK, reserved never exceeds physical | default | known-failure | BUG-ORDERS-1: OVERSELL: OrderService.createOrder is @Transactional but the per-product ReentrantLock is released at the end of executeCreateOrder, BEFORE the transaction commits, so concurrent requests all read the same available/reserved snapshot and all pass the stock check (12 parallel orders of 3 units on 10 units all got 201) |
+| `test_orders.py::test_concurrent_orders_on_scarce_stock_never_oversell` | 12 parallel orders of 3 units on 10 units in stock: at most 3 win, the rest get INSUFFICIENT_STOCK, reserved never exceeds physical | default | passed |  |
 | `test_orders.py::test_stock_numbers_across_the_whole_lifecycle` | available/reserved/physical through create -> in_progress -> completed, and through create -> cancel | default | passed |  |
 | `test_platform.py::test_actuator_health_public_everything_else_protected` | /actuator/health is public and UP; info/env/metrics/prometheus are not exposed to anonymous callers | default | passed |  |
 | `test_platform.py::test_openapi_documentation_is_served` | /v3/api-docs is valid OpenAPI 3 describing the API; Swagger UI is reachable | default | passed |  |
@@ -349,7 +349,7 @@ Group `default` plays Infra by hand, `flow` uses the real chain, `resilience` st
 | `test_resilience.py::test_kafka_outage_orders_are_not_lost` | Redpanda down: the API keeps accepting orders; once Kafka is back, every order created during the outage reaches Kafka and RabbitMQ | resilience | passed |  |
 | `test_resilience.py::test_rabbitmq_outage_bridge_reconnects_and_nothing_is_lost` | RabbitMQ down: orders are still accepted; after it returns the bridge reconnects, delivers the backlog and Infra callbacks flow again | resilience | passed |  |
 | `test_resilience.py::test_bridge_restart_resumes_from_the_committed_offset` | Bridge down while orders are created: no loss and no duplicates once it is started again | resilience | passed |  |
-| `test_resilience.py::test_mongodb_outage_fails_fast_and_cleanly` | MongoDB down: requests answer 503 {error} within 10s and health reports DOWN quickly | resilience | known-failure | BUG-RESIL-1: MongoDB down: API calls hang ~30s (serverSelectionTimeout) and end in a generic 500 Spring body instead of a fast 503 in the API error contract; /actuator/health also hangs past 5s instead of answering DOWN, so orchestrators cannot detect it quickly |
+| `test_resilience.py::test_mongodb_outage_fails_fast_and_cleanly` | MongoDB down: requests answer 503 {error} within 10s and health reports DOWN quickly | resilience | passed |  |
 | `test_resilience.py::test_mongodb_outage_recovers_without_restarting_the_backend` | After MongoDB returns the backend serves again by itself, with all earlier data intact | resilience | passed |  |
 | `test_resilience.py::test_minio_outage_only_affects_files` | MinIO down: catalogue, orders and health are unaffected; file upload fails with an error instead of hanging; uploads work again afterwards | resilience | passed |  |
 | `test_resilience.py::test_suggestions_redis_outage_does_not_touch_the_backend_and_the_consumer_catches_up` | Suggestions' Redis down: backend unaffected, the service reports unhealthy, and the order completed meanwhile is applied after Redis returns (offset not committed before applying) | resilience | passed |  |
@@ -358,23 +358,23 @@ Group `default` plays Infra by hand, `flow` uses the real chain, `resilience` st
 
 ## Product bugs found (tests keep asserting the correct behaviour)
 
-| Id | Severity | Area | Summary | Suspected location |
-|---|---|---|---|---|
-| BUG-ORDERS-1 | HIGH | orders | Overselling: 12 parallel orders of 3 units on 10 in stock all return 201 | `OrderService.createOrder` is `@Transactional` but the per-product lock is released at the end of `executeCreateOrder`, before commit |
-| BUG-ORDERS-2 | MEDIUM | orders | Concurrent requests with the same `Idempotency-Key` give 500 (Mongo WriteConflict) instead of replay/409; no duplicate order | idempotency claim in `OrderService` / idempotency repository |
-| BUG-STOCK-1 | MEDIUM | stock | Parallel adjustments of the same position give 500 instead of 409 `STOCK_CHANGE_CONFLICT` | `StockAdjustmentService.adjust` (only `guardStockReconciliation` maps the conflict) |
-| BUG-AUTH-1 | MEDIUM | auth | JWT of a deactivated user keeps working until it expires | `JwtAuthFilter` never consults the user store |
-| BUG-RESTOCK-1 | MEDIUM | metrics | Cancelled restock orders still count as stock on order in `/metrics/restock-suggestions` | `RestockSuggestionService.findOnOrder` ignores status |
-| BUG-RESIL-1 | MEDIUM | resilience | MongoDB down: requests hang about 30 s then 500 with Spring default body; `/actuator/health` hangs instead of reporting DOWN | Mongo client `serverSelectionTimeout`, missing 503 mapping, health indicator |
-| BUG-ORDERS-3 | LOW/MEDIUM | orders | `GET /orders` has no sort; page 0 is the oldest rows | `OrderRepository.findByFilters` |
-| BUG-RECEPTION-1 | LOW | restock | Unknown `delivery_unit` in JSON body gives MALFORMED_REQUEST instead of INVALID_DELIVERY_UNIT | `StockSize.fromValue` + `GlobalExceptionHandler.handleMalformedRequest` |
-| BUG-USERS-1 | LOW | users | Unknown role on `POST /users` leaks Java enum message instead of INVALID_ROLE | `UserService.createUser/updateUser` |
-| BUG-AUTHZ-1 | LOW | auth | Body validation runs before `@PreAuthorize`: unauthorized roles get 400 instead of 403 | controller method security ordering |
-| BUG-FILES-1 | LOW | files | Anonymous file upload/delete answers 403 instead of 401 | `SecurityConfig` (`/api/v1/files/**` permitAll) |
-| BUG-PLATFORM-1 | LOW | platform | Unknown route (404) and wrong method (405) use Spring's default body, not `{error:{code,message}}` | `GlobalExceptionHandler` lacks NoResourceFound / HttpRequestMethodNotSupported mapping |
-| BUG-VEHICLES-1 | LOW | vehicles | Battery outside 0..100 accepted via PATCH and telemetry | `VehicleService.updateVehicle`, `VehicleTelemetryService.apply` |
-| BUG-WAREHOUSE-1 | LOW | warehouse | `max_allowed_lines` / `max_allowed_positions` are never enforced (requirement implied by names only) | `LineService.createLine`, `PositionService.createPosition` |
-| BUG-SUGGEST-1 | LOW | suggestions | A redelivered `order.completed` event is counted twice (documented limitation) | `suggestions/internal/ingest/apply.go` |
+| Id | Severity | Area | Summary | Suspected location | Status |
+|---|---|---|---|---|---|
+| BUG-ORDERS-1 | HIGH | orders | Overselling: 12 parallel orders of 3 units on 10 in stock all return 201 | `OrderService.createOrder` is `@Transactional` but the per-product lock is released at the end of `executeCreateOrder`, before commit | fixed (this branch) |
+| BUG-ORDERS-2 | MEDIUM | orders | Concurrent requests with the same `Idempotency-Key` give 500 (Mongo WriteConflict) instead of replay/409; no duplicate order | idempotency claim in `OrderService` / idempotency repository | fixed (this branch) |
+| BUG-STOCK-1 | MEDIUM | stock | Parallel adjustments of the same position give 500 instead of 409 `STOCK_CHANGE_CONFLICT` | `StockAdjustmentService.adjust` (only `guardStockReconciliation` maps the conflict) | owned by PR #150 |
+| BUG-AUTH-1 | MEDIUM | auth | JWT of a deactivated user keeps working until it expires | `JwtAuthFilter` never consults the user store | fixed (this branch) |
+| BUG-RESTOCK-1 | MEDIUM | metrics | Cancelled restock orders still count as stock on order in `/metrics/restock-suggestions` | `RestockSuggestionService.findOnOrder` ignores status | fixed (this branch) |
+| BUG-RESIL-1 | MEDIUM | resilience | MongoDB down: requests hang about 30 s then 500 with Spring default body; `/actuator/health` hangs instead of reporting DOWN | Mongo client `serverSelectionTimeout`, missing 503 mapping, health indicator | fixed (this branch) |
+| BUG-ORDERS-3 | LOW/MEDIUM | orders | `GET /orders` has no sort; page 0 is the oldest rows | `OrderRepository.findByFilters` | deferred (contract / owner input) |
+| BUG-RECEPTION-1 | LOW | restock | Unknown `delivery_unit` in JSON body gives MALFORMED_REQUEST instead of INVALID_DELIVERY_UNIT | `StockSize.fromValue` + `GlobalExceptionHandler.handleMalformedRequest` | deferred (contract / owner input) |
+| BUG-USERS-1 | LOW | users | Unknown role on `POST /users` leaks Java enum message instead of INVALID_ROLE | `UserService.createUser/updateUser` | deferred (contract / owner input) |
+| BUG-AUTHZ-1 | LOW | auth | Body validation runs before `@PreAuthorize`: unauthorized roles get 400 instead of 403 | controller method security ordering | deferred (contract / owner input) |
+| BUG-FILES-1 | LOW | files | Anonymous file upload/delete answers 403 instead of 401 | `SecurityConfig` (`/api/v1/files/**` permitAll) | deferred (contract / owner input) |
+| BUG-PLATFORM-1 | LOW | platform | Unknown route (404) and wrong method (405) use Spring's default body, not `{error:{code,message}}` | `GlobalExceptionHandler` lacks NoResourceFound / HttpRequestMethodNotSupported mapping | deferred (contract / owner input) |
+| BUG-VEHICLES-1 | LOW | vehicles | Battery outside 0..100 accepted via PATCH and telemetry | `VehicleService.updateVehicle`, `VehicleTelemetryService.apply` | deferred (contract / owner input) |
+| BUG-WAREHOUSE-1 | LOW | warehouse | `max_allowed_lines` / `max_allowed_positions` are never enforced (requirement implied by names only) | `LineService.createLine`, `PositionService.createPosition` | deferred (contract / owner input) |
+| BUG-SUGGEST-1 | LOW | suggestions | A redelivered `order.completed` event is counted twice (documented limitation) | `suggestions/internal/ingest/apply.go` | owned by PR #148 |
 
 Observations that are not asserted as bugs: no login lockout (a passing test documents it); deleting a missing file answers 204 (idempotent); a pending order can move straight to completed via `/infra`; a metrics query with `from > to` answers QUERY_TOO_BROAD; the first file upload right after a MinIO restart was observed once to stall (>30 s) in an exploratory run, not reproduced in the full run.
 
