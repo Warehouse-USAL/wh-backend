@@ -80,6 +80,10 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			Log:           logger,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    16 << 10,
 	}
 
 	var wg sync.WaitGroup

@@ -5,17 +5,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
 )
 
 // OrderCompleted is the payload wh-backend publishes on the order.completed topic
 // (backend OrderCompletedMessage; field names are camelCase and pinned there).
 type OrderCompleted struct {
-	OrderID         string    `json:"orderId"`
-	UserID          string    `json:"userId"`
-	DestinationArea string    `json:"destinationArea"`
-	Items           []Item    `json:"items"`
-	CompletedAt     time.Time `json:"completedAt"`
+	OrderID         string `json:"orderId"`
+	UserID          string `json:"userId"`
+	DestinationArea string `json:"destinationArea"`
+	Items           []Item `json:"items"`
+	// CompletedAt is the ISO-8601 instant, kept as text: nothing reads it, so a malformed value
+	// must not make an otherwise valid order undecodable.
+	CompletedAt string `json:"completedAt"`
 }
 
 // Item is one order line of an OrderCompleted event.

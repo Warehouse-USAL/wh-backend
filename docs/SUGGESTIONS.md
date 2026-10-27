@@ -42,6 +42,8 @@ characters. Errors always look like `{"error": "<code>", "message": "<text>"}`:
 | 404 / 405 | `not_found` / `method_not_allowed` | unknown route / method |
 | 500 | `internal_error` | Redis failure |
 
+CORS: the service sends no CORS headers; browsers reach it same-origin through Caddy (`/suggestions/*`), and server-side clients are unaffected. The HTTP server has read/write/idle timeouts and a 16 KiB header limit; cart bodies are capped at 64 KiB.
+
 JWT: the backend's `JwtService` signs with `Keys.hmacShaKeyFor(JWT_SECRET)` and claims `sub` (user
 id), `email`, `role`, `exp`. jjwt picks HS256, HS384 or HS512 from the secret's length, so the
 service accepts those three HMAC algorithms (and nothing else) with the same secret.
@@ -56,7 +58,7 @@ service accepts those three HMAC algorithms (and nothing else) with the same sec
 | `hot:global` | zset | sku -> decayed quantity | `ZINCRBY qty` per distinct SKU |
 
 One event is applied in a single `MULTI/EXEC`. Lines repeating a SKU are summed; lines without a SKU
-or with quantity <= 0 are ignored; an order without `userId` still feeds `hot:global` and
+or with quantity <= 0 are ignored; a line counts at most 1000 (so a corrupt quantity cannot pin a SKU on top); an order without `userId` still feeds `hot:global` and
 `cooccur`. Delivery is at-least-once and there is no idempotency tracking (a replay counts an order
 twice, which only nudges weights, as the RFC accepts).
 

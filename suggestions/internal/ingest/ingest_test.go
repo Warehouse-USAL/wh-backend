@@ -36,13 +36,17 @@ func TestDecodeBackendContract(t *testing.T) {
 	}
 	if ev.OrderID != "o-0421" || ev.UserID != "u-operator-3" || ev.DestinationArea != "Sucursal Pocitos" ||
 		len(ev.Items) != 2 || ev.Items[0].Quantity != 2 || ev.Items[1].ProductID != "p-TEC-004" ||
-		ev.CompletedAt.Year() != 2026 {
+		ev.CompletedAt != "2026-08-30T14:22:05.123456Z" {
 		t.Fatalf("decoded wrongly: %+v", ev)
 	}
 }
 
 func TestDecodeNullCompletedAtAndBadJSON(t *testing.T) {
 	if _, err := Decode([]byte(`{"orderId":"o","items":[],"completedAt":null}`)); err != nil {
+		t.Fatal(err)
+	}
+	// A malformed instant must not drop the order: nothing reads it.
+	if _, err := Decode([]byte(`{"orderId":"o","items":[],"completedAt":"garbage"}`)); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Decode([]byte(`not json`)); !errors.Is(err, ErrInvalidEvent) {
@@ -125,5 +129,16 @@ func TestApplyRedisDown(t *testing.T) {
 	err := Apply(context.Background(), rdb, OrderCompleted{OrderID: "o9", Items: []Item{{SKU: "A", Quantity: 1}}})
 	if err == nil {
 		t.Fatal("want error")
+	}
+}
+
+func TestApplyCapsAbsurdQuantity(t *testing.T) {
+	_, rdb := newRedis(t)
+	ev := OrderCompleted{UserID: "u", Items: []Item{{SKU: "A", Quantity: 2147483647}}}
+	if err := Apply(context.Background(), rdb, ev); err != nil {
+		t.Fatal(err)
+	}
+	if got := rdb.ZScore(context.Background(), "hot:global", "A").Val(); got != maxLineQuantity {
+		t.Fatalf("hot score = %v, want %d", got, maxLineQuantity)
 	}
 }
