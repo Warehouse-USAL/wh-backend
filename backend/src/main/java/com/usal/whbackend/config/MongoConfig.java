@@ -5,6 +5,8 @@ import com.usal.whbackend.telemetry.MongoMetricsListener;
 import com.usal.whbackend.telemetry.TelemetryPort;
 import com.usal.whbackend.telemetry.TelemetryProperties;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.mongodb.autoconfigure.MongoClientSettingsBuilderCustomizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -41,6 +43,30 @@ public class MongoConfig {
         builder
             .addCommandListener(listener)
             .applyToConnectionPoolSettings(pool -> pool.addConnectionPoolListener(listener));
+  }
+
+  /**
+   * Bounds how long a call waits for MongoDB. The driver's defaults (30 s to find a server, no read
+   * timeout) make every request hang for half a minute when the database is down, and the health
+   * check with it, so orchestrators cannot see the outage. Override with {@code
+   * WH_MONGO_SERVER_SELECTION_TIMEOUT_MS}, {@code WH_MONGO_CONNECT_TIMEOUT_MS} and {@code
+   * WH_MONGO_SOCKET_TIMEOUT_MS} (0 disables the socket timeout).
+   */
+  @Bean
+  MongoClientSettingsBuilderCustomizer mongoTimeoutsCustomizer(
+      @Value("${wh.mongo.server-selection-timeout-ms:3000}") long serverSelectionTimeoutMs,
+      @Value("${wh.mongo.connect-timeout-ms:3000}") int connectTimeoutMs,
+      @Value("${wh.mongo.socket-timeout-ms:30000}") int socketTimeoutMs) {
+    return builder ->
+        builder
+            .applyToClusterSettings(
+                cluster ->
+                    cluster.serverSelectionTimeout(serverSelectionTimeoutMs, TimeUnit.MILLISECONDS))
+            .applyToSocketSettings(
+                socket ->
+                    socket
+                        .connectTimeout(connectTimeoutMs, TimeUnit.MILLISECONDS)
+                        .readTimeout(socketTimeoutMs, TimeUnit.MILLISECONDS));
   }
 
   /**

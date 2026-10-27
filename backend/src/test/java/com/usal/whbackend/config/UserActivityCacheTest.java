@@ -124,4 +124,14 @@ class UserActivityCacheTest {
 
     assertThat(cache.isActive("u1")).isTrue();
   }
+
+  @Test
+  void aFailedLookupIsNotRetriedUntilTheTtlPasses() {
+    when(users.findById("u1")).thenThrow(new DataAccessResourceFailureException("mongo down"));
+
+    cache.isActive("u1");
+    cache.isActive("u1");
+
+    verify(users, times(1)).findById("u1");
+  }
 }
