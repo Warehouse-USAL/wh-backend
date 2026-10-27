@@ -105,7 +105,6 @@ def test_restock_suggestions_count_open_restock_orders(warehouse, factory):
     assert row()["on_order_stock"] == 68
 
 
-@pytest.mark.known_failure(bug="BUG-RESTOCK-1", reason="cancelled restock orders still count as stock on order: RestockSuggestionService.findOnOrder reads every RestockOrder of the product (it projects only productId/quantityRequested, never status), so after #147 a cancelled order keeps inflating inventory_position and suppresses the restock suggestion")
 def test_restock_suggestions_ignore_cancelled_restock_orders(warehouse, factory):
     """A cancelled restock order is not stock on order"""
     s = factory.stocked(10)
