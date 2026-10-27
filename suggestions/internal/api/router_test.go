@@ -51,7 +51,7 @@ func newEnv(t *testing.T) *env {
 		for _, s := range o.skus {
 			ev.Items = append(ev.Items, ingest.Item{SKU: s, Quantity: 1})
 		}
-		if err := ingest.Apply(context.Background(), e.rdb, ev); err != nil {
+		if err := ingest.Apply(context.Background(), e.rdb, ev, ingest.DefaultDedupeTTL); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -57,10 +57,21 @@ service accepts those three HMAC algorithms (and nothing else) with the same sec
 | `cooccur:{sku}` | zset | other sku -> number of orders containing both | `ZINCRBY 1` for each ordered pair, both directions |
 | `hot:global` | zset | sku -> decayed quantity | `ZINCRBY qty` per distinct SKU |
 
-One event is applied in a single `MULTI/EXEC`. Lines repeating a SKU are summed; lines without a SKU
+| `processed:{orderId}` | string | marker `1` of an order already applied, with a TTL (`ORDER_DEDUPE_TTL`) | `SET ... EX`, in the same atomic step as the counts |
+
+One event is applied atomically (a single Lua `EVAL`, or `MULTI/EXEC` for events without an order id). Lines repeating a SKU are summed; lines without a SKU
 or with quantity <= 0 are ignored; a line counts at most 1000 (so a corrupt quantity cannot pin a SKU on top); an order without `userId` still feeds `hot:global` and
-`cooccur`. Delivery is at-least-once and there is no idempotency tracking (a replay counts an order
-twice, which only nudges weights, as the RFC accepts).
+`cooccur`.
+
+Delivery is at-least-once, so ingestion is idempotent per order id: the script skips the event when
+`processed:{orderId}` exists and otherwise applies the counts and then sets the marker, all in one
+atomic step. A redelivered `order.completed` (consumer retry, rebalance, a crash between the Redis
+write and the offset commit) is therefore counted once, and the marker never exists without its
+counts. The marker expires after `ORDER_DEDUPE_TTL` (default `168h`, 7 days, the default Kafka
+retention, so a replay can not be older), which bounds memory to about one small key per order of
+the last week. A redelivery later than the window would be counted again. Events without an
+`orderId` cannot be recognised and are applied every time. The id is only ever used behind the
+fixed `processed:` prefix, like the other key builders in `store/keys.go`.
 
 ## Decisions on the RFC comment
 
@@ -146,6 +157,7 @@ images. Caddy (wh-autodeploys) already routes `/suggestions/*`, prefix stripped,
 | `HTTP_ADDR` | `:8080` | Also used by the container healthcheck (`/suggestions healthcheck`) |
 | `HOT_DECAY_FACTOR` | `0.97` | In (0, 1) |
 | `HOT_DECAY_INTERVAL` | `15m` | |
+| `ORDER_DEDUPE_TTL` | `168h` | How long an applied order id is remembered to ignore redelivered events; positive duration |
 
 Not done: OpenTelemetry metrics (the bridge exports them; the RFC does not ask for it), per-zone hot
 items and the warehouse-side restock suggestions (RFC out of scope).

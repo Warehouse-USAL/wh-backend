@@ -53,7 +53,7 @@ func background(t *testing.T, rdb redis.Cmdable, rng *rand.Rand, users int) {
 			for _, i := range rng.Perm(len(popular))[:1+rng.IntN(3)] {
 				ev.Items = append(ev.Items, ingest.Item{SKU: popular[i], Quantity: 1 + rng.IntN(3)})
 			}
-			if err := ingest.Apply(ctx, rdb, ev); err != nil {
+			if err := ingest.Apply(ctx, rdb, ev, ingest.DefaultDedupeTTL); err != nil {
 				t.Fatal(err)
 			}
 		}

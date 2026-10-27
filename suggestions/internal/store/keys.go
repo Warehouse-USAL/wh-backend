@@ -14,3 +14,7 @@ func Cooccur(sku string) string { return "cooccur:" + sku }
 // quantity). It is what makes finding "similar users" a few bounded reads instead of a scan of
 // every user:*:skus key.
 func Buyers(sku string) string { return "sku:" + sku + ":buyers" }
+
+// Processed is the marker of an order already applied (value 1, expires after the dedupe TTL). The
+// fixed "processed:" prefix keeps an attacker-chosen order id from reaching any other key.
+func Processed(orderID string) string { return "processed:" + orderID }

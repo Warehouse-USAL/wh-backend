@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Warehouse-USAL/wh-backend/suggestions/internal/ingest"
 )
 
 // minSecretLen mirrors wh-backend, which refuses JWT secrets shorter than 32 characters.
@@ -24,6 +26,8 @@ type Config struct {
 	// DecayFactor multiplies every hot:global score once per DecayInterval.
 	DecayFactor   float64
 	DecayInterval time.Duration
+	// DedupeTTL is how long an applied order id is remembered to ignore redelivered events.
+	DedupeTTL time.Duration
 }
 
 // Load reads the configuration through getenv (os.Getenv in production), applying defaults that
@@ -65,5 +69,10 @@ func Load(getenv func(string) string) (Config, error) {
 		return Config{}, errors.New("HOT_DECAY_INTERVAL must be a positive duration such as 15m")
 	}
 	cfg.DecayInterval = interval
+	ttl, err := time.ParseDuration(get("ORDER_DEDUPE_TTL", ingest.DefaultDedupeTTL.String()))
+	if err != nil || ttl <= 0 {
+		return Config{}, errors.New("ORDER_DEDUPE_TTL must be a positive duration such as 168h")
+	}
+	cfg.DedupeTTL = ttl
 	return cfg, nil
 }

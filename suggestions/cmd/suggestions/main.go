@@ -67,7 +67,7 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		MaxWait:     time.Second,
 	})
 	cons := consumer.New(reader, func(ctx context.Context, ev ingest.OrderCompleted) error {
-		return ingest.Apply(ctx, rdb, ev)
+		return ingest.Apply(ctx, rdb, ev, cfg.DedupeTTL)
 	}, logger)
 
 	srv := &http.Server{

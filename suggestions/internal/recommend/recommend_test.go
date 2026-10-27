@@ -3,6 +3,7 @@ package recommend
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
@@ -21,14 +22,17 @@ func setup(t *testing.T) (*miniredis.Miniredis, *redis.Client, *Service) {
 	return mr, rdb, New(rdb, Options{})
 }
 
+var orderSeq atomic.Int64
+
 // order applies one completed order for user with sku:quantity pairs (quantity 1 by default).
 func order(t *testing.T, rdb redis.Cmdable, user string, skus ...string) {
 	t.Helper()
-	ev := ingest.OrderCompleted{OrderID: "o", UserID: user}
+	// Each call is a distinct order: a repeated id would be dropped as a redelivery.
+	ev := ingest.OrderCompleted{OrderID: fmt.Sprintf("o-%d", orderSeq.Add(1)), UserID: user}
 	for _, s := range skus {
 		ev.Items = append(ev.Items, ingest.Item{SKU: s, Quantity: 1})
 	}
-	if err := ingest.Apply(ctx, rdb, ev); err != nil {
+	if err := ingest.Apply(ctx, rdb, ev, ingest.DefaultDedupeTTL); err != nil {
 		t.Fatal(err)
 	}
 }
