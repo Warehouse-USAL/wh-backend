@@ -3,6 +3,7 @@ package com.usal.whbackend.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -134,6 +135,77 @@ class UserServiceTest {
     assertThat(result.getId()).isEqualTo("USR-NEW");
     verify(passwordEncoder).encode("pw");
     verify(userRepository).save(any());
+  }
+
+  @Test
+  void createUser_providerWithSupplier_storesTheTrimmedSupplier() {
+    when(userRepository.findByEmail("prov@test.com")).thenReturn(Optional.empty());
+    when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    User result =
+        userService.createUser(
+            new CreateUserRequest(
+                "prov@test.com", "Prov", "PROVIDER", "pw", " Distribuidora XYZ "));
+
+    assertThat(result.getSupplier()).isEqualTo("Distribuidora XYZ");
+  }
+
+  @Test
+  void createUser_providerWithoutSupplier_savesUnlinkedProvider() {
+    when(userRepository.findByEmail("prov@test.com")).thenReturn(Optional.empty());
+    when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    User result =
+        userService.createUser(new CreateUserRequest("prov@test.com", "Prov", "PROVIDER", "pw"));
+
+    assertThat(result.getSupplier()).isNull();
+    verify(userRepository).save(any());
+  }
+
+  @Test
+  void createUser_nonProviderWithSupplier_dropsTheSupplier() {
+    when(userRepository.findByEmail("op@test.com")).thenReturn(Optional.empty());
+    when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    User result =
+        userService.createUser(
+            new CreateUserRequest("op@test.com", "Op", "OPERATOR", "pw", "Distribuidora XYZ"));
+
+    assertThat(result.getSupplier()).isNull();
+  }
+
+  @Test
+  void updateUser_toProviderWithoutSupplier_savesUnlinkedProvider() {
+    when(userRepository.findById("USR-001")).thenReturn(Optional.of(sample("USR-001")));
+    when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+    User result =
+        userService.updateUser("USR-001", new UpdateUserRequest(null, "PROVIDER", null));
+
+    assertThat(result.getRole()).isEqualTo(UserRole.PROVIDER);
+    assertThat(result.getSupplier()).isNull();
+    verify(userRepository).save(any());
+  }
+
+  @Test
+  void supplierOf_providerLinkedToASupplier_returnsIt() {
+    User provider = sample("USR-P");
+    provider.setRole(UserRole.PROVIDER);
+    provider.setSupplier("Distribuidora XYZ");
+    when(userRepository.findById("USR-P")).thenReturn(Optional.of(provider));
+
+    assertThat(userService.supplierOf("USR-P")).isEqualTo("Distribuidora XYZ");
+  }
+
+  @Test
+  void supplierOf_providerWithoutSupplier_throwsForbidden() {
+    User provider = sample("USR-P");
+    provider.setRole(UserRole.PROVIDER);
+    when(userRepository.findById("USR-P")).thenReturn(Optional.of(provider));
+
+    assertThatThrownBy(() -> userService.supplierOf("USR-P"))
+        .isInstanceOf(ResponseStatusException.class)
+        .hasMessageContaining("PROVIDER_WITHOUT_SUPPLIER");
   }
 
   @Test
