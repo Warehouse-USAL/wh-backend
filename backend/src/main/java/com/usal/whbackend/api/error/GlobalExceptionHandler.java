@@ -140,6 +140,16 @@ public class GlobalExceptionHandler {
               "INVALID_EXPECTED_DELIVERY_DATE",
               "La fecha de entrega esperada debe ser posterior a la fecha de creación."),
           Map.entry("QR_CODE_ALREADY_EXISTS", "Otra posición ya tiene ese código QR."),
+          Map.entry(
+              "INVALID_ADJUSTMENT_TYPE",
+              "Tipo de ajuste inválido. Valores aceptados: MANUAL_DECREASE, DAMAGE."),
+          Map.entry(
+              "STOCK_CHANGE_CONFLICT",
+              "Otro cambio de stock del mismo producto se estaba aplicando. Reintentá la operación."),
+          Map.entry("POSITION_WITHOUT_PRODUCT", "La posición no tiene un producto asignado."),
+          Map.entry(
+              "QUANTITY_EXCEEDS_POSITION_STOCK",
+              "La cantidad a descontar supera el stock de la posición."),
           Map.entry("RECEPTION_NOT_FOUND", "El remito solicitado no existe."),
           Map.entry(
               "ASSIGNMENT_QUANTITY_MISMATCH",

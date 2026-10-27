@@ -1,0 +1,31 @@
+meta {
+  name: Adjust Position Stock (decrease)
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{baseUrl}}/warehouse/positions/:id/stock-adjustments
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+headers {
+  Content-Type: application/json
+}
+
+params:path {
+  id: POSITION_ID_HERE
+}
+
+body:json {
+  {
+    "quantity": 6,
+    "type": "DAMAGE",
+    "reason": "Cajas rotas en el traslado"
+  }
+}

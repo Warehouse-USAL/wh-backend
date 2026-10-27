@@ -48,4 +48,11 @@
         <Class name="com.usal.whbackend.service.console.ConsoleProperties"/>
         <Method name="getStream"/>
     </Match>
+    <!-- Carries the Position document straight out of the save that just ran — the live Spring Data
+         document PositionService hands back uncopied everywhere else; the controller only reads it
+         before serialising. The cancelled-orders list is copied. -->
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Class name="com.usal.whbackend.service.PositionService$PositionUpdate"/>
+    </Match>
 </FindBugsFilter>

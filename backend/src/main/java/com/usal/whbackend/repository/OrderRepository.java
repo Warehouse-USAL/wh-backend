@@ -1,5 +1,6 @@
 package com.usal.whbackend.repository;
 
+import com.mongodb.MongoException;
 import com.usal.whbackend.config.RequestIdFilter;
 import com.usal.whbackend.domain.Order;
 import com.usal.whbackend.domain.OrderStatus;
@@ -17,14 +18,18 @@ import org.apache.kafka.clients.producer.ProducerRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
+import org.springframework.dao.DataAccessException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
+import org.springframework.data.mongodb.core.query.Update;
+import org.springframework.http.HttpStatus;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
+import org.springframework.web.server.ResponseStatusException;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.ObjectMapper;
 
@@ -32,6 +37,9 @@ import tools.jackson.databind.ObjectMapper;
 public class OrderRepository {
 
   private static final Logger log = LoggerFactory.getLogger(OrderRepository.class);
+
+  /** One document per product, bumped by every stock reconciliation to serialize them. */
+  private static final String STOCK_GUARDS = "stock_guards";
 
   /** Carries the request id to the bridge, so one id follows an order across the services. */
   static final String REQUEST_ID_HEADER = "x-request-id";
@@ -93,11 +101,65 @@ public class OrderRepository {
   }
 
   public Order cancel(Order order, String reason) {
+    Order saved = cancelWithoutPublishing(order, reason);
+    publishCancelled(saved);
+    return saved;
+  }
+
+  /**
+   * Cancels an order without telling Infra, so callers can publish after their transaction commits.
+   */
+  public Order cancelWithoutPublishing(Order order, String reason) {
     order.setCancelReason(reason);
     order.setStatus(OrderStatus.CANCELLED);
-    Order saved = mongo.save(order);
-    publishOrder(saved, "cancelled");
-    return saved;
+    return mongo.save(order);
+  }
+
+  /** Tells Infra, on the {@code orders} topic, that an order was cancelled. */
+  public void publishCancelled(Order order) {
+    publishOrder(order, "cancelled");
+  }
+
+  /**
+   * Makes concurrent stock reconciliations of the same product conflict. Inside a MongoDB
+   * transaction reads come from a snapshot and only writes to the same document collide, so two
+   * adjustments of different positions of one product would each miss the other's drop and keep
+   * orders the remaining stock cannot cover. Both bump this product's guard document: the second to
+   * commit aborts with a transient write conflict instead of reconciling against a stale view.
+   */
+  public void guardStockReconciliation(String productId) {
+    try {
+      mongoTemplate.upsert(
+          Query.query(Criteria.where("_id").is(productId)),
+          new Update().inc("version", 1),
+          STOCK_GUARDS);
+    } catch (DataAccessException e) {
+      if (isTransientTransactionError(e)) {
+        throw new ResponseStatusException(HttpStatus.CONFLICT, "STOCK_CHANGE_CONFLICT", e);
+      }
+      throw e;
+    }
+  }
+
+  private static boolean isTransientTransactionError(Throwable error) {
+    for (Throwable t = error; t != null; t = t.getCause()) {
+      if (t instanceof MongoException m
+          && m.hasErrorLabel(MongoException.TRANSIENT_TRANSACTION_ERROR_LABEL)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /** Pending and in-progress orders that include {@code productId} — the ones holding its stock. */
+  public List<Order> findActiveByProductId(String productId) {
+    Query query =
+        Query.query(
+            Criteria.where("status")
+                .in(OrderStatus.PENDING, OrderStatus.IN_PROGRESS)
+                .and("items.productId")
+                .is(productId));
+    return mongoTemplate.find(query, Order.class);
   }
 
   /**

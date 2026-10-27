@@ -110,7 +110,7 @@ class PositionResponsesTest {
     assertThat(create.sizeStockToSave()).isEqualTo(StockSize.CAJA);
 
     UpdatePositionRequest update =
-        new UpdatePositionRequest("P02", true, 5, StockSize.PALLET, "prod-1", false, null);
+        new UpdatePositionRequest("P02", true, 5, StockSize.PALLET, "prod-1", false, null, null);
     assertThat(update.positionName()).isEqualTo("P02");
     assertThat(update.isActive()).isTrue();
     assertThat(update.currentStock()).isEqualTo(5);
