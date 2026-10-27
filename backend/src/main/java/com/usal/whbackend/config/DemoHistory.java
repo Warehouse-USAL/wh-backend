@@ -76,6 +76,8 @@ final class DemoHistory {
   private static final int MIN_PURCHASE = 5;
   private static final int OPENING_STOCK = 250;
   private static final int NEVER_ORDERED_STOCK = 30;
+  // Products whose positions hold at least this many units sell at full popularity.
+  private static final double FULL_DEMAND_CAPACITY = 400.0;
   private static final String STOCKOUT = "Stock insuficiente";
   // The longest created → completed span DemoDataset gives a completed order (up to 4h to start,
   // up to 6h to deliver): an order more recent than this cannot have completed yet.
@@ -175,10 +177,13 @@ final class DemoHistory {
           positionsByProduct.getOrDefault(p.getId(), List.of()).stream()
               .mapToInt(Position::getMaximumCapacity)
               .sum();
-      // Products with two positions are the best sellers; the rest spread over 0.6–1.4.
+      // Products with two positions are the best sellers; the rest spread over 0.6–1.4. Bulky
+      // products (few units fit in their positions) sell proportionally less, so demand never
+      // outgrows what the warehouse can hold between deliveries.
       popularity[i] =
           (0.6 + Math.floorMod(i * 7, 9) / 10.0)
-              * (positionsByProduct.getOrDefault(p.getId(), List.of()).size() > 1 ? 1.4 : 1.0);
+              * (positionsByProduct.getOrDefault(p.getId(), List.of()).size() > 1 ? 1.4 : 1.0)
+              * Math.min(1.0, capacity[i] / FULL_DEMAND_CAPACITY);
       promoDays.add(promotions());
     }
   }

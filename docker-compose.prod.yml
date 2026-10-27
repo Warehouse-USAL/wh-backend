@@ -7,7 +7,8 @@
 #    rs.initiate() authenticated as root (the dev healthcheck can't, once auth is on)
 #  - stateful data lives in named volumes (no host bind-mount permission issues)
 #  - backend, bridge and console run the GHCR images of one release: WH_IMAGE_TAG (default latest)
-#    pins all three, e.g. WH_IMAGE_TAG=v1.4.0 to roll back (docs/CONSOLE.md, Rollback)
+#    pins all three, e.g. WH_IMAGE_TAG=v1.4.0 to roll back (docs/OPERATIONS.md, Deploy and rollback)
+#  - the bridge only runs with the `infra` profile (`make deploy` enables it when Infra is configured)
 #  - secrets have no defaults here: compose refuses to start when one is missing
 
 # json-file rotation for the services the console added (the Docker daemon default never rotates).
@@ -49,6 +50,8 @@ services:
       SERVER_TOMCAT_MBEANREGISTRY_ENABLED: "true"
       VICTORIAMETRICS_URL: ${VICTORIAMETRICS_URL:-http://victoriametrics:8428}
       CONSOLE_VICTORIALOGS_URL: ${CONSOLE_VICTORIALOGS_URL:-http://victorialogs:9428}
+      # Shared with the bridge; blank makes /infra/** reject every call (InfraApiKeyFilter).
+      # Generate one with `make infra-key`.
       INFRA_API_KEY: ${INFRA_API_KEY:-}
     restart: always
     depends_on:
@@ -62,9 +65,12 @@ services:
       - wh-network
       - wh-proxy
 
-  # Translator between Infra's RabbitMQ and the backend (see bridge/README.md). It is opt-in in dev
-  # (profile `infra`); in prod it always runs. INFRA_AMQP_URL and INFRA_API_KEY come from the
-  # server's .env — the bridge exits at startup if either is empty.
+  # Translator between Infra's RabbitMQ and the backend (see bridge/README.md). Like in dev it sits
+  # behind the `infra` profile, which `make deploy` enables only when INFRA_AMQP_URL and
+  # INFRA_API_KEY are both set in .env (scripts/prod-env.sh) -- the bridge exits at startup if
+  # either is empty, and `restart: always` would turn that into a crash loop. INFRA_AMQP_URL is
+  # RabbitMQ's AMQP port (5672), never the MQTT plugin's (1883). Run it by hand with
+  # `docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile infra up -d bridge`.
   bridge:
     image: ghcr.io/warehouse-usal/wh-bridge:${WH_IMAGE_TAG:-latest}
     environment:
@@ -73,7 +79,6 @@ services:
       BACKEND_URL: http://backend:8080
       INFRA_API_KEY: ${INFRA_API_KEY:-}
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}
-    profiles: !reset []
     restart: always
 
   # One-shot: create the replica-set keyFile in a named volume if absent.

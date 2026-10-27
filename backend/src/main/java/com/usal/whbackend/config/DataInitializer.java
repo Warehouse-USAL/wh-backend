@@ -34,6 +34,7 @@ public class DataInitializer implements ApplicationRunner {
   private final ZoneRepository zoneRepository;
   private final LineRepository lineRepository;
   private final PositionRepository positionRepository;
+  private final String qrPrefix;
 
   public DataInitializer(
       UserRepository userRepository,
@@ -42,7 +43,8 @@ public class DataInitializer implements ApplicationRunner {
       @Value("${ADMIN_PASSWORD:#{null}}") String adminPassword,
       ZoneRepository zoneRepository,
       LineRepository lineRepository,
-      PositionRepository positionRepository) {
+      PositionRepository positionRepository,
+      @Value("${WH_QR_PREFIX:" + DemoDataset.DEFAULT_QR_PREFIX + "}") String qrPrefix) {
     this.userRepository = userRepository;
     this.passwordEncoder = passwordEncoder;
     this.adminEmail = adminEmail;
@@ -50,6 +52,7 @@ public class DataInitializer implements ApplicationRunner {
     this.zoneRepository = zoneRepository;
     this.lineRepository = lineRepository;
     this.positionRepository = positionRepository;
+    this.qrPrefix = qrPrefix;
   }
 
   @Override
@@ -112,7 +115,7 @@ public class DataInitializer implements ApplicationRunner {
     posA1P1.setIdLine(lineA1.getId());
     posA1P1.setIdZone(zoneA.getId());
     posA1P1.setPositionName("P01");
-    posA1P1.setQrCode("WH|A-L1-P01");
+    posA1P1.setQrCode(qrPrefix + "PA1");
     posA1P1.setMaximumCapacity(200);
     posA1P1.setSizeStockToSave(StockSize.MEDIO_PALLET);
     posA1P1.setActive(true);
@@ -125,7 +128,7 @@ public class DataInitializer implements ApplicationRunner {
     posA1P2.setIdLine(lineA1.getId());
     posA1P2.setIdZone(zoneA.getId());
     posA1P2.setPositionName("P02");
-    posA1P2.setQrCode("WH|A-L1-P02");
+    posA1P2.setQrCode(qrPrefix + "PA2");
     posA1P2.setMaximumCapacity(200);
     posA1P2.setSizeStockToSave(StockSize.PALLET);
     posA1P2.setActive(true);

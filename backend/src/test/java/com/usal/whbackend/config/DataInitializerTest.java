@@ -37,7 +37,8 @@ class DataInitializerTest {
         password,
         zoneRepository,
         lineRepository,
-        positionRepository);
+        positionRepository,
+        "WH2|");
   }
 
   @Test

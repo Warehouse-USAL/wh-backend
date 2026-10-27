@@ -49,6 +49,7 @@ public class DemoDataSeeder implements ApplicationRunner {
   private final PasswordEncoder passwordEncoder;
   private final DemoTelemetrySeeder demoTelemetrySeeder;
   private final boolean seedDemo;
+  private final String qrPrefix;
 
   public DemoDataSeeder(
       UserRepository userRepository,
@@ -62,7 +63,8 @@ public class DemoDataSeeder implements ApplicationRunner {
       ReceptionRepository receptionRepository,
       PasswordEncoder passwordEncoder,
       DemoTelemetrySeeder demoTelemetrySeeder,
-      @Value("${SEED_DEMO:false}") boolean seedDemo) {
+      @Value("${SEED_DEMO:false}") boolean seedDemo,
+      @Value("${WH_QR_PREFIX:" + DemoDataset.DEFAULT_QR_PREFIX + "}") String qrPrefix) {
     this.userRepository = userRepository;
     this.productRepository = productRepository;
     this.zoneRepository = zoneRepository;
@@ -75,6 +77,7 @@ public class DemoDataSeeder implements ApplicationRunner {
     this.passwordEncoder = passwordEncoder;
     this.demoTelemetrySeeder = demoTelemetrySeeder;
     this.seedDemo = seedDemo;
+    this.qrPrefix = qrPrefix;
   }
 
   @Override
@@ -93,7 +96,7 @@ public class DemoDataSeeder implements ApplicationRunner {
       return;
     }
 
-    DemoData data = new DemoDataset(passwordEncoder::encode).build();
+    DemoData data = new DemoDataset(passwordEncoder::encode, qrPrefix).build();
 
     // Persist in dependency order. Ids are already wired in the dataset, so no back-patching.
     userRepository.saveAll(data.getUsers());
