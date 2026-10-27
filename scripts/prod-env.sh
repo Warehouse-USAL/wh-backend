@@ -10,10 +10,17 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# Same reading rules as `docker compose`: CRLF tolerated, an optional `export `, a quoted value
+# taken verbatim, an unquoted one cut at ` #` (inline comment) and trimmed.
 get() {
-  local v="${!1:-}"
+  local v="${!1:-}" raw
   if [ -z "$v" ] && [ -f .env ]; then
-    v=$(grep -E "^[[:space:]]*$1=" .env | tail -n1 | sed -E "s/^[^=]*=//; s/^[\"']//; s/[\"']\$//" || true)
+    raw=$(tr -d '\r' <.env | grep -E "^[[:space:]]*(export[[:space:]]+)?$1[[:space:]]*=" | tail -n1 | sed -E 's/^[^=]*=[[:space:]]*//' || true)
+    case $raw in
+      \"*) v=${raw#\"}; v=${v%%\"*} ;;
+      \'*) v=${raw#\'}; v=${v%%\'*} ;;
+      *) v=$(printf '%s' "$raw" | sed -E 's/[[:space:]]+#.*$//; s/[[:space:]]+$//') ;;
+    esac
   fi
   printf '%s' "$v"
 }
@@ -45,11 +52,9 @@ check() {
   if [ -z "$amqp" ] && [ -n "$key" ]; then
     errors+=("INFRA_API_KEY is set but INFRA_AMQP_URL is not: set the RabbitMQ AMQP URL (amqp://user:pass@host:5672/) or unset the key to run without the bridge")
   fi
-  case "$amqp" in
-    *:1883 | *:1883/*)
-      errors+=("INFRA_AMQP_URL points at port 1883, RabbitMQ's MQTT plugin; the bridge speaks AMQP, port 5672 (symptom: 'dial rabbitmq: Exception (501) Reason: \"EOF\"')")
-      ;;
-  esac
+  if [[ $amqp =~ :1883([/?]|$) ]]; then
+    errors+=("INFRA_AMQP_URL points at port 1883, RabbitMQ's MQTT plugin; the bridge speaks AMQP, port 5672 (symptom: 'dial rabbitmq: Exception (501) Reason: \"EOF\"')")
+  fi
 
   if [ "${#errors[@]}" -gt 0 ]; then
     echo "deploy aborted: .env is not ready for production:" >&2

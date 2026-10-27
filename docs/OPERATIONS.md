@@ -19,7 +19,8 @@ What to check on a real server, and what to do when something looks wrong. Compl
      plugin's 1883. Pointing at 1883 shows up as `dial rabbitmq: Exception (501) Reason: "EOF"`;
      the check refuses it and the bridge logs a hint.
    - Without both, `make deploy` does not start the bridge (it used to crash-loop with
-     `exit 2` and `restart: always`) and says so. Orders then never reach Infra.
+     `exit 2` and `restart: always`) and says so. Orders then never reach Infra, and the console's status page
+     shows `bridge` as down (expected: there is none).
 4. **Image tag.** `WH_IMAGE_TAG` pins backend, bridge and console to one release. Unset means
    `latest`. See "Deploy and rollback".
 5. **Caddy**, once, by the proxy's owner: `/api/*` (both variants), `/console/*`, metrics listener,
@@ -27,7 +28,7 @@ What to check on a real server, and what to do when something looks wrong. Compl
 6. **`make deploy`**, then check `docker compose ... ps`, that the backend logged
    `Started ...Application`, and, with Infra, that `wh-backend-bridge-1` is `healthy`.
 7. **QR codes.** Every position that holds stock needs a `qr_code` that matches the printed code
-   (next section). Verify with `GET /warehouse/positions` that none is null.
+   (next section). Verify that none is null with the check below.
 8. **One test order** through `POST /orders`; its published message must carry non-empty `stops`.
 
 ## Deploy and rollback
@@ -65,7 +66,23 @@ The demo seed gives every position a unique code `WH2|P<zone letter><n>`, with `
 sequence number inside its zone (`WH2|PA1`, `WH2|PB1` ... `WH2|PB20`, `WH2|PC15`). The prefix is
 `WH_QR_PREFIX` (default `WH2|`). The production Infra recognises codes of that form, but **the
 texts printed in the real warehouse and known by Infra are the source of truth**: if they differ,
-reassign them as below.
+reassign them as below. Only the prefix is configurable at seed time (`WH_QR_PREFIX`, read at the
+first boot on an empty database, in `.env.example`); the zone letter and the sequence come from the
+seeded layout (zones `B`, `C`; zone `A`, created by the bootstrap, uses `WH2|PA1` and `WH2|PA2`, so
+the codes never collide). Seeding never rewrites an existing database: on a server that is already
+seeded, the codes stay as they are until you reassign them.
+
+### Checking the codes
+
+The flat `GET /warehouse/positions` does not carry `qr_code`; `GET /warehouse/positions/{id}` and
+`GET /warehouse/lines/{lineId}/positions` do:
+
+```sh
+for id in $(curl -fsS "$H/warehouse/positions" -H "Authorization: Bearer $TOKEN" | jq -r '.positions[].id_position'); do
+  curl -fsS "$H/warehouse/positions/$id" -H "Authorization: Bearer $TOKEN" \
+    | jq -r '[.id_position, .product_id // "-", .qr_code // "MISSING"] | @tsv'
+done        # no MISSING on a position that holds stock
+```
 
 ### Assigning QR codes in bulk
 
@@ -81,8 +98,29 @@ curl -X PATCH "$H/warehouse/positions/$ID" -H "Authorization: Bearer $TOKEN" \
   200 without changing anything.
 - Codes are unique: another position with the same text answers `409 QR_CODE_ALREADY_EXISTS`.
 - A blank string (`""`) clears the code; the value is trimmed.
-- Loop over `GET /warehouse/positions` (ordered by zone, line, position) to assign the whole
-  warehouse in one go.
+- Swapping codes between positions fails halfway with that same 409 (the code is still held by the
+  other one): blank the codes first (`{"qr_code":""}`), or move through a temporary text.
+
+Whole warehouse in one go: `GET /warehouse/positions` lists every position (`id_position`,
+`zone_code`, `number_line`, `position_name`, ordered by zone, line, position). Build a two-column
+file `<id_position><TAB><qr_code>`, edit it to the codes Infra knows, and apply it:
+
+```sh
+H=https://<public-host>/api            # whatever the proxy exposes (docs/CONSOLE.md, Caddy)
+TOKEN=...                              # POST $H/auth/login as SUPERADMIN or ADMIN_WAREHOUSE
+
+# 1. Start from the seed's scheme: WH2|P<zone letter><n>, n counting inside the zone.
+curl -fsS "$H/warehouse/positions" -H "Authorization: Bearer $TOKEN" \
+  | jq -r '.positions | group_by(.zone_code)[] | to_entries[]
+           | [.value.id_position, "WH2|P\(.value.zone_code)\(.key + 1)"] | @tsv' > positions.tsv
+
+# 2. Edit positions.tsv (e.g. zone A -> WH2|PA1..., another zone letter -> WH2|PM1...), then apply:
+while IFS=$'\t' read -r id qr; do
+  curl -sS -X PATCH "$H/warehouse/positions/$id" -H "Authorization: Bearer $TOKEN" \
+    -H 'Content-Type: application/json' -d "$(jq -nc --arg q "$qr" '{qr_code:$q}')" \
+    -o /dev/null -w "$id $qr -> %{http_code}\n"
+done < positions.tsv        # every line must end in 200
+```
 
 ### Capacity guard gotcha
 
@@ -98,8 +136,8 @@ product's dimensions. The demo seed satisfies these rules (`DemoDatasetTest`).
 
 1. Look at the `stops` of the message published for the order (RabbitMQ, or the bridge log).
    Empty `stops` is the usual cause.
-2. `GET /warehouse/positions` and find the positions of the ordered products: `qr_code` null or
-   blank, or different from what Infra knows. Assign them as above.
+2. List the codes (see the check below) and find the positions of the ordered products: `qr_code`
+   null or blank, or different from what Infra knows. Assign them as above.
 3. If `stops` are present, check the bridge: `docker logs wh-backend-bridge-1` (AMQP errors,
    `Exception (501)` means the wrong port) and that `INFRA_API_KEY` is the same on both sides
    (the backend answers `401 INVALID_API_KEY` otherwise).

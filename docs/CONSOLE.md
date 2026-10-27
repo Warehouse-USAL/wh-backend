@@ -201,7 +201,11 @@ Verified with `caddy:2.10.2`.
    and so on, so the proxy must answer under `/api` whatever the backend's own layout. Two
    variants exist; use the one that matches the server:
 
-   - **Variant A, backend behind an `/api` prefix** (the proxy already strips it):
+   - **Variant A, the site already has a `handle_path /api/*` route to the backend:** nothing to
+     add; check it carries `flush_interval -1` as below.
+   - **Variant B, backend served at the root** (no `/api` in front of it, e.g. `https://host/auth/login`
+     is the real login): add this next to the root route, which stays as is. Without it the
+     console's login hits `/api/auth/login`, nothing matches and the user sees a generic 401.
 
      ```caddyfile
      handle_path /api/* {
@@ -211,12 +215,7 @@ Verified with `caddy:2.10.2`.
      }
      ```
 
-   - **Variant B, backend served at the root** (no `/api` in front of it, e.g. `https://host/auth/login`
-     is the real login): the same `handle_path` snippet must be **added next to** the root route,
-     which stays as is. Without it the console's login hits `/api/auth/login`, nothing matches and the
-     user sees a generic 401.
-
-   In both variants `handle_path` strips `/api` before the request reaches the backend, and
+   `handle_path` strips `/api` before the request reaches the backend, and
    `flush_interval -1` is needed for the push stream ("Push stream").
 
 Verify from the collector's network (the collector image is distroless, so use a curl container):

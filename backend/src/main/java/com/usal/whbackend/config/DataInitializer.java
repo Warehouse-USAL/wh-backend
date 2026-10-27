@@ -52,7 +52,7 @@ public class DataInitializer implements ApplicationRunner {
     this.zoneRepository = zoneRepository;
     this.lineRepository = lineRepository;
     this.positionRepository = positionRepository;
-    this.qrPrefix = qrPrefix;
+    this.qrPrefix = DemoDataset.qrPrefixOrDefault(qrPrefix);
   }
 
   @Override

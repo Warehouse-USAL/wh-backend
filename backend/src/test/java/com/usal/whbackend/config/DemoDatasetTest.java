@@ -640,6 +640,16 @@ class DemoDatasetTest {
   }
 
   @Test
+  void blankQrPrefixMeansTheDefault() {
+    assertThat(DemoDataset.qrPrefixOrDefault("")).isEqualTo("WH2|");
+    assertThat(DemoDataset.qrPrefixOrDefault("  ")).isEqualTo("WH2|");
+    assertThat(DemoDataset.qrPrefixOrDefault(null)).isEqualTo("WH2|");
+    assertThat(DemoDataset.qrPrefixOrDefault("ALM1|")).isEqualTo("ALM1|");
+    assertThat(new DemoDataset(p -> p, "").build().getPositions().get(0).getQrCode())
+        .isEqualTo("WH2|PB1");
+  }
+
+  @Test
   void everySeededPositionSatisfiesTheInvariantsTheApiEnforces() {
     Map<String, Product> productById =
         data.getProducts().stream().collect(Collectors.toMap(Product::getId, p -> p));

@@ -80,6 +80,11 @@ public final class DemoDataset {
     "Calle Canelones 1500"
   };
 
+  /** A blank {@code WH_QR_PREFIX} (set but empty) means the default, never "no prefix". */
+  static String qrPrefixOrDefault(String qrPrefix) {
+    return qrPrefix == null || qrPrefix.isBlank() ? DEFAULT_QR_PREFIX : qrPrefix;
+  }
+
   private final UnaryOperator<String> passwordHasher;
   private final Instant now;
   private final String qrPrefix;
@@ -103,7 +108,7 @@ public final class DemoDataset {
   DemoDataset(UnaryOperator<String> passwordHasher, Instant now, String qrPrefix) {
     this.passwordHasher = passwordHasher;
     this.now = now;
-    this.qrPrefix = qrPrefix == null || qrPrefix.isBlank() ? DEFAULT_QR_PREFIX : qrPrefix;
+    this.qrPrefix = qrPrefixOrDefault(qrPrefix);
     this.catalogueEpoch = now.minus(DemoHistory.HISTORY_DAYS + 10L, ChronoUnit.DAYS);
   }
 

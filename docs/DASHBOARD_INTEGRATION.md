@@ -213,11 +213,11 @@ POST /metrics/restock-suggestions
 Una fila por producto, **primero los que hay que reponer** (de mayor a menor cantidad sugerida):
 
 ```json
-{"product_id": "p-HER-005", "sku": "HER-005", "name": "Llave ajustable Bahco 10\"",
- "long_term_demand": 0.43, "recent_demand": 1.14, "blended_demand": 0.65,
- "safety_stock": 0.87, "reorder_point": 4.1, "target_stock": 8.63,
- "available_stock": 2, "on_order_stock": 0, "inventory_position": 2,
- "should_restock": true, "suggested_quantity": 7}
+{"product_id": "p-TEC-005", "sku": "TEC-005", "name": "Monitor ASUS ProArt PB278Q 27\"",
+ "long_term_demand": 2.83, "recent_demand": 4.71, "blended_demand": 3.4,
+ "safety_stock": 5.66, "reorder_point": 22.64, "target_stock": 46.41,
+ "available_stock": 16, "on_order_stock": 0, "inventory_position": 16,
+ "should_restock": true, "suggested_quantity": 32}
 ```
 
 - **Demanda**: unidades de órdenes no canceladas, contadas por fecha de creación. La ventana larga
@@ -296,7 +296,7 @@ POST /query/orders
   "items": [
     {"units": 12, "sku": "OTR-001"},
     {"units": 12, "sku": "TEC-002"},
-    {"units": 12, "sku": "HER-001"}
+    {"units": 12, "sku": "TEC-004"}
   ]
 }
 ```
