@@ -78,7 +78,6 @@ def test_bridge_restart_resumes_from_the_committed_offset(stack, op, factory, ra
     assert sorted(seen) == sorted(ids), f"duplicates or losses: {seen}"
 
 
-@pytest.mark.known_failure(bug="BUG-RESIL-1", reason="MongoDB down: API calls hang ~30s (serverSelectionTimeout) and end in a generic 500 Spring body instead of a fast 503 in the API error contract; /actuator/health also hangs past 5s instead of answering DOWN, so orchestrators cannot detect it quickly")
 def test_mongodb_outage_fails_fast_and_cleanly(stack, op, anon):
     """MongoDB down: requests answer 503 {error} within 10s and health reports DOWN quickly"""
     with outage(stack, "mongodb"):

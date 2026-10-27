@@ -180,4 +180,23 @@ class GlobalExceptionHandlerTest {
     assertThat(r.getStatusCode()).isEqualTo(HttpStatus.FORBIDDEN);
     assertThat(r.getBody().error().code()).isEqualTo("ACCESS_DENIED");
   }
+
+  @Test
+  void databaseUnreachable_returns503WithCodeInTheUsualShape() {
+    List<Exception> failures =
+        List.of(
+            new org.springframework.dao.DataAccessResourceFailureException("no server"),
+            new org.springframework.transaction.CannotCreateTransactionException("no session"),
+            new com.mongodb.MongoTimeoutException("Timed out while waiting for a server"),
+            new com.mongodb.MongoSocketException(
+                "connection reset", new com.mongodb.ServerAddress()));
+
+    for (Exception failure : failures) {
+      ResponseEntity<ErrorResponse> r = handler.handleDatabaseUnavailable(failure);
+
+      assertThat(r.getStatusCode()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE);
+      assertThat(r.getBody().error().code()).isEqualTo("DATABASE_UNAVAILABLE");
+      assertThat(r.getBody().error().message()).isNotBlank();
+    }
+  }
 }

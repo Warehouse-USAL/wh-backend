@@ -1,6 +1,8 @@
 package com.usal.whbackend.api.error;
 
 import com.fasterxml.jackson.databind.exc.InvalidFormatException;
+import com.mongodb.MongoSocketException;
+import com.mongodb.MongoTimeoutException;
 import com.usal.whbackend.domain.StockSize;
 import com.usal.whbackend.service.exception.AccountDisabledException;
 import com.usal.whbackend.service.exception.EmailAlreadyExistsException;
@@ -21,11 +23,13 @@ import com.usal.whbackend.service.storage.StorageException;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessResourceFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.transaction.CannotCreateTransactionException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -90,6 +94,7 @@ public class GlobalExceptionHandler {
               "La consulta es demasiado amplia. Reducir el rango o aumentar el step."),
           Map.entry(
               "METRICS_UNAVAILABLE", "El almacén de métricas no está disponible en este momento."),
+          Map.entry("DATABASE_UNAVAILABLE", "La base de datos no está disponible en este momento."),
           Map.entry(
               "LOG_STORE_UNAVAILABLE", "El almacén de logs no está disponible en este momento."),
           Map.entry(
@@ -180,6 +185,24 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(ex.getStatusCode())
         .contentType(MediaType.APPLICATION_JSON)
         .body(Map.of("error", Map.of("code", code, "message", message)));
+  }
+
+  /**
+   * MongoDB cannot be reached (no server within the selection timeout, connection lost, or a
+   * transaction that could not start): the same 503-with-a-code answer the metrics and log stores
+   * give, instead of Spring's default 500 body.
+   */
+  @ExceptionHandler({
+    DataAccessResourceFailureException.class,
+    CannotCreateTransactionException.class,
+    MongoTimeoutException.class,
+    MongoSocketException.class
+  })
+  public ResponseEntity<ErrorResponse> handleDatabaseUnavailable(Exception ex) {
+    log.error("MongoDB unavailable: {}", ex.toString());
+    return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+        .contentType(MediaType.APPLICATION_JSON)
+        .body(ErrorResponse.of("DATABASE_UNAVAILABLE", MESSAGES.get("DATABASE_UNAVAILABLE")));
   }
 
   @ExceptionHandler(InvalidMetricParamsException.class)

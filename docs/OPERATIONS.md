@@ -143,3 +143,22 @@ product's dimensions. The demo seed satisfies these rules (`DemoDatasetTest`).
    (the backend answers `401 INVALID_API_KEY` otherwise).
 4. Stops are resolved from positions that hold stock of the ordered products; a product with no
    stock in any position yields none.
+
+## Sessions and MongoDB timeouts
+
+**Deactivated users.** A JWT is only accepted while its user exists and is active. The check is
+cached per backend instance for `JWT_USER_STATUS_CACHE_TTL_MS` (property `jwt.user-status-cache-ttl-ms`,
+default 15000; `0` checks on every request) and the cache entry is dropped at once when the user is
+updated through the API on the same instance. Applies to the REST API, the WebSocket handshakes and
+the console; `/infra/**` keeps its API key. Residual windows: another backend instance, and the
+suggestions service (which verifies JWTs on its own with the shared secret and never consults the
+user store), keep accepting a deactivated user's token until the cache TTL / the token expires
+(`JWT_EXPIRATION_MS`, 24 h by default). Connections already open (WebSocket, console stream) are not
+closed on deactivation. A role change is not reflected in tokens already issued, as before. If the
+user store cannot be read, the last known answer is used (a signed token with no known answer is
+accepted; the request then fails on its own database access).
+
+**MongoDB timeouts.** A call no longer waits 30 s for a database that is down: it answers
+`503 DATABASE_UNAVAILABLE` (`{"error": {"code", "message"}}`) after the server selection timeout and
+`/actuator/health` reports `DOWN`. Tunables (milliseconds): `WH_MONGO_SERVER_SELECTION_TIMEOUT_MS`
+(3000), `WH_MONGO_CONNECT_TIMEOUT_MS` (3000), `WH_MONGO_SOCKET_TIMEOUT_MS` (30000, `0` = none).

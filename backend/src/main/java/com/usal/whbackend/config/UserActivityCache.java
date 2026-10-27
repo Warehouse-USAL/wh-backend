@@ -67,7 +67,13 @@ public class UserActivityCache {
       return active;
     } catch (RuntimeException e) {
       log.warn("could not check whether user {} is active: {}", userId, e.toString());
-      return cached == null || cached.active;
+      boolean active = cached == null || cached.active;
+      // Remember the fallback for the TTL too: with the database down every lookup would
+      // otherwise wait out the driver's server selection timeout before the request even starts.
+      if (ttlNanos > 0) {
+        entries.put(userId, new Entry(active, now + ttlNanos));
+      }
+      return active;
     }
   }
 
