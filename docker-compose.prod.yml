@@ -6,8 +6,8 @@
 #    is generated once into a named volume, and a one-shot initializer runs
 #    rs.initiate() authenticated as root (the dev healthcheck can't, once auth is on)
 #  - stateful data lives in named volumes (no host bind-mount permission issues)
-#  - backend, bridge and console run the GHCR images of one release: WH_IMAGE_TAG (default latest)
-#    pins all three, e.g. WH_IMAGE_TAG=v1.4.0 to roll back (docs/CONSOLE.md, Rollback)
+#  - backend, bridge, console and suggestions run the GHCR images of one release: WH_IMAGE_TAG (default latest)
+#    pins all four, e.g. WH_IMAGE_TAG=v1.4.0 to roll back (docs/CONSOLE.md, Rollback)
 #  - secrets have no defaults here: compose refuses to start when one is missing
 
 # json-file rotation for the services the console added (the Docker daemon default never rotates).
@@ -75,6 +75,37 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://otel-collector:4318}
     profiles: !reset []
     restart: always
+
+  # Recommendations service (docs/SUGGESTIONS.md). Caddy already routes /suggestions/* (prefix
+  # stripped) to suggestions:8080, hence the wh-proxy network and the exact service name.
+  # JWT_SECRET is the backend's: tokens are verified locally, never sent anywhere.
+  suggestions:
+    image: ghcr.io/warehouse-usal/wh-suggestions:${WH_IMAGE_TAG:-latest}
+    environment:
+      HTTP_ADDR: ":8080"
+      KAFKA_BROKERS: ${REDPANDA_BOOTSTRAP_SERVERS:-redpanda:9092}
+      REDIS_ADDR: suggestions-redis:6379
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env (at least 32 chars)}
+    ports: !override []
+    profiles: !reset []
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      suggestions-redis:
+        condition: service_healthy
+    restart: always
+    logging: *logging
+    networks:
+      - wh-network
+      - wh-proxy
+
+  # AOF on a named volume: the model is rebuilt from Kafka only as far as retention allows.
+  suggestions-redis:
+    volumes: !override
+      - suggestions_redis_data:/data
+    profiles: !reset []
+    restart: always
+    logging: *logging
 
   # One-shot: create the replica-set keyFile in a named volume if absent.
   # All mongo images pinned to 4.4 — the prod box (HP ProLiant) has no AVX, so
@@ -194,3 +225,4 @@ volumes:
   redpanda_data:
   minio_data:
   victoriametrics_data:
+  suggestions_redis_data:

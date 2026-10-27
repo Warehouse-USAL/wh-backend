@@ -1,4 +1,4 @@
-.PHONY: e2e bridge-test help up-dev run up-prod up-infra deploy down build test test-coverage lint format format-fix pr-checks logs clean
+.PHONY: e2e bridge-test suggestions-test help up-dev run up-prod up-infra deploy down build test test-coverage lint format format-fix pr-checks logs clean
 
 .DEFAULT_GOAL := help
 
@@ -38,15 +38,16 @@ up-prod: ## Start services in production mode (requires env vars set)
 PROD_COMPOSE = docker compose -f docker-compose.yml -f docker-compose.prod.yml
 
 deploy: ## Pull the newest backend + bridge + console images and restart them, plus restock-cron (data untouched)
-	$(PROD_COMPOSE) pull backend bridge console
+	$(PROD_COMPOSE) pull backend bridge console suggestions
 	@# Telemetry first (docs/CONSOLE.md, Rollout): the collector's logs pipeline must be up before the
 	@# new backend and bridge export to it. Recreated only when their compose config changed; the
 	@# collector always, since its config is a bind mount compose cannot diff. Volumes persist.
-	@# MongoDB and Redpanda are never touched. WH_IMAGE_TAG in .env pins the three app images.
+	@# MongoDB and Redpanda are never touched. WH_IMAGE_TAG in .env pins the four app images.
 	$(PROD_COMPOSE) up -d --no-deps victorialogs
 	$(PROD_COMPOSE) up -d --no-deps --force-recreate otel-collector
 	$(PROD_COMPOSE) up -d --no-deps minio victoriametrics
-	$(PROD_COMPOSE) up -d --no-deps backend bridge console restock-cron
+	$(PROD_COMPOSE) up -d --no-deps suggestions-redis
+	$(PROD_COMPOSE) up -d --no-deps backend bridge console suggestions restock-cron
 	@echo "Backend redeployed"
 
 up-infra: ## Start only MongoDB, Redpanda and MinIO (for local Gradle development)
@@ -98,6 +99,9 @@ format-fix: ## Apply Google Java Format to all source files
 
 bridge-test: ## Run the Go bridge's vet + tests
 	cd bridge && go vet ./... && go test -race ./...
+
+suggestions-test: ## Run the Go suggestions service's vet + tests
+	cd suggestions && go vet ./... && go test -race ./...
 
 e2e: ## Full-stack dry run: backend <-> bridge <-> fake Infra (needs Docker; see e2e/run.sh)
 	./e2e/run.sh
