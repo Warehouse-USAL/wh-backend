@@ -76,11 +76,12 @@ public class RestockOrderService {
    */
   public RestockOrder cancelRestockOrder(String id, String reason, String userId) {
     RestockOrder order =
-        restockOrderRepository.findById(id).orElseThrow(() -> new RestockOrderNotFoundException(id));
+        restockOrderRepository
+            .findById(id)
+            .orElseThrow(() -> new RestockOrderNotFoundException(id));
 
     if (order.isCancelled()) {
-      throw new ResponseStatusException(
-          HttpStatus.CONFLICT, "RESTOCK_ORDER_ALREADY_CANCELLED");
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "RESTOCK_ORDER_ALREADY_CANCELLED");
     }
     if (computeReceivedSoFar(id) > 0) {
       throw new ResponseStatusException(HttpStatus.CONFLICT, "RESTOCK_ORDER_HAS_RECEPTIONS");
@@ -137,8 +138,18 @@ public class RestockOrderService {
   }
 
   public RestockOrder getRestockOrder(String id) {
+    return getRestockOrder(id, null);
+  }
+
+  /**
+   * Same as {@link #getRestockOrder(String)}, limited to one supplier's orders when {@code
+   * supplier} is set: another supplier's order is reported as not found rather than forbidden, so a
+   * provider cannot probe for ids.
+   */
+  public RestockOrder getRestockOrder(String id, String supplier) {
     return restockOrderRepository
         .findById(id)
+        .filter(order -> supplier == null || supplier.equals(order.getSupplier()))
         .orElseThrow(() -> new RestockOrderNotFoundException(id));
   }
 

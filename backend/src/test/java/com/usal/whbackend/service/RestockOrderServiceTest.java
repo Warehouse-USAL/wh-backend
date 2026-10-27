@@ -218,6 +218,27 @@ class RestockOrderServiceTest {
     assertEquals(RestockOrderStatus.CANCELLED, result.getStatus());
   }
 
+  @Test
+  void getRestockOrder_ofItsSupplier_isFoundByTheProvider() {
+    RestockOrder order = new RestockOrder();
+    order.setId("rso-1");
+    order.setSupplier("Distribuidora XYZ");
+    when(restockOrderRepository.findById("rso-1")).thenReturn(Optional.of(order));
+    assertEquals(
+        "rso-1", restockOrderService.getRestockOrder("rso-1", "Distribuidora XYZ").getId());
+  }
+
+  @Test
+  void getRestockOrder_ofAnotherSupplier_looksMissingToTheProvider() {
+    RestockOrder order = new RestockOrder();
+    order.setId("rso-1");
+    order.setSupplier("Distribuidora XYZ");
+    when(restockOrderRepository.findById("rso-1")).thenReturn(Optional.of(order));
+    assertThrows(
+        RestockOrderNotFoundException.class,
+        () -> restockOrderService.getRestockOrder("rso-1", "Otro Proveedor"));
+  }
+
   @SuppressWarnings({"unchecked", "rawtypes"})
   @Test
   void computeReceivedSoFar_noReceptions_returnsZero() {
@@ -265,8 +286,7 @@ class RestockOrderServiceTest {
     when(mongoTemplate.find(any(Query.class), eq(RestockOrder.class))).thenReturn(List.of());
 
     var page =
-        restockOrderService.getRestockOrders(
-            null, null, null, null, false, PageRequest.of(0, 10));
+        restockOrderService.getRestockOrders(null, null, null, null, false, PageRequest.of(0, 10));
 
     assertEquals(0, page.getTotalElements());
   }

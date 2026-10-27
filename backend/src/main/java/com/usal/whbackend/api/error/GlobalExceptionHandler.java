@@ -129,8 +129,7 @@ public class GlobalExceptionHandler {
               "Una consulta agrupada debe acotarse con un filtro de fecha (ej: created_at >=)."),
           Map.entry("RESTOCK_ORDER_NOT_FOUND", "La orden de restock solicitada no existe."),
           Map.entry(
-              "RESTOCK_ORDER_ALREADY_CANCELLED",
-              "La orden de restock ya se encuentra cancelada."),
+              "RESTOCK_ORDER_ALREADY_CANCELLED", "La orden de restock ya se encuentra cancelada."),
           Map.entry(
               "RESTOCK_ORDER_HAS_RECEPTIONS",
               "No se puede cancelar: ya se registraron remitos contra esta orden de restock."),

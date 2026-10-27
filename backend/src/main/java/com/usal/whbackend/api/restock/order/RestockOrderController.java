@@ -1,8 +1,11 @@
 package com.usal.whbackend.api.restock.order;
 
 import com.usal.whbackend.api.Pagination;
+import com.usal.whbackend.api.Roles;
 import com.usal.whbackend.domain.RestockOrder;
+import com.usal.whbackend.domain.UserRole;
 import com.usal.whbackend.service.RestockOrderService;
+import com.usal.whbackend.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -34,9 +37,11 @@ import org.springframework.web.bind.annotation.RestController;
 public class RestockOrderController {
 
   private final RestockOrderService restockOrderService;
+  private final UserService userService;
 
-  public RestockOrderController(RestockOrderService restockOrderService) {
+  public RestockOrderController(RestockOrderService restockOrderService, UserService userService) {
     this.restockOrderService = restockOrderService;
+    this.userService = userService;
   }
 
   @Operation(
@@ -63,8 +68,13 @@ public class RestockOrderController {
       summary = "List restock orders",
       description =
           "Paginated, filterable listing. Cancelled orders are hidden by default; pass"
-              + " includeCancelled=true to include them.")
+              + " includeCancelled=true to include them. A PROVIDER only sees its own supplier's"
+              + " orders: the supplier filter is forced to it.")
   @ApiResponse(responseCode = "200", description = "Paginated restock order list")
+  @ApiResponse(
+      responseCode = "403",
+      description = "PROVIDER_WITHOUT_SUPPLIER — provider not linked to a supplier")
+  @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_WAREHOUSE', 'PROVIDER')")
   @GetMapping
   public ResponseEntity<Map<String, Object>> getRestockOrders(
       @RequestParam(required = false) String productId,
@@ -77,11 +87,18 @@ public class RestockOrderController {
           @RequestParam(defaultValue = "false")
           boolean includeCancelled,
       @RequestParam(defaultValue = "0") int page,
-      @RequestParam(defaultValue = "10") int size) {
+      @RequestParam(defaultValue = "10") int size,
+      @CurrentSecurityContext(expression = "authentication") Authentication authentication) {
+    String ownSupplier = providerSupplier(authentication);
     Pageable pageable = PageRequest.of(Math.max(page, 0), Math.max(Math.min(size, 50), 1));
     Page<RestockOrder> result =
         restockOrderService.getRestockOrders(
-            productId, supplier, from, to, includeCancelled, pageable);
+            productId,
+            ownSupplier != null ? ownSupplier : supplier,
+            from,
+            to,
+            includeCancelled,
+            pageable);
     return ResponseEntity.ok(
         Map.of(
             "restock_orders", result.getContent().stream().map(RestockOrderResponse::from).toList(),
@@ -90,13 +107,20 @@ public class RestockOrderController {
 
   @Operation(
       summary = "Get restock order by ID",
-      description = "Includes quantity_received_so_far, computed from linked receptions.")
+      description =
+          "Includes quantity_received_so_far, computed from linked receptions. A PROVIDER only"
+              + " finds its own supplier's orders.")
   @ApiResponse(responseCode = "200", description = "Restock order found")
+  @ApiResponse(
+      responseCode = "403",
+      description = "PROVIDER_WITHOUT_SUPPLIER — provider not linked to a supplier")
   @ApiResponse(responseCode = "404", description = "RESTOCK_ORDER_NOT_FOUND")
+  @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_WAREHOUSE', 'PROVIDER')")
   @GetMapping("/{id}")
   public ResponseEntity<Map<String, RestockOrderDetailResponse>> getRestockOrder(
-      @PathVariable String id) {
-    RestockOrder order = restockOrderService.getRestockOrder(id);
+      @PathVariable String id,
+      @CurrentSecurityContext(expression = "authentication") Authentication authentication) {
+    RestockOrder order = restockOrderService.getRestockOrder(id, providerSupplier(authentication));
     int receivedSoFar = restockOrderService.computeReceivedSoFar(id);
     return ResponseEntity.ok(
         Map.of("restock_order", RestockOrderDetailResponse.from(order, receivedSoFar)));
@@ -126,5 +150,12 @@ public class RestockOrderController {
     int receivedSoFar = restockOrderService.computeReceivedSoFar(id);
     return ResponseEntity.ok(
         Map.of("restock_order", RestockOrderDetailResponse.from(order, receivedSoFar)));
+  }
+
+  /** The caller's own supplier if they are a PROVIDER, otherwise null (no restriction). */
+  private String providerSupplier(Authentication authentication) {
+    return Roles.of(authentication).contains(UserRole.PROVIDER)
+        ? userService.supplierOf(authentication.getName())
+        : null;
   }
 }

@@ -1,5 +1,6 @@
 package com.usal.whbackend.api.user;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
@@ -22,6 +23,7 @@ import com.usal.whbackend.service.exception.UserNotFoundException;
 import java.time.Instant;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
@@ -192,6 +194,29 @@ class UserControllerTest {
   }
 
   @Test
+  void createProvider_passesSupplierAndReturnsIt() throws Exception {
+    User provider = sample();
+    provider.setRole(UserRole.PROVIDER);
+    provider.setSupplier("Distribuidora XYZ");
+    when(userService.createUser(any())).thenReturn(provider);
+
+    mockMvc
+        .perform(
+            post("/users")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"email\":\"prov@test.com\",\"name\":\"Provider\","
+                        + "\"role\":\"PROVIDER\",\"initial_password\":\"pass\","
+                        + "\"supplier\":\"Distribuidora XYZ\"}"))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.supplier").value("Distribuidora XYZ"));
+
+    ArgumentCaptor<CreateUserRequest> request = ArgumentCaptor.forClass(CreateUserRequest.class);
+    verify(userService).createUser(request.capture());
+    assertEquals("Distribuidora XYZ", request.getValue().supplier());
+  }
+
+  @Test
   void updateUser_existingId_returns200() throws Exception {
     when(userService.updateUser(eq("USR-001"), any())).thenReturn(sample());
     mockMvc
@@ -201,6 +226,26 @@ class UserControllerTest {
                 .content(
                     objectMapper.writeValueAsString(new UpdateUserRequest("New Name", null, null))))
         .andExpect(status().isOk());
+  }
+
+  @Test
+  void updateProvider_passesSupplierAndReturnsIt() throws Exception {
+    User provider = sample();
+    provider.setRole(UserRole.PROVIDER);
+    provider.setSupplier("Distribuidora XYZ");
+    when(userService.updateUser(eq("USR-001"), any())).thenReturn(provider);
+
+    mockMvc
+        .perform(
+            patch("/users/USR-001")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"role\":\"PROVIDER\",\"supplier\":\"Distribuidora XYZ\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.supplier").value("Distribuidora XYZ"));
+
+    ArgumentCaptor<UpdateUserRequest> request = ArgumentCaptor.forClass(UpdateUserRequest.class);
+    verify(userService).updateUser(eq("USR-001"), request.capture());
+    assertEquals("Distribuidora XYZ", request.getValue().supplier());
   }
 
   @Test

@@ -59,6 +59,8 @@ public class UserService {
     user.setEmail(request.email());
     user.setName(request.name());
     user.setRole(UserRole.valueOf(request.role()));
+    user.setSupplier(request.supplier());
+    normalizeSupplierForRole(user);
     user.setPasswordHash(passwordEncoder.encode(request.initialPassword()));
     user.setActive(true);
     user.setCreatedAt(Instant.now());
@@ -70,7 +72,32 @@ public class UserService {
     if (request.name() != null) user.setName(request.name());
     if (request.role() != null) user.setRole(UserRole.valueOf(request.role()));
     if (request.active() != null) user.setActive(request.active());
+    if (request.supplier() != null) user.setSupplier(request.supplier());
+    normalizeSupplierForRole(user);
     return userRepository.save(user);
+  }
+
+  /**
+   * A PROVIDER may exist before it is linked to a supplier, but supplier-scoped operations reject
+   * unlinked providers in {@link #supplierOf(String)}. Any other role has no supplier.
+   */
+  private static void normalizeSupplierForRole(User user) {
+    if (user.getRole() != UserRole.PROVIDER) {
+      user.setSupplier(null);
+      return;
+    }
+    String supplier = user.getSupplier();
+    user.setSupplier(supplier == null || supplier.isBlank() ? null : supplier.trim());
+  }
+
+  /** The supplier a PROVIDER user delivers for; a provider not linked to one may do nothing. */
+  public String supplierOf(String userId) {
+    User user =
+        userRepository.findById(userId).orElseThrow(() -> new UserNotFoundException(userId));
+    if (user.getSupplier() == null || user.getSupplier().isBlank()) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "PROVIDER_WITHOUT_SUPPLIER");
+    }
+    return user.getSupplier();
   }
 
   public void resetPassword(String id, String newPassword) {

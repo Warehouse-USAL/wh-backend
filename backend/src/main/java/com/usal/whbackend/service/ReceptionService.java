@@ -55,6 +55,30 @@ public class ReceptionService {
 
   @Transactional
   public Reception createReception(CreateReceptionRequest request, String userId) {
+    return createReception(request, userId, null);
+  }
+
+  /**
+   * Registers a reception. When {@code providerSupplier} is set, a PROVIDER is registering its own
+   * delivery: it must reference one of that supplier's restock orders, carries that supplier
+   * whatever the request says, and may not assign positions — it is created PENDING_LOCATION and
+   * adds no stock until an administrator assigns positions with {@link #assignPositions}.
+   */
+  @Transactional
+  public Reception createReception(
+      CreateReceptionRequest request, String userId, String providerSupplier) {
+    boolean byProvider = providerSupplier != null;
+    if (byProvider && request.assignments() != null && !request.assignments().isEmpty()) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "ASSIGNMENTS_NOT_ALLOWED");
+    }
+    if (byProvider && request.restockOrderId() == null) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "RESTOCK_ORDER_REQUIRED");
+    }
+    String supplier = byProvider ? providerSupplier : request.supplier();
+    if (supplier == null || supplier.isBlank()) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "SUPPLIER_REQUIRED");
+    }
+
     Product product =
         productRepository
             .findById(request.productId())
@@ -71,9 +95,11 @@ public class ReceptionService {
     }
 
     if (request.restockOrderId() != null) {
+      // Another supplier's order looks missing to a provider, as on GET /restock/orders/{id}.
       RestockOrder order =
           restockOrderRepository
               .findById(request.restockOrderId())
+              .filter(o -> !byProvider || providerSupplier.equals(o.getSupplier()))
               .orElseThrow(
                   () ->
                       new ResponseStatusException(HttpStatus.NOT_FOUND, "RESTOCK_ORDER_NOT_FOUND"));
@@ -99,7 +125,7 @@ public class ReceptionService {
     reception.setProductId(product.getId());
     reception.setQuantityReceived(request.quantityReceived());
     reception.setDeliveryUnit(request.deliveryUnit());
-    reception.setSupplier(request.supplier());
+    reception.setSupplier(supplier);
     reception.setAssignments(
         request.assignments() == null
             ? List.of()

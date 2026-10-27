@@ -55,6 +55,81 @@ class ReceptionServiceTest {
         restockOrderId, "p1", total, StockSize.PALLET, "Distribuidora XYZ", assignments);
   }
 
+  // ── Provider-registered deliveries ─────────────────────────────────────────
+
+  private RestockOrder restockOrder(String id, String supplier) {
+    RestockOrder order = new RestockOrder();
+    order.setId(id);
+    order.setProductId("p1");
+    order.setSupplier(supplier);
+    return order;
+  }
+
+  @Test
+  void createReception_byProvider_isPendingLocationWithItsOwnSupplierAndAddsNoStock() {
+    when(productRepository.findById("p1")).thenReturn(Optional.of(activeProduct("p1")));
+    when(restockOrderRepository.findById("rso-1"))
+        .thenReturn(Optional.of(restockOrder("rso-1", "Distribuidora XYZ")));
+    when(receptionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+    var req = new CreateReceptionRequest("rso-1", "p1", 48, StockSize.PALLET, "Lo que sea", null);
+
+    Reception result = receptionService.createReception(req, "provider-1", "Distribuidora XYZ");
+
+    assertEquals(ReceptionStatus.PENDING_LOCATION, result.getStatus());
+    assertEquals("Distribuidora XYZ", result.getSupplier());
+    assertEquals("provider-1", result.getReceivedByUserId());
+    verifyNoInteractions(positionService);
+  }
+
+  @Test
+  void createReception_byProviderWithAssignments_throwsBadRequest() {
+    var req = request("rso-1", List.of(new AssignmentRequest("pos-1", 10)));
+    var ex =
+        assertThrows(
+            ResponseStatusException.class,
+            () -> receptionService.createReception(req, "provider-1", "Distribuidora XYZ"));
+    assertEquals(HttpStatus.BAD_REQUEST, ex.getStatusCode());
+    assertEquals("ASSIGNMENTS_NOT_ALLOWED", ex.getReason());
+    verifyNoInteractions(positionService, receptionRepository);
+  }
+
+  @Test
+  void createReception_byProviderWithoutRestockOrder_throwsBadRequest() {
+    var req = new CreateReceptionRequest(null, "p1", 48, StockSize.PALLET, null, null);
+    var ex =
+        assertThrows(
+            ResponseStatusException.class,
+            () -> receptionService.createReception(req, "provider-1", "Distribuidora XYZ"));
+    assertEquals("RESTOCK_ORDER_REQUIRED", ex.getReason());
+    verifyNoInteractions(receptionRepository);
+  }
+
+  @Test
+  void createReception_byProviderForOtherSupplierOrder_throwsNotFound() {
+    when(productRepository.findById("p1")).thenReturn(Optional.of(activeProduct("p1")));
+    when(restockOrderRepository.findById("rso-1"))
+        .thenReturn(Optional.of(restockOrder("rso-1", "Distribuidora XYZ")));
+    var req = new CreateReceptionRequest("rso-1", "p1", 48, StockSize.PALLET, null, null);
+
+    var ex =
+        assertThrows(
+            ResponseStatusException.class,
+            () -> receptionService.createReception(req, "provider-2", "Otro Proveedor"));
+    assertEquals(HttpStatus.NOT_FOUND, ex.getStatusCode());
+    assertEquals("RESTOCK_ORDER_NOT_FOUND", ex.getReason());
+    verifyNoInteractions(receptionRepository);
+  }
+
+  @Test
+  void createReception_byAdminWithoutSupplier_throwsBadRequest() {
+    var req = new CreateReceptionRequest(null, "p1", 48, StockSize.PALLET, " ", null);
+    var ex =
+        assertThrows(
+            ResponseStatusException.class, () -> receptionService.createReception(req, "user-1"));
+    assertEquals("SUPPLIER_REQUIRED", ex.getReason());
+    verifyNoInteractions(receptionRepository);
+  }
+
   @Test
   void createReception_productNotFound_throwsNotFound() {
     when(productRepository.findById("p1")).thenReturn(Optional.empty());
