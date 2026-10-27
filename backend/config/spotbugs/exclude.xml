@@ -55,4 +55,10 @@
         <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
         <Class name="com.usal.whbackend.service.PositionService$PositionUpdate"/>
     </Match>
+    <!-- JwtService is a Spring singleton that gained an optional, setter-injected collaborator; the
+         filter only stores the injected bean, like the constructor-injected services above. -->
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+        <Class name="com.usal.whbackend.config.JwtAuthFilter"/>
+    </Match>
 </FindBugsFilter>
