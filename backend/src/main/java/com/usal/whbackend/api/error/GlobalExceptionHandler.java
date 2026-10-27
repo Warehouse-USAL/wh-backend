@@ -132,6 +132,9 @@ public class GlobalExceptionHandler {
           Map.entry(
               "INVALID_ADJUSTMENT_TYPE",
               "Tipo de ajuste inválido. Valores aceptados: MANUAL_DECREASE, DAMAGE."),
+          Map.entry(
+              "STOCK_CHANGE_CONFLICT",
+              "Otro cambio de stock del mismo producto se estaba aplicando. Reintentá la operación."),
           Map.entry("POSITION_WITHOUT_PRODUCT", "La posición no tiene un producto asignado."),
           Map.entry(
               "QUANTITY_EXCEEDS_POSITION_STOCK",

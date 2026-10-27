@@ -359,4 +359,53 @@ class OrderRepositoryTest {
         List.of(OrderStatus.PENDING, OrderStatus.IN_PROGRESS),
         ((org.bson.Document) criteria.get("status")).get("$in"));
   }
+
+  @Test
+  void guardStockReconciliation_bumpsTheProductsGuardDocument() {
+    orderRepository.guardStockReconciliation("prod-1");
+
+    ArgumentCaptor<Query> query = ArgumentCaptor.forClass(Query.class);
+    verify(mongoTemplate)
+        .upsert(
+            query.capture(),
+            any(org.springframework.data.mongodb.core.query.Update.class),
+            eq("stock_guards"));
+    assertEquals("prod-1", query.getValue().getQueryObject().get("_id"));
+  }
+
+  @Test
+  void guardStockReconciliation_transientTransactionError_isAConflict() {
+    com.mongodb.MongoException conflict = new com.mongodb.MongoException("write conflict");
+    conflict.addLabel(com.mongodb.MongoException.TRANSIENT_TRANSACTION_ERROR_LABEL);
+    when(mongoTemplate.upsert(
+            any(Query.class),
+            any(org.springframework.data.mongodb.core.query.Update.class),
+            eq("stock_guards")))
+        .thenThrow(new org.springframework.dao.DataIntegrityViolationException("112", conflict));
+
+    org.springframework.web.server.ResponseStatusException e =
+        assertThrows(
+            org.springframework.web.server.ResponseStatusException.class,
+            () -> orderRepository.guardStockReconciliation("prod-1"));
+
+    assertEquals(org.springframework.http.HttpStatus.CONFLICT, e.getStatusCode());
+    assertEquals("STOCK_CHANGE_CONFLICT", e.getReason());
+  }
+
+  @Test
+  void guardStockReconciliation_otherDataErrors_propagateUnchanged() {
+    org.springframework.dao.DataAccessResourceFailureException down =
+        new org.springframework.dao.DataAccessResourceFailureException("down");
+    when(mongoTemplate.upsert(
+            any(Query.class),
+            any(org.springframework.data.mongodb.core.query.Update.class),
+            eq("stock_guards")))
+        .thenThrow(down);
+
+    assertSame(
+        down,
+        assertThrows(
+            org.springframework.dao.DataAccessResourceFailureException.class,
+            () -> orderRepository.guardStockReconciliation("prod-1")));
+  }
 }

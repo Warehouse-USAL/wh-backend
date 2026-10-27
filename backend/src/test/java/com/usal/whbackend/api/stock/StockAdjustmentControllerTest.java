@@ -216,8 +216,8 @@ class StockAdjustmentControllerTest {
   }
 
   @Test
-  @WithMockUser(roles = "OPERATOR")
-  void getProductHistory_isReadableByAnyAuthenticatedRole() throws Exception {
+  @WithMockUser(roles = "ADMIN_SALES")
+  void getProductHistory_isReadableByTheProductManagingRoles() throws Exception {
     when(stockAdjustmentService.getProductHistory("prod-1", PageRequest.of(0, 10)))
         .thenReturn(new PageImpl<>(List.of(adjustment())));
 
@@ -229,7 +229,7 @@ class StockAdjustmentControllerTest {
   }
 
   @Test
-  @WithMockUser(roles = "OPERATOR")
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
   void getProductHistory_unknownProduct_returns404() throws Exception {
     when(stockAdjustmentService.getProductHistory(eq("ghost"), any()))
         .thenThrow(new ResponseStatusException(HttpStatus.NOT_FOUND, "PRODUCT_NOT_FOUND"));
@@ -238,6 +238,48 @@ class StockAdjustmentControllerTest {
         .perform(get("/products/ghost/stock-adjustments"))
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.error.code").value("PRODUCT_NOT_FOUND"));
+  }
+
+  @Test
+  @WithMockUser(roles = {"OPERATOR", "PROVIDER"})
+  void getProductHistory_isForbiddenToOtherRoles() throws Exception {
+    mockMvc.perform(get("/products/prod-1/stock-adjustments")).andExpect(status().isForbidden());
+    verifyNoInteractions(stockAdjustmentService);
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void post_fractionalOrOversizedQuantity_isRejectedInsteadOfTruncated() throws Exception {
+    for (String body :
+        List.of(
+            "{\"quantity\":2.5}",
+            "{\"quantity\":2.0}",
+            "{\"quantity\":0.5}",
+            "{\"quantity\":\"abc\"}",
+            "{\"quantity\":99999999999}")) {
+      mockMvc
+          .perform(
+              post("/warehouse/positions/pos-1/stock-adjustments")
+                  .contentType(MediaType.APPLICATION_JSON)
+                  .content(body))
+          .andExpect(status().isBadRequest());
+    }
+    verifyNoInteractions(stockAdjustmentService);
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void post_concurrentStockChange_isReportedAsConflict() throws Exception {
+    when(stockAdjustmentService.adjust(any(), eq(1), any(), any()))
+        .thenThrow(new ResponseStatusException(HttpStatus.CONFLICT, "STOCK_CHANGE_CONFLICT"));
+
+    mockMvc
+        .perform(
+            post("/warehouse/positions/pos-1/stock-adjustments")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"quantity\":1}"))
+        .andExpect(status().isConflict())
+        .andExpect(jsonPath("$.error.code").value("STOCK_CHANGE_CONFLICT"));
   }
 
   @Test

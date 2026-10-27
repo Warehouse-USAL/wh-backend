@@ -149,6 +149,7 @@ public class StockAdjustmentService {
   }
 
   private List<Order> reconcile(String productId) {
+    orderRepository.guardStockReconciliation(productId);
     int physicalStock =
         positionRepository.findByProductIdInAndIsActiveTrue(List.of(productId)).stream()
             .mapToInt(Position::getCurrentStock)

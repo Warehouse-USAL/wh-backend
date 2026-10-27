@@ -10,6 +10,7 @@ algo falla, no queda ni el stock bajado, ni el historial, ni pedidos cancelados 
 | --- | --- |
 | `POST /warehouse/positions/{id}/stock-adjustments` | `MANUAL_DECREASE` o `DAMAGE` |
 | `PATCH /warehouse/positions/{id}` con `current_stock` menor | `MANUAL_DECREASE` |
+| `DELETE /products/{id}` con stock en sus posiciones | `UNASSIGNED` (una entrada por posición) |
 | `PATCH /warehouse/positions/{id}` con `unassign_product: true` y stock > 0 | `UNASSIGNED` |
 | `PATCH` con `is_active: false` / `DELETE /warehouse/positions/{id}` con stock > 0 | `DEACTIVATED` |
 
@@ -35,14 +36,24 @@ pendiente más viejo pide 4: no entra, se cancela. El siguiente pide 2: entra, s
 Las cancelaciones se publican en el topic `orders` (`status: cancelled`, mismo payload de
 siempre) y por WebSocket **recién después del commit**.
 
+## Concurrencia
+
+Dentro de una transacción de Mongo las lecturas salen de un snapshot y solo chocan las escrituras
+al mismo documento. Por eso cada reconciliación incrementa un documento guarda por producto
+(`stock_guards`): dos reconciliaciones simultáneas del mismo producto no pueden confirmarse las dos,
+y la segunda responde `409 STOCK_CHANGE_CONFLICT` sin haber cambiado nada (se puede reintentar). Un
+pedido creado en el mismo instante que un ajuste puede quedar evaluado contra el stock anterior: el
+alta de pedidos no toma el guarda (hoy serializa solo con candados en memoria), así que esa carrera
+sigue acotada a la ventana de dos transacciones solapadas.
+
 ## Endpoints
 
 - `POST /warehouse/positions/{id}/stock-adjustments` (SUPERADMIN, ADMIN_WAREHOUSE): body
   `{ "quantity": 6, "type": "DAMAGE", "reason": "..." }` (`type` opcional, `MANUAL_DECREASE` por
-  defecto; `reason` opcional). Valida entero > 0 y <= stock de la posición; ignora mínimo y
+  defecto; `reason` opcional). Valida entero > 0 (`2.5` es 400, no se trunca) y <= stock de la posición; ignora mínimo y
   reservado. Responde `201` con `{ "adjustment": {...}, "cancelled_orders": [...] }`.
 - `GET /warehouse/positions/{id}/stock-adjustments` (mismos roles que la posición) y
-  `GET /products/{id}/stock-adjustments` (mismos que lectura de productos): historial paginado,
+  `GET /products/{id}/stock-adjustments` (SUPERADMIN, ADMIN_WAREHOUSE, ADMIN_SALES): historial paginado,
   más nuevo primero, `{ "stock_adjustments": [...], "pagination": {...} }`.
 - `PATCH /warehouse/positions/{id}`: contrato intacto; acepta `reason` opcional y la respuesta suma
   `cancelled_orders` (siempre presente, `[]` si no hubo).

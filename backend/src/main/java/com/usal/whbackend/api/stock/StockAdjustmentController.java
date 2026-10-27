@@ -59,7 +59,8 @@ public class StockAdjustmentController {
   public ResponseEntity<Map<String, Object>> adjustStock(
       @PathVariable String id, @Valid @RequestBody CreateStockAdjustmentRequest request) {
     StockAdjustmentResult result =
-        stockAdjustmentService.adjust(id, request.quantity(), request.type(), request.reason());
+        stockAdjustmentService.adjust(
+            id, request.quantity().intValueExact(), request.type(), request.reason());
     return ResponseEntity.status(HttpStatus.CREATED)
         .body(
             Map.of(
@@ -86,9 +87,13 @@ public class StockAdjustmentController {
 
   @Operation(
       summary = "List a product's stock adjustments",
-      description = "Adjustments across all the product's positions, newest first.")
+      description =
+          "Adjustments across all the product's positions, newest first. Requires ADMIN_WAREHOUSE"
+              + " or ADMIN_SALES.")
   @ApiResponse(responseCode = "200", description = "Paginated adjustment history")
+  @ApiResponse(responseCode = "403", description = "Insufficient role")
   @ApiResponse(responseCode = "404", description = "PRODUCT_NOT_FOUND")
+  @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_WAREHOUSE', 'ADMIN_SALES')")
   @GetMapping("/products/{id}/stock-adjustments")
   public ResponseEntity<Map<String, Object>> getProductAdjustments(
       @PathVariable String id,

@@ -146,6 +146,7 @@ class StockAdjustmentServiceTest {
 
     InOrder order = inOrder(positionRepository, orderRepository, adjustmentRepository);
     order.verify(positionRepository).save(any());
+    order.verify(orderRepository).guardStockReconciliation("prod-1");
     order.verify(orderRepository).cancelWithoutPublishing(any(), anyString());
     order.verify(adjustmentRepository).save(any());
   }
