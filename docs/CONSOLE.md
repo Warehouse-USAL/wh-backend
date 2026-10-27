@@ -103,6 +103,7 @@ No data migration: nothing in MongoDB changes. The only new persistent state is 
 `make deploy` (run by the Deploy workflow) does these steps on every deploy, in this order:
 
 ```sh
+scripts/prod-env.sh check   # aborts with a fix-it list when .env is incomplete (docs/OPERATIONS.md)
 docker compose -f docker-compose.yml -f docker-compose.prod.yml pull backend bridge console
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps victorialogs
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps --force-recreate otel-collector
@@ -110,6 +111,8 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps 
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps backend bridge console restock-cron
 ```
 
+- The `bridge` (in `pull` and the last `up`, with `--profile infra`) is included only when
+  `INFRA_AMQP_URL` and `INFRA_API_KEY` are both set in `.env`; otherwise it is skipped.
 - `--no-deps` everywhere: MongoDB, its init containers and Redpanda are never recreated by a
   deploy. The others are recreated only when their compose config or image changed.
 - MinIO is recreated once for `MINIO_PROMETHEUS_AUTH_TYPE`, so it restarts briefly (uploads fail
@@ -182,7 +185,7 @@ Verified with `caddy:2.10.2`.
    }
    ```
 
-3. In the existing site block, next to the `/api/*` route:
+3. In the existing site block, the `/console/*` route:
 
    ```caddyfile
    redir /console /console/ 308
@@ -194,6 +197,27 @@ Verified with `caddy:2.10.2`.
    Use `handle`, not `handle_path`: the console image serves its files under `/console/`, so the
    prefix must reach it (stripping it sends `/` back to `/console/` in a loop).
 
+4. The `/api/*` route the console needs. The console calls `/api/auth/login`, `/api/console/...`
+   and so on, so the proxy must answer under `/api` whatever the backend's own layout. Two
+   variants exist; use the one that matches the server:
+
+   - **Variant A, the site already has a `handle_path /api/*` route to the backend:** nothing to
+     add; check it carries `flush_interval -1` as below.
+   - **Variant B, backend served at the root** (no `/api` in front of it, e.g. `https://host/auth/login`
+     is the real login): add this next to the root route, which stays as is. Without it the
+     console's login hits `/api/auth/login`, nothing matches and the user sees a generic 401.
+
+     ```caddyfile
+     handle_path /api/* {
+     	reverse_proxy backend:8080 {
+     		flush_interval -1
+     	}
+     }
+     ```
+
+   `handle_path` strips `/api` before the request reaches the backend, and
+   `flush_interval -1` is needed for the push stream ("Push stream").
+
 Verify from the collector's network (the collector image is distroless, so use a curl container):
 
 ```sh
@@ -204,7 +228,9 @@ Then `up{job="caddy"}` turns 1 within a minute.
 
 Moving the admin address: the running Caddy still listens on the old one, so the first apply must
 target it, `caddy reload --config /etc/caddy/Caddyfile --address localhost:2019` (or restart the
-Caddy container). Later reloads read `localhost:2020` from the Caddyfile.
+Caddy container). **Afterwards the admin API is at `localhost:2020`, so every reload needs
+`caddy reload --config /etc/caddy/Caddyfile --address localhost:2020`**; a plain `caddy reload`
+tries 2019 and fails.
 
 ## Push stream (`POST /console/stream`)
 
@@ -469,7 +495,7 @@ case-sensitive (`"malformed"` does not match `Malformed request body`); `i("malf
 
 ## Rollback
 
-- **App images:** set `WH_IMAGE_TAG=<previous release>` (e.g. `v1.4.0`; every Stable Release tags
+- **App images** (see also docs/OPERATIONS.md): set `WH_IMAGE_TAG=<previous release>` (e.g. `v1.4.0`; every Stable Release tags
   backend, bridge and console with its version) in the server's `.env`, then `make deploy`. Remove
   it to go back to `latest`. While it is set, a manual Deploy run deploys that tag too. A release
   that predates the console has no `wh-console:<tag>`: stop the console (below) instead of pulling.

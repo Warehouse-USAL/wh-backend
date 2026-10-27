@@ -7,6 +7,8 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -19,6 +21,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 @Component
 public class InfraApiKeyFilter extends OncePerRequestFilter {
 
+  private static final Logger log = LoggerFactory.getLogger(InfraApiKeyFilter.class);
   static final String HEADER = "X-Api-Key";
   private static final String PATH_PREFIX = "/infra/";
 
@@ -26,6 +29,12 @@ public class InfraApiKeyFilter extends OncePerRequestFilter {
 
   public InfraApiKeyFilter(@Value("${infra.api-key:}") String apiKey) {
     this.expectedKey = apiKey.getBytes(StandardCharsets.UTF_8);
+    if (expectedKey.length == 0) {
+      log.warn(
+          "INFRA_API_KEY is not set: every /infra/** call will be rejected (401 INVALID_API_KEY),"
+              + " so Infra cannot report order or vehicle status. Set the same key on the backend"
+              + " and the bridge (docs/OPERATIONS.md).");
+    }
   }
 
   @Override

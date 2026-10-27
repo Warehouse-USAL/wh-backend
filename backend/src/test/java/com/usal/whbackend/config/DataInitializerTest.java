@@ -7,6 +7,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.usal.whbackend.domain.Line;
+import com.usal.whbackend.domain.Position;
 import com.usal.whbackend.domain.UserRole;
 import com.usal.whbackend.domain.Zone;
 import com.usal.whbackend.repository.LineRepository;
@@ -16,6 +17,7 @@ import com.usal.whbackend.repository.ZoneRepository;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -30,6 +32,10 @@ class DataInitializerTest {
   @Mock PositionRepository positionRepository;
 
   private DataInitializer initializer(String email, String password) {
+    return initializer(email, password, "WH2|");
+  }
+
+  private DataInitializer initializer(String email, String password, String qrPrefix) {
     return new DataInitializer(
         userRepository,
         passwordEncoder,
@@ -37,7 +43,8 @@ class DataInitializerTest {
         password,
         zoneRepository,
         lineRepository,
-        positionRepository);
+        positionRepository,
+        qrPrefix);
   }
 
   @Test
@@ -100,6 +107,43 @@ class DataInitializerTest {
     verify(zoneRepository).save(argThat(z -> "A".equals(z.getZoneCode()) && z.isActive()));
     verify(lineRepository).save(argThat(l -> l.getNumberLine() == 1 && l.isActive()));
     verify(positionRepository, org.mockito.Mockito.times(2)).save(any());
+  }
+
+  private List<String> seededZoneAQrCodes(String qrPrefix) throws Exception {
+    DataInitializer di = initializer("admin@test.com", "pass", qrPrefix);
+    when(userRepository.existsByRole(UserRole.SUPERADMIN)).thenReturn(true);
+    when(zoneRepository.findAll()).thenReturn(List.of());
+    Zone savedZone = new Zone();
+    savedZone.setId("zone-a-id");
+    when(zoneRepository.save(any(Zone.class))).thenReturn(savedZone);
+    Line savedLine = new Line();
+    savedLine.setId("line-1-id");
+    when(lineRepository.save(any(Line.class))).thenReturn(savedLine);
+
+    di.run(null);
+
+    ArgumentCaptor<Position> saved = ArgumentCaptor.forClass(Position.class);
+    verify(positionRepository, org.mockito.Mockito.times(2)).save(saved.capture());
+    return saved.getAllValues().stream().map(Position::getQrCode).toList();
+  }
+
+  @Test
+  void run_whenNoZonesExist_givesZoneAPositionsTheWh2QrCodes() throws Exception {
+    // Same scheme as the demo seed (WH2|P<zone><n>), so zone A never collides with zones B and C.
+    org.assertj.core.api.Assertions.assertThat(seededZoneAQrCodes("WH2|"))
+        .containsExactly("WH2|PA1", "WH2|PA2");
+  }
+
+  @Test
+  void run_withCustomQrPrefix_usesIt() throws Exception {
+    org.assertj.core.api.Assertions.assertThat(seededZoneAQrCodes("ALM1|"))
+        .containsExactly("ALM1|PA1", "ALM1|PA2");
+  }
+
+  @Test
+  void run_withBlankQrPrefix_fallsBackToTheDefault() throws Exception {
+    org.assertj.core.api.Assertions.assertThat(seededZoneAQrCodes(""))
+        .containsExactly("WH2|PA1", "WH2|PA2");
   }
 
   @Test
