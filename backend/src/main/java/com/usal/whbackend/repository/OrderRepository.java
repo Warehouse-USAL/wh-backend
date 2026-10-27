@@ -38,7 +38,10 @@ public class OrderRepository {
 
   private static final Logger log = LoggerFactory.getLogger(OrderRepository.class);
 
-  /** One document per product, bumped by every stock reconciliation to serialize them. */
+  /**
+   * One document per product, bumped by every stock reconciliation and every order creation to
+   * serialize them.
+   */
   private static final String STOCK_GUARDS = "stock_guards";
 
   /** Carries the request id to the bridge, so one id follows an order across the services. */
@@ -126,6 +129,8 @@ public class OrderRepository {
    * adjustments of different positions of one product would each miss the other's drop and keep
    * orders the remaining stock cannot cover. Both bump this product's guard document: the second to
    * commit aborts with a transient write conflict instead of reconciling against a stale view.
+   * Order creation bumps the same document before it checks availability, so an order and an
+   * adjustment of one product cannot both commit on the same reading either.
    */
   public void guardStockReconciliation(String productId) {
     try {

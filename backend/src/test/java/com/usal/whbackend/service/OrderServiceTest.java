@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
+import com.mongodb.MongoException;
 import com.usal.whbackend.api.order.CreateOrderRequest;
 import com.usal.whbackend.api.order.CreateOrderRequest.AddressRequest;
 import com.usal.whbackend.api.order.CreateOrderRequest.OrderItemRequest;
@@ -37,8 +38,11 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.mongodb.UncategorizedMongoDbException;
 import org.springframework.data.mongodb.core.query.Update;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.http.HttpStatus;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.SimpleTransactionStatus;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -197,16 +201,175 @@ class OrderServiceTest {
 
   // ── createOrder ────────────────────────────────────────────────────────────
 
+  private Product stockedProduct(String id) {
+    Product p = new Product();
+    p.setId(id);
+    p.setSku("SKU-" + id);
+    p.setActive(true);
+    when(productRepository.findById(id)).thenReturn(Optional.of(p));
+    return p;
+  }
+
+  private PlatformTransactionManager transactionalService() {
+    PlatformTransactionManager tm = mock(PlatformTransactionManager.class);
+    when(tm.getTransaction(any())).thenReturn(new SimpleTransactionStatus());
+    orderService.setTransactionManager(tm);
+    orderService.setMaxCreateAttempts(4);
+    return tm;
+  }
+
+  private static MongoException writeConflict() {
+    MongoException e = new MongoException(112, "WriteConflict");
+    e.addLabel(MongoException.TRANSIENT_TRANSACTION_ERROR_LABEL);
+    return e;
+  }
+
+  private static CreateOrderRequest oneItem(String productId, int quantity) {
+    return new CreateOrderRequest(
+        List.of(new OrderItemRequest(productId, quantity)), "AREA-A", validAddress());
+  }
+
   @Test
-  void createOrder_publicEntryPointsAreTransactional() throws NoSuchMethodException {
-    assertNotNull(
-        OrderService.class
-            .getMethod("createOrder", CreateOrderRequest.class, String.class)
-            .getAnnotation(Transactional.class));
-    assertNotNull(
-        OrderService.class
-            .getMethod("createOrder", CreateOrderRequest.class, String.class, String.class)
-            .getAnnotation(Transactional.class));
+  void createOrder_runsInsideATransaction() {
+    PlatformTransactionManager tm = transactionalService();
+    stockedProduct("prod-1");
+    when(productService.computeAvailableStock("prod-1")).thenReturn(10);
+    Order saved = new Order();
+    saved.setId("ord-1");
+    when(orderRepository.saveWithoutPublishing(any())).thenReturn(saved);
+
+    assertEquals("ord-1", orderService.createOrder(oneItem("prod-1", 2), "user-1").getId());
+
+    verify(tm).commit(any());
+    verify(orderRepository).guardStockReconciliation("prod-1");
+  }
+
+  @Test
+  void createOrder_guardsEveryProductInSortedOrderBeforeCheckingStock() {
+    stockedProduct("prod-b");
+    stockedProduct("prod-a");
+    when(productService.computeAvailableStock(anyString())).thenReturn(10);
+    when(orderRepository.saveWithoutPublishing(any())).thenReturn(new Order());
+    CreateOrderRequest req =
+        new CreateOrderRequest(
+            List.of(new OrderItemRequest("prod-b", 1), new OrderItemRequest("prod-a", 1)),
+            "AREA-A",
+            validAddress());
+
+    orderService.createOrder(req, "user-1");
+
+    InOrder inOrder = inOrder(orderRepository, productService);
+    inOrder.verify(orderRepository).guardStockReconciliation("prod-a");
+    inOrder.verify(orderRepository).guardStockReconciliation("prod-b");
+    inOrder.verify(productService).computeAvailableStock("prod-a");
+  }
+
+  @Test
+  void createOrder_afterAWriteConflict_reEvaluatesTheStockAndAnswersInsufficientStock() {
+    PlatformTransactionManager tm = transactionalService();
+    stockedProduct("prod-1");
+    // The first attempt loses the race for the guard; by the retry the winner has taken the stock.
+    doThrow(
+            new ResponseStatusException(
+                HttpStatus.CONFLICT, "STOCK_CHANGE_CONFLICT", writeConflict()))
+        .doNothing()
+        .when(orderRepository)
+        .guardStockReconciliation("prod-1");
+    when(productService.computeAvailableStock("prod-1")).thenReturn(3);
+    when(productService.computeReservedStock("prod-1")).thenReturn(3);
+
+    ResponseStatusException ex =
+        assertThrows(
+            ResponseStatusException.class,
+            () -> orderService.createOrder(oneItem("prod-1", 3), "user-1"));
+
+    assertEquals(400, ex.getStatusCode().value());
+    assertEquals("INSUFFICIENT_STOCK", ex.getReason());
+    verify(orderRepository, times(2)).guardStockReconciliation("prod-1");
+    verify(tm, times(2)).rollback(any());
+    verify(orderRepository, never()).saveWithoutPublishing(any());
+  }
+
+  @Test
+  void createOrder_afterAWriteConflict_succeedsWhenTheStockIsStillThere() {
+    transactionalService();
+    stockedProduct("prod-1");
+    when(productService.computeAvailableStock("prod-1")).thenReturn(10);
+    Order saved = new Order();
+    saved.setId("ord-1");
+    when(orderRepository.saveWithoutPublishing(any()))
+        .thenThrow(new UncategorizedMongoDbException("conflict", writeConflict()))
+        .thenReturn(saved);
+
+    assertEquals("ord-1", orderService.createOrder(oneItem("prod-1", 2), "user-1").getId());
+    verify(orderRepository, times(2)).saveWithoutPublishing(any());
+  }
+
+  @Test
+  void createOrder_whenEveryAttemptConflicts_answersStockChangeConflict() {
+    transactionalService();
+    stockedProduct("prod-1");
+    doThrow(writeConflict()).when(orderRepository).guardStockReconciliation("prod-1");
+
+    ResponseStatusException ex =
+        assertThrows(
+            ResponseStatusException.class,
+            () -> orderService.createOrder(oneItem("prod-1", 1), "user-1"));
+
+    assertEquals(409, ex.getStatusCode().value());
+    assertEquals("STOCK_CHANGE_CONFLICT", ex.getReason());
+    verify(orderRepository, times(4)).guardStockReconciliation("prod-1");
+  }
+
+  @Test
+  void createOrder_withKeyWhenEveryAttemptConflicts_answersIdempotencyInProgress() {
+    transactionalService();
+    when(idempotencyRecordRepository.findByKey("key-1")).thenReturn(Optional.empty());
+    when(idempotencyRecordRepository.save(any(IdempotencyRecord.class)))
+        .thenThrow(new UncategorizedMongoDbException("conflict", writeConflict()));
+
+    ResponseStatusException ex =
+        assertThrows(
+            ResponseStatusException.class,
+            () -> orderService.createOrder(oneItem("prod-1", 1), "user-1", "key-1"));
+
+    assertEquals(409, ex.getStatusCode().value());
+    assertEquals("IDEMPOTENCY_REQUEST_IN_PROGRESS", ex.getReason());
+    verify(orderRepository, never()).saveWithoutPublishing(any());
+  }
+
+  @Test
+  void createOrder_withKey_whenTheClaimLosesTheRace_replaysTheWinnersOrderOnTheRetry() {
+    transactionalService();
+    Order winner = new Order();
+    winner.setId("ord-winner");
+    when(idempotencyRecordRepository.findByKey("key-1"))
+        .thenReturn(Optional.empty())
+        .thenReturn(
+            Optional.of(new IdempotencyRecord("key-1", "user-1", "ord-winner", Instant.now())));
+    when(idempotencyRecordRepository.save(any(IdempotencyRecord.class)))
+        .thenThrow(new UncategorizedMongoDbException("conflict", writeConflict()));
+    when(orderRepository.findById("ord-winner")).thenReturn(Optional.of(winner));
+
+    Order result = orderService.createOrder(oneItem("prod-1", 1), "user-1", "key-1");
+
+    assertEquals("ord-winner", result.getId());
+    verify(orderRepository, never()).saveWithoutPublishing(any());
+    verify(orderEventPublisher, never()).broadcastOrderUpdate(any());
+  }
+
+  @Test
+  void createOrder_errorsThatAreNotConflicts_areNotRetried() {
+    PlatformTransactionManager tm = transactionalService();
+    when(productRepository.findById("prod-1")).thenReturn(Optional.empty());
+
+    ResponseStatusException ex =
+        assertThrows(
+            ResponseStatusException.class,
+            () -> orderService.createOrder(oneItem("prod-1", 1), "user-1"));
+
+    assertEquals("PRODUCT_NOT_FOUND", ex.getReason());
+    verify(tm, times(1)).getTransaction(any());
   }
 
   @Test
@@ -696,8 +859,7 @@ class OrderServiceTest {
 
   @Test
   void createOrder_withIdempotencyKey_concurrentClaimConflictDoesNotCreateOrder() {
-    when(idempotencyRecordRepository.findByKey("key-1"))
-        .thenReturn(Optional.empty());
+    when(idempotencyRecordRepository.findByKey("key-1")).thenReturn(Optional.empty());
     when(idempotencyRecordRepository.save(any(IdempotencyRecord.class)))
         .thenThrow(new DuplicateKeyException("duplicate"));
 

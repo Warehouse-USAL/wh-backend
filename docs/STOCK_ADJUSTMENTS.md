@@ -41,10 +41,20 @@ siempre) y por WebSocket **recién después del commit**.
 Dentro de una transacción de Mongo las lecturas salen de un snapshot y solo chocan las escrituras
 al mismo documento. Por eso cada reconciliación incrementa un documento guarda por producto
 (`stock_guards`): dos reconciliaciones simultáneas del mismo producto no pueden confirmarse las dos,
-y la segunda responde `409 STOCK_CHANGE_CONFLICT` sin haber cambiado nada (se puede reintentar). Un
-pedido creado en el mismo instante que un ajuste puede quedar evaluado contra el stock anterior: el
-alta de pedidos no toma el guarda (hoy serializa solo con candados en memoria), así que esa carrera
-sigue acotada a la ventana de dos transacciones solapadas.
+y la segunda responde `409 STOCK_CHANGE_CONFLICT` sin haber cambiado nada (se puede reintentar).
+
+El alta de pedidos (`POST /orders`) toma **el mismo guarda** de cada producto del pedido (en orden de
+id, antes de leer el stock disponible), dentro de su transacción. Así un pedido y un ajuste del mismo
+producto, o dos pedidos, no pueden confirmarse ambos sobre la misma lectura de stock: el que pierde
+aborta con un conflicto de escritura transitorio. A diferencia del ajuste, el alta de pedidos
+**reintenta sola** (hasta 40 veces, con una espera corta y aleatoria): en cada reintento reevalúa el
+stock con datos nuevos, así que los pedidos concurrentes se serializan y el excedente recibe la
+respuesta de siempre, `400 INSUFFICIENT_STOCK`. Solo si agota los reintentos responde
+`409 STOCK_CHANGE_CONFLICT`. Funciona entre varias instancias del backend porque la exclusión la da
+MongoDB, no un candado en memoria (el candado por producto de `OrderService` se eliminó: se soltaba
+antes del commit y no protegía nada). Un ajuste que choca con un pedido sigue respondiendo `409`
+(se puede reintentar). El mismo reintento resuelve las solicitudes simultáneas con la misma
+`Idempotency-Key`: la perdedora vuelve a ejecutarse y repite la respuesta del pedido ganador.
 
 ## Endpoints
 
