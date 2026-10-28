@@ -183,23 +183,21 @@ class OrderControllerTest {
 
   @Test
   @WithMockUser(username = "operator-1", roles = "OPERATOR")
-  void cancelOrder_asOperator_cancelsOnlyOwnOrdersAndShowsPendingCancellation() throws Exception {
+  void cancelOrder_asOperator_inProgressOrderComesBackCancelled() throws Exception {
     Order inProgress = new Order();
     inProgress.setId("test-id");
-    inProgress.setStatus(OrderStatus.IN_PROGRESS);
+    inProgress.setStatus(OrderStatus.CANCELLED);
     inProgress.setRequestedByUserId("operator-1");
     inProgress.setItems(List.of());
     inProgress.setCreatedAt(Instant.parse("2026-10-18T10:00:00Z"));
-    inProgress.setCancellationRequestedAt(Instant.parse("2026-10-18T10:05:00Z"));
     when(orderService.cancelOrder(eq("test-id"), isNull(), eq("operator-1"), eq(false)))
         .thenReturn(inProgress);
 
     mockMvc
         .perform(post("/orders/test-id/cancel"))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.order.status").value("in_progress"))
-        .andExpect(
-            jsonPath("$.order.timestamps.cancellation_requested_at").value("2026-10-18T10:05:00Z"));
+        .andExpect(jsonPath("$.order.status").value("cancelled"))
+        .andExpect(jsonPath("$.order.timestamps.cancellation_requested_at").doesNotExist());
   }
 
   @Test

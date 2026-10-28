@@ -60,16 +60,7 @@ public record OrderResponse(
   public record AddressResponse(
       String street, String department, String floor, String postalCode) {}
 
-  /**
-   * {@code cancellationRequestedAt} is set while an in-progress order waits for Infra to confirm
-   * its cancellation.
-   */
-  public record Timestamps(
-      Instant createdAt, Instant startedAt, Instant completedAt, Instant cancellationRequestedAt) {
-    public Timestamps(Instant createdAt, Instant startedAt, Instant completedAt) {
-      this(createdAt, startedAt, completedAt, null);
-    }
-  }
+  public record Timestamps(Instant createdAt, Instant startedAt, Instant completedAt) {}
 
   public static OrderResponse from(Order order) {
     List<OrderItem> rawItems = order.getItems();
@@ -117,11 +108,7 @@ public record OrderResponse(
         order.getDestinationArea(),
         order.getAssignedVehicleId(),
         address,
-        new Timestamps(
-            order.getCreatedAt(),
-            order.getStartedAt(),
-            order.getCompletedAt(),
-            order.getCancellationRequestedAt()),
+        new Timestamps(order.getCreatedAt(), order.getStartedAt(), order.getCompletedAt()),
         order.getCancelReason(),
         order.getPriority(),
         total);
