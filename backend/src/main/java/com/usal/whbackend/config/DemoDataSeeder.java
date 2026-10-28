@@ -107,6 +107,7 @@ public class DemoDataSeeder implements ApplicationRunner {
       return;
     }
 
+    long startedNanos = System.nanoTime();
     DemoData data = new DemoDataset(passwordEncoder::encode, qrPrefix).build();
 
     // Persist in dependency order. Ids are already wired in the dataset, so no back-patching; the
@@ -128,6 +129,9 @@ public class DemoDataSeeder implements ApplicationRunner {
     demoTelemetrySeeder.seed(data.getVehicles());
 
     logSeedSummary(data);
+    log.info(
+        "Demo seed took {} ms (dataset, MongoDB and the fleet telemetry).",
+        (System.nanoTime() - startedNanos) / 1_000_000);
   }
 
   private void logSeedSummary(DemoData data) {

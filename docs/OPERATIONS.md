@@ -76,6 +76,9 @@ never rewrites an existing database: on a server that is already seeded, the cod
 until you reassign them (an older server seeded with zones `B`/`C` keeps `WH2|PB1`..., and
 `SEED_DEMO` skips with a warning when it finds zones other than `A`).
 
+The demo seed covers two years, daily, for every business metric (list and sources in
+`docs/SEEDED_METRICS.md`); the backend logs `Demo seed took N ms` when it finishes.
+
 ### Checking the codes
 
 The flat `GET /warehouse/positions` does not carry `qr_code`; `GET /warehouse/positions/{id}` and

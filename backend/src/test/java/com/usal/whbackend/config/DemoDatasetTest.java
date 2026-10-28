@@ -14,6 +14,9 @@ import com.usal.whbackend.domain.UserRole;
 import com.usal.whbackend.domain.Vehicle;
 import com.usal.whbackend.domain.VehicleStatus;
 import com.usal.whbackend.service.PositionService;
+import com.usal.whbackend.service.metrics.conversion.ConversionBucket;
+import com.usal.whbackend.service.metrics.conversion.Granularity;
+import com.usal.whbackend.service.metrics.conversion.SuggestionConversion;
 import com.usal.whbackend.service.metrics.restock.RestockFormula;
 import com.usal.whbackend.service.metrics.restock.RestockInputs;
 import com.usal.whbackend.service.metrics.restock.RestockParams;
@@ -22,7 +25,10 @@ import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.Month;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -483,6 +489,98 @@ class DemoDatasetTest {
             });
   }
 
+  // ── Suggestion conversion ────────────────────────────────────────────────────
+
+  private static List<ConversionBucket> dailyConversion() {
+    ZoneId zone = ZoneId.of("America/Argentina/Buenos_Aires");
+    LocalDate today = LocalDate.now(zone);
+    return SuggestionConversion.compute(
+        data.getOrders(), null, zone, Granularity.DAY, today.minusDays(729), today);
+  }
+
+  @Test
+  void everyDayOfTheTwoYearsHasOrdersAndAtLeastOneRecommendedLine() {
+    var days = dailyConversion();
+
+    assertThat(days).hasSize(730);
+    assertThat(days).allSatisfy(d -> assertThat(d.orders()).as(d.bucket()).isPositive());
+    assertThat(days)
+        .allSatisfy(d -> assertThat(d.linesFromRecommendation()).as(d.bucket()).isPositive());
+  }
+
+  @Test
+  void suggestionAdoptionGrowsOverTheTwoYears() {
+    var days = dailyConversion();
+
+    double early =
+        days.subList(0, 180).stream().mapToDouble(d -> d.lineConversionRate()).average().orElse(0);
+    double late =
+        days.subList(550, 730).stream()
+            .mapToDouble(d -> d.lineConversionRate())
+            .average()
+            .orElse(0);
+
+    assertThat(early).isBetween(0.02, 0.15);
+    assertThat(late).isBetween(0.15, 0.45);
+    assertThat(late).isGreaterThan(early * 2);
+  }
+
+  @Test
+  void cancelledOrdersCarryNoRecommendationThatCounts() {
+    var all =
+        SuggestionConversion.compute(
+            data.getOrders().stream().filter(o -> o.getStatus() == OrderStatus.CANCELLED).toList(),
+            null,
+            ZoneOffset.UTC,
+            Granularity.MONTH,
+            LocalDate.now().minusDays(729),
+            LocalDate.now());
+    assertThat(all).allMatch(b -> b.orders() == 0);
+  }
+
+  // ── Daily business series (docs/SEEDED_METRICS.md) ───────────────────────────
+
+  @Test
+  void everyDayOfTheTwoYearsHasCompletedAndCancelledOrdersWithTimings() {
+    ZoneId zone = ZoneId.of("America/Argentina/Buenos_Aires");
+    LocalDate today = LocalDate.now(zone);
+    Map<LocalDate, java.util.List<Order>> byDay =
+        data.getOrders().stream()
+            .collect(Collectors.groupingBy(o -> LocalDate.ofInstant(o.getCreatedAt(), zone)));
+
+    // Today and the day before may still be in flight; the 728 before them are settled.
+    for (int back = 2; back <= 729; back++) {
+      LocalDate day = today.minusDays(back);
+      java.util.List<Order> orders = byDay.getOrDefault(day, java.util.List.of());
+      assertThat(orders).as(day.toString()).isNotEmpty();
+      assertThat(orders)
+          .as("completed on " + day)
+          .anyMatch(
+              o ->
+                  o.getStatus() == OrderStatus.COMPLETED
+                      && o.getCompletedAt() != null
+                      && o.getStartedAt() != null
+                      && o.getAssignedVehicleId() != null);
+    }
+  }
+
+  @Test
+  void cancellationsAndReceptionsAreSpreadOverTheWholeWindowNotBunchedAtTheEnd() {
+    long months =
+        data.getOrders().stream()
+            .filter(o -> o.getStatus() == OrderStatus.CANCELLED)
+            .map(o -> java.time.YearMonth.from(o.getCreatedAt().atZone(ZoneId.of("UTC"))))
+            .distinct()
+            .count();
+    assertThat(months).isGreaterThanOrEqualTo(24);
+    long receptionMonths =
+        data.getReceptions().stream()
+            .map(r -> java.time.YearMonth.from(r.getCreatedAt().atZone(ZoneId.of("UTC"))))
+            .distinct()
+            .count();
+    assertThat(receptionMonths).isGreaterThanOrEqualTo(24);
+  }
+
   // ── Restock suggestions (RFC_Metricas_Calculadas.md §7) ─────────────────────
 
   @Test
@@ -521,7 +619,7 @@ class DemoDatasetTest {
   }
 
   /** The products the six positions hold, in layout order (PA1 first). */
-  private static java.util.List<Product> stockedProducts() {
+  private static List<Product> stockedProducts() {
     Map<String, Product> productById =
         data.getProducts().stream().collect(Collectors.toMap(Product::getId, p -> p));
     return data.getPositions().stream()

@@ -70,6 +70,9 @@ final class DemoHistory {
 
   private static final long SEED = 20_261_004L;
   private static final int BASE_ORDERS_PER_DAY = 30;
+  // Share of order lines taken from a suggestion at the start and at the end of the history.
+  private static final double FIRST_ADOPTION = 0.04;
+  private static final double LAST_ADOPTION = 0.26;
   private static final double YEARLY_GROWTH = 0.15;
   private static final double CUSTOMER_CANCEL_RATE = 0.03;
   private static final double PARTIAL_DELIVERY_RATE = 0.12;
@@ -211,6 +214,7 @@ final class DemoHistory {
     }
     processOrders(0, nearTermByDay.getOrDefault(0, List.of()));
     shapeEndState();
+    markRecommendedLines();
     return new Result(orders, restockOrders, receptions);
   }
 
@@ -561,6 +565,67 @@ final class DemoHistory {
     if (day >= 1) {
       deliveriesByDay.computeIfAbsent(day, k -> new ArrayList<>()).add(new Delivery(order, qty));
     }
+  }
+
+  // ── Suggestions ──────────────────────────────────────────────────────────────
+
+  /**
+   * Which lines were taken from a suggestion of the suggestions service ({@code
+   * from_recommendation}), for the suggestion-conversion metric.
+   *
+   * <p>Adoption grows over the two years, from {@link #FIRST_ADOPTION} to {@link #LAST_ADOPTION} of
+   * the lines, with a small bump in the November-December campaigns. A cart suggestion ("also add")
+   * is by nature the second or third line of an order, so the first line is rarely one. Decided in
+   * its own pass with its own generator keyed by order number, so it neither perturbs the stock
+   * simulation above nor depends on it; and a day with orders always has at least one recommended
+   * line, so the daily series of the metric never has an empty day.
+   */
+  private void markRecommendedLines() {
+    Map<LocalDate, List<Order>> byDay = new HashMap<>();
+    for (Order o : orders) {
+      if (o.getStatus() == OrderStatus.CANCELLED || o.getItems().isEmpty()) {
+        continue;
+      }
+      byDay
+          .computeIfAbsent(LocalDate.ofInstant(o.getCreatedAt(), ZONE), k -> new ArrayList<>())
+          .add(o);
+    }
+    byDay.forEach(
+        (date, dayOrders) -> {
+          dayOrders.sort(Comparator.comparing(Order::getCreatedAt).thenComparing(Order::getId));
+          double progress =
+              Math.min(
+                  1.0,
+                  Math.max(
+                      0.0, 1.0 - ChronoUnit.DAYS.between(date, today) / (double) HISTORY_DAYS));
+          double adoption = FIRST_ADOPTION + (LAST_ADOPTION - FIRST_ADOPTION) * progress;
+          if (date.getMonthValue() >= 11) {
+            adoption *= 1.15;
+          }
+          boolean any = false;
+          for (Order o : dayOrders) {
+            for (int k = 0; k < o.getItems().size(); k++) {
+              double p = adoption * (k == 0 ? 0.35 : 1.3);
+              if (unit(SEED ^ ((long) o.getId().hashCode() << 8) ^ k) < p) {
+                o.getItems().get(k).setFromRecommendation(true);
+                any = true;
+              }
+            }
+          }
+          if (!any) {
+            Order first = dayOrders.get(0);
+            first.getItems().get(first.getItems().size() - 1).setFromRecommendation(true);
+          }
+        });
+  }
+
+  /** A deterministic value in [0, 1) for {@code key} (the SplitMix64 finaliser), stateless. */
+  private static double unit(long key) {
+    long z = key + 0x9E3779B97F4A7C15L;
+    z = (z ^ (z >>> 30)) * 0xBF58476D1CE4E5B9L;
+    z = (z ^ (z >>> 27)) * 0x94D049BB133111EBL;
+    z ^= z >>> 31;
+    return (z >>> 11) * 0x1.0p-53;
   }
 
   // ── End state ────────────────────────────────────────────────────────────────
