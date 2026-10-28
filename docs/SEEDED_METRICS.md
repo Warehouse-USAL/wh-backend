@@ -20,7 +20,11 @@ pass keyed by order number, so it changes no other number.
 Measured on the reference machine (JDK 21): building the whole dataset takes ~170 ms (about 25 000
 orders, 50 000 lines, 1 000 restock orders, 1 200 receptions) and the telemetry ~100 ms (48 series,
 1.37 M points); the rest of the seed is the MongoDB bulk insert and the VictoriaMetrics import (the
-backend logs `Demo seed took N ms` at the end).
+backend logs `Demo seed took N ms` at the end). Measured end to end in the E2E stack
+(Docker, the same containers as CI) the whole seed, MongoDB insert and VictoriaMetrics import included,
+took 3.1 s (`Demo seed took 3105 ms`); VictoriaMetrics makes the imported samples searchable a few
+seconds after that, so a dashboard queried the very instant the backend is healthy can still see
+gaps in the telemetry series.
 
 ## Catalogue audit (`GET /metrics/catalog`)
 

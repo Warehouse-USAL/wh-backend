@@ -32,10 +32,11 @@ Safety: the stack uses compose project `whsuite`, publishes no host ports, uses 
 |---|---|---|---|---|---|
 | auth | 56 | 54 | 0 | 2 | 0 |
 | bridge | 8 | 8 | 0 | 0 | 0 |
+| business_metrics | 13 | 13 | 0 | 0 | 0 |
 | catalog | 30 | 29 | 0 | 1 | 0 |
 | console | 23 | 23 | 0 | 0 | 0 |
 | metrics_query | 30 | 30 | 0 | 0 | 0 |
-| orders | 39 | 38 | 0 | 1 | 0 |
+| orders | 41 | 40 | 0 | 1 | 0 |
 | platform | 15 | 14 | 0 | 1 | 0 |
 | restock | 12 | 11 | 0 | 1 | 0 |
 | stock_adjustments | 23 | 23 | 0 | 0 | 0 |
@@ -45,7 +46,7 @@ Safety: the stack uses compose project `whsuite`, publishes no host ports, uses 
 | websockets | 16 | 16 | 0 | 0 | 0 |
 | flow | 7 | 7 | 0 | 0 | 0 |
 | resilience | 9 | 9 | 0 | 0 | 0 |
-| **all** | 305 | 297 | 0 | 8 | 0 |
+| **all** | 320 | 312 | 0 | 8 | 0 |
 
 ### Coverage matrix: capability -> test id -> status
 
@@ -117,6 +118,19 @@ Group `default` plays Infra by hand, `flow` uses the real chain, `resilience` st
 | `test_bridge.py::test_rejected_messages_are_discarded_not_retried` | A 4xx answer (unknown order -> 404, finished order -> 409) discards the message: the queue drains, later messages still flow | default | passed |  |
 | `test_bridge.py::test_garbage_messages_are_dropped_and_the_bridge_keeps_working` | Non-JSON and unclassifiable messages (neither order_id nor vehicle_id) are logged and dropped; the next telemetry still gets through | default | passed |  |
 | `test_bridge.py::test_bridge_forwards_the_api_key_and_request_ids` | Callbacks carry X-Api-Key (otherwise they would be 401 and discarded) and the bridge logs correlate with backend logs by request_id | default | passed |  |
+| `test_business_metrics.py::test_every_business_series_of_the_catalog_has_a_point_every_day_for_two_years` | Each business metric in GET /metrics/catalog (wh.vehicle.*) answers a 1d-step query over 730 days with one value per day, none missing; the transitions counter increases on every interior day | default | passed |  |
+| `test_business_metrics.py::test_fleet_kpi_inputs_have_data_every_day[flt0-category-failures by category (KPI 1-3: failure rate, Pareto, MTBF)]` | The fleet KPI queries of the dashboard guide (failures, offline time, busy rovers) return a value on every one of the 730 days | default | passed |  |
+| `test_business_metrics.py::test_fleet_kpi_inputs_have_data_every_day[flt1-vehicle_id-time offline per rover (KPI 4: MTTR)]` | The fleet KPI queries of the dashboard guide (failures, offline time, busy rovers) return a value on every one of the 730 days | default | passed |  |
+| `test_business_metrics.py::test_fleet_kpi_inputs_have_data_every_day[flt2-vehicle_id-busy rovers (KPI 5 and fleet utilisation)]` | The fleet KPI queries of the dashboard guide (failures, offline time, busy rovers) return a value on every one of the 730 days | default | passed |  |
+| `test_business_metrics.py::test_suggestion_conversion_has_orders_and_recommendations_every_day_for_two_years` | POST /metrics/suggestion-conversion (day) returns 730 consecutive buckets, each with orders and at least one recommended line; adoption grows over the window | default | passed |  |
+| `test_business_metrics.py::test_suggestion_conversion_week_and_month_buckets_have_no_holes[week-105]` | Weekly and monthly buckets cover the two-year window without gaps (a window of 730 days touches 105 ISO weeks / 24-25 months) | default | passed |  |
+| `test_business_metrics.py::test_suggestion_conversion_week_and_month_buckets_have_no_holes[month-25]` | Weekly and monthly buckets cover the two-year window without gaps (a window of 730 days touches 105 ISO weeks / 24-25 months) | default | passed |  |
+| `test_business_metrics.py::test_suggestion_conversion_validation_and_filters` | Bad params -> 400 INVALID_METRIC_PARAMS naming the param; a category filter narrows the lines considered; DASHBOARD may read it | default | passed |  |
+| `test_business_metrics.py::test_orders_per_day_by_status_cover_every_day` | KPIs 7-10 (orders, completion and cancellation rate per day): /query/orders grouped by day has completed orders on every day of the window and cancellations on most | default | passed |  |
+| `test_business_metrics.py::test_cycle_time_and_assignment_latency_exist_every_day` | KPIs 12-14 (cycle time, time to vehicle assignment, SLA): completed orders carry a positive average cycle_time_ms and assignment_latency_ms on every day | default | passed |  |
+| `test_business_metrics.py::test_picking_lines_and_units_exist_every_day` | KPI 15 (picking efficiency) and the demand behind KPIs 16-20: order lines and units per day, unwinding items, on every day | default | passed |  |
+| `test_business_metrics.py::test_every_rover_has_completed_orders_in_every_month` | KPI 11 (productivity per rover): each seeded vehicle has completed orders in every month of the window | default | passed |  |
+| `test_business_metrics.py::test_receptions_and_restock_orders_are_spread_over_the_two_years` | Stock inflow (receptions) is not daily by nature (deliveries arrive on some days) but must appear in every month of the window | default | passed |  |
 | `test_catalog.py::test_product_create_and_read_back` | Create a product with price/specs/images/dimensions and read it back (volume computed, stock zeroed) | default | passed |  |
 | `test_catalog.py::test_product_sku_must_be_unique` | Duplicate SKU -> 409 SKU_ALREADY_EXISTS | default | passed |  |
 | `test_catalog.py::test_product_create_validation[patch0]` | Negative dimensions/min/max or blank sku/name/category are rejected with 400 VALIDATION_ERROR | default | passed |  |
@@ -233,6 +247,8 @@ Group `default` plays Infra by hand, `flow` uses the real chain, `resilience` st
 | `test_orders.py::test_infra_in_progress_assigns_vehicle_and_marks_it_busy` | in_progress with Infra's vehicle id creates/assigns the vehicle (UUIDv5 of the Infra id), starts the order and marks the vehicle busy | default | passed |  |
 | `test_orders.py::test_infra_busy_vehicle_cannot_take_a_second_order` | A vehicle already working on an order -> 409 VEHICLE_ALREADY_BUSY for the next one | default | passed |  |
 | `test_orders.py::test_completion_drains_stock_publishes_event_and_frees_vehicle` | completed: stock leaves the positions exactly once, reservation released, order.completed (camelCase) published, vehicle idle | default | passed |  |
+| `test_orders.py::test_from_recommendation_is_optional_stored_and_published_per_item` | items[].from_recommendation is optional (absent/null/false = false), kept on the order, returned by GET /orders/{id} and published as fromRecommendation on order.completed only for the flagged lines | default | passed |  |
+| `test_orders.py::test_from_recommendation_must_be_a_boolean_and_a_product_cannot_repeat_to_game_it` | A non-boolean flag -> 400; the same product twice is still DUPLICATE_PRODUCT_IN_ORDER, so a line cannot be double counted | default | passed |  |
 | `test_orders.py::test_completion_drains_across_positions_fifo_without_going_negative` | An order bigger than one position drains several positions; no position goes below zero | default | passed |  |
 | `test_orders.py::test_infra_cancel_and_late_status_on_finished_orders` | Infra may cancel a pending order; a different status on a finished order is 409 ORDER_NOT_MODIFIABLE, the same status a 200 no-op | default | passed |  |
 | `test_orders.py::test_bad_timestamp_does_not_block_a_real_status_change` | An unparseable Infra timestamp falls back to now instead of failing the transition | default | passed |  |
