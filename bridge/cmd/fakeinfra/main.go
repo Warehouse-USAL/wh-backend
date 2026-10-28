@@ -1,7 +1,11 @@
 // Command fakeinfra stands in for Infra's central during end to end tests.
 //
-// It listens for orders on RabbitMQ and plays a vehicle that takes each one,
-// visits its stops and completes it, publishing what the real central would.
+// It listens for orders on RabbitMQ and plays the central and one vehicle the
+// way the real ones behave (docs/INFRA_CONTRACT.md): it queues orders, sends
+// the vehicle through every stop, completes the order, and handles a cancel at
+// once, driving the vehicle back without reporting the order. Failure modes
+// are set by environment and can be flipped while it runs by publishing a JSON
+// object to the routing key fakeinfra.control on amq.topic.
 package main
 
 import (
@@ -10,6 +14,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -23,6 +28,7 @@ const (
 	ordersRoutingKey = "orders"
 	vehiclesKey      = "vehicles"
 	ordersQueue      = "fakeinfra.orders"
+	controlKey       = "fakeinfra.control"
 )
 
 func main() {
@@ -40,31 +46,55 @@ func run(
 	if url == "" {
 		return fmt.Errorf("AMQP_URL is required")
 	}
-	delay, err := stepDelay()
+	cfg, err := configFromEnv()
 	if err != nil {
 		return err
-	}
-	vehicleID := os.Getenv("FAKE_VEHICLE_ID")
-	if vehicleID == "" {
-		vehicleID = "VHC-001"
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 	policy := retry.Policy{Min: time.Second, Max: 10 * time.Second}
-	source := rabbit.NewConsumer(url, rabbit.Binding{Exchange: exchange, Queue: ordersQueue, RoutingKey: ordersRoutingKey}, policy, logger)
+	orders := rabbit.NewConsumer(url, rabbit.Binding{Exchange: exchange, Queue: ordersQueue, RoutingKey: ordersRoutingKey}, policy, logger)
+	control := rabbit.NewConsumer(url, rabbit.Binding{Exchange: exchange, Queue: controlKey, RoutingKey: controlKey}, policy, logger)
 	publisher := rabbit.NewPublisher(url, exchange, vehiclesKey)
-	logger.Info("fake infra running", "vehicle_id", vehicleID, "step_delay", delay)
-	return fakeinfra.Run(ctx, source, publisher, vehicleID, delay, logger)
+	logger.Info("fake infra running", "vehicle_id", cfg.VehicleID, "step_delay", cfg.StepDelay,
+		"drop_cancels", cfg.DropCancels, "duplicate_statuses", cfg.DuplicateStatuses, "stuck_busy", cfg.StuckBusy)
+	return fakeinfra.Run(ctx, orders, control, publisher, cfg, logger)
 }
 
-func stepDelay() (time.Duration, error) {
-	raw := os.Getenv("FAKE_STEP_DELAY")
+func configFromEnv() (fakeinfra.Config, error) {
+	cfg := fakeinfra.Config{VehicleID: os.Getenv("FAKE_VEHICLE_ID"), ReturnFactor: 1}
+	if cfg.VehicleID == "" {
+		cfg.VehicleID = "VHC-001"
+	}
+	var err error
+	if cfg.StepDelay, err = duration("FAKE_STEP_DELAY", time.Second); err != nil {
+		return cfg, err
+	}
+	if cfg.TelemetryEvery, err = duration("FAKE_TELEMETRY_INTERVAL", 0); err != nil {
+		return cfg, err
+	}
+	if raw := os.Getenv("FAKE_RETURN_FACTOR"); raw != "" {
+		if cfg.ReturnFactor, err = strconv.ParseFloat(raw, 64); err != nil {
+			return cfg, fmt.Errorf("FAKE_RETURN_FACTOR: %w", err)
+		}
+	}
+	cfg.DropCancels = os.Getenv("FAKE_DROP_CANCELS") == "true"
+	cfg.DuplicateStatuses = os.Getenv("FAKE_DUPLICATE_STATUSES") == "true"
+	cfg.StuckBusy = os.Getenv("FAKE_STUCK_BUSY") == "true"
+	return cfg, nil
+}
+
+func duration(
+	name string,
+	fallback time.Duration,
+) (time.Duration, error) {
+	raw := os.Getenv(name)
 	if raw == "" {
-		return time.Second, nil
+		return fallback, nil
 	}
 	delay, err := time.ParseDuration(raw)
 	if err != nil {
-		return 0, fmt.Errorf("FAKE_STEP_DELAY: %w", err)
+		return 0, fmt.Errorf("%s: %w", name, err)
 	}
 	return delay, nil
 }
