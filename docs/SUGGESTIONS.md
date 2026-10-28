@@ -74,6 +74,55 @@ the last week. A redelivery later than the window would be counted again. Events
 `orderId` cannot be recognised and are applied every time. The id is only ever used behind the
 fixed `processed:` prefix, like the other key builders in `store/keys.go`.
 
+## Preload from the demo seed
+
+The demo seeder (`SEED_DEMO=true`, a fresh database only) inserts about 25 000 orders straight into
+MongoDB, which announces nothing. Right after the inserts `DemoOrderEventPublisher` publishes one
+`order.completed` for every seeded COMPLETED order (22 745 of them), so the model holds exactly
+the orders MongoDB holds:
+
+- the payload is `OrderCompletedMessage.from(order)` serialized with the application's ObjectMapper
+  and sent through the same `KafkaTemplate` as a real completion (same orderId, userId, items with
+  sku/quantity, `completedAt`, and `fromRecommendation` only when true): byte-identical, and a unit
+  test compares both paths;
+- chronological by `completedAt`; orders in other statuses publish nothing (and the seeder still
+  fires no WebSocket or `orders` events);
+- it runs on a daemon thread, acks are awaited at the end with a bounded timeout
+  (`SEED_DEMO_PUBLISH_TIMEOUT_SECONDS`, default 120), and it logs
+  `Published N order.completed events of the demo seed in X ms`. If Kafka is unavailable it only
+  logs a warning with the recovery hint and the boot is never failed or delayed;
+- an already seeded database ("Demo data already present, skipping") publishes nothing.
+
+Measured in the E2E stack (Docker, single-partition topic): the backend publishes the 22 745 events
+in about 0.7-1.0 s. The suggestions consumer, reading from `earliest` with a fresh group, drained
+them in about 25 s when it committed every message (about 900 events/s) and in about 2.5 s with
+batched commits (`KAFKA_COMMIT_INTERVAL`, default 1s). The consumer still records an offset only
+after the event is in Redis; a crash re-reads at most one interval of events, which the
+`processed:{orderId}` markers make harmless.
+
+Because every event goes through the age weighting above, `hot:global` after the preload only
+holds SKUs ordered in roughly the last 38 hours; `user:*`, `buyers`, `cooccur` and `sku:count`
+cover the whole two years.
+
+**Operations.**
+
+- *Dedupe TTL vs replay.* `processed:{orderId}` markers live `ORDER_DEDUPE_TTL` (7 days). Nothing
+  replays the seeded events except a consumer group reset, so the TTL matters only then: a replay
+  into a Redis that still has the markers is a no-op; into a wiped Redis it rebuilds everything; a
+  replay into a Redis whose markers expired (more than 7 days after ingesting, Redis not wiped)
+  would count the history twice. Do not reset the group without also wiping `suggestions-redis`.
+- *Redis wiped, same group.* The committed offset is at the end of the topic, so nothing is
+  replayed: the model starts empty and only new orders feed it. Rebuild by wiping Redis **and**
+  using a new `KAFKA_GROUP_ID` (or `rpk group seek wh-suggestions --to start`).
+- *Retention.* Redpanda keeps topics 7 days by default (`log_retention_ms`, measured on the
+  producer timestamp, i.e. the day of the seed). After that the seeded events are gone and a
+  rebuild only restores what is still on the topic. To keep the history rebuildable run once
+  `rpk topic alter-config order.completed --set retention.ms=-1` (the compose files do not change
+  broker defaults). The topic has one partition when auto-created; ordering does not matter to the
+  model (all updates are commutative sums), so more partitions would also be safe.
+- *Kafka down at seed time.* The backend logs the warning and boots; the model starts empty. Drop
+  the database and the suggestions Redis and restart with `SEED_DEMO=true` once Kafka is up.
+
 ## Did the buyer use a recommendation? (`from_recommendation`)
 
 The RFC says what to recommend; it cannot say whether anyone listened. `POST /orders` therefore
@@ -199,6 +248,18 @@ baseline:
 Both recommenders reach 0.333 (the maximum with one held-out SKU and k=3) versus 0.000 for the
 baseline.
 
+A fourth scenario, `TestBacktestCartPopularityBias`, plants a niche partner bought with its anchor
+6 times while three best-sellers are bought with the same anchor 12 times each. Cart precision@3
+before and after the popularity normalisation (same synthetic data, fixed seed):
+
+| Scenario | Raw co-occurrence (before) | Cosine (after) | Hot baseline |
+|---|---|---|---|
+| planted pairs (cart) | 0.333 | 0.333 | 0.000 |
+| popularity bias (cart) | 0.000 | 0.333 | 0.000 |
+| similar users (user, unchanged) | 0.333 | 0.333 | 0.000 |
+
+The change is kept because no scenario got worse and the new one went from 0.000 to the maximum.
+
 ## Running
 
 Dev (needs the base stack for Redpanda; the service is opt-in):
@@ -229,6 +290,7 @@ images. Caddy (wh-autodeploys) already routes `/suggestions/*`, prefix stripped,
 | `HOT_DECAY_FACTOR` | `0.97` | In (0, 1) |
 | `HOT_DECAY_INTERVAL` | `15m` | |
 | `ORDER_DEDUPE_TTL` | `168h` | How long an applied order id is remembered to ignore redelivered events; positive duration |
+| `KAFKA_COMMIT_INTERVAL` | `1s` | How often consumed offsets are flushed (`0` = one commit per event); an offset is only recorded after the event is in Redis |
 
 Not done: OpenTelemetry metrics (the bridge exports them; the RFC does not ask for it), per-zone hot
 items and the warehouse-side restock suggestions (RFC out of scope).

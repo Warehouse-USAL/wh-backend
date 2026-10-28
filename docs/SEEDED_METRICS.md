@@ -26,6 +26,9 @@ took 3.1 s (`Demo seed took 3105 ms`); VictoriaMetrics makes the imported sample
 seconds after that, so a dashboard queried the very instant the backend is healthy can still see
 gaps in the telemetry series.
 
+The completed orders are also announced on Kafka (`order.completed`, 22 745 events published in
+about 1 s) so the suggestions service holds the same history; see `SUGGESTIONS.md`.
+
 ## Catalogue audit (`GET /metrics/catalog`)
 
 | Metric | Kind | Business? | Source | Seeded daily for 2 years |
@@ -72,6 +75,7 @@ line, so the daily series has no empty day. The overall line rate is ~12 % (5 84
 | Every day has completed orders with timings, cancellations and receptions spread over 24 months, adoption grows, no empty conversion day | `DemoDatasetTest` |
 | Every day has battery/state samples for every rover, and transitions and faults on every day | `DemoTelemetryDatasetTest` |
 | The same through the real endpoints, day by day for 730 days: the catalogue's business series, the fleet KPI inputs, `suggestion-conversion` (day, week, month), orders per day/status, cycle time, latency, lines/units, rover productivity, receptions | `e2e/suite/test_business_metrics.py` |
+| The suggestions model equals the seeded orders: per-SKU order counts, user histories, cart ranking and age-weighted hot list recomputed from `GET /orders` | `e2e/suite/test_suggestions_seed.py` |
 
 If a new business metric is added to `MetricRegistry`, it appears in `GET /metrics/catalog` for a
 non-SUPERADMIN role and `test_every_business_series_of_the_catalog_has_a_point_every_day_for_two_years`
