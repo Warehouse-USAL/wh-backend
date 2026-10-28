@@ -4,8 +4,10 @@ import com.usal.whbackend.api.warehouse.position.CreatePositionRequest;
 import com.usal.whbackend.api.warehouse.position.PositionSummaryResponse;
 import com.usal.whbackend.api.warehouse.position.UpdatePositionRequest;
 import com.usal.whbackend.domain.Line;
+import com.usal.whbackend.domain.Order;
 import com.usal.whbackend.domain.Position;
 import com.usal.whbackend.domain.Product;
+import com.usal.whbackend.domain.StockAdjustmentType;
 import com.usal.whbackend.domain.StockSize;
 import com.usal.whbackend.domain.Zone;
 import com.usal.whbackend.repository.LineRepository;
@@ -30,6 +32,7 @@ import org.springframework.data.mongodb.core.query.Query;
 import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
@@ -40,18 +43,29 @@ public class PositionService {
   private final ZoneRepository zoneRepository;
   private final ProductRepository productRepository;
   private final MongoTemplate mongoTemplate;
+  private final StockAdjustmentService stockAdjustmentService;
 
   public PositionService(
       PositionRepository positionRepository,
       LineRepository lineRepository,
       ZoneRepository zoneRepository,
       ProductRepository productRepository,
-      MongoTemplate mongoTemplate) {
+      MongoTemplate mongoTemplate,
+      StockAdjustmentService stockAdjustmentService) {
     this.positionRepository = positionRepository;
     this.lineRepository = lineRepository;
     this.zoneRepository = zoneRepository;
     this.productRepository = productRepository;
     this.mongoTemplate = mongoTemplate;
+    this.stockAdjustmentService = stockAdjustmentService;
+  }
+
+  /** A saved position and the orders cancelled because the change left too little stock. */
+  public record PositionUpdate(Position position, List<Order> cancelledOrders) {
+
+    public PositionUpdate {
+      cancelledOrders = List.copyOf(cancelledOrders);
+    }
   }
 
   /** Maximum whole units of {@code productVolume} that fit within {@code containerVolumeCm3}. */
@@ -132,9 +146,18 @@ public class PositionService {
     return positionRepository.save(position);
   }
 
-  public Position updatePosition(String id, UpdatePositionRequest request) {
+  /**
+   * Applies a partial update. Any change that lowers the stock orders can rely on — a smaller
+   * {@code currentStock}, unassigning the product or deactivating the position — is recorded in the
+   * adjustment history and re-checks the product's orders, all in this transaction.
+   */
+  @Transactional
+  public PositionUpdate updatePosition(String id, UpdatePositionRequest request) {
     Position position =
         positionRepository.findById(id).orElseThrow(() -> new PositionNotFoundException(id));
+    String originalProductId = position.getProductId();
+    int originalStock = position.getCurrentStock();
+    int originalCounted = countedStock(position);
 
     // Unassign takes priority
     if (Boolean.TRUE.equals(request.unassignProduct())) {
@@ -191,7 +214,54 @@ public class PositionService {
     if (request.isActive() != null) position.setActive(request.isActive());
     if (request.sizeStockToSave() != null) position.setSizeStockToSave(request.sizeStockToSave());
 
-    return positionRepository.save(position);
+    Position saved = positionRepository.save(position);
+
+    boolean unassigned = Boolean.TRUE.equals(request.unassignProduct());
+    // Only stock of the same product still assigned counts after the change.
+    int countedAfter =
+        Objects.equals(originalProductId, saved.getProductId()) ? countedStock(saved) : 0;
+    boolean availableDropped = originalCounted > countedAfter;
+    String reconcileProductId = availableDropped ? originalProductId : null;
+    StockChange change = null;
+    if (unassigned && originalStock > 0) {
+      change =
+          new StockChange(
+              id,
+              originalProductId,
+              StockAdjustmentType.UNASSIGNED,
+              originalStock,
+              0,
+              reconcileProductId,
+              request.reason());
+    } else if (saved.getCurrentStock() != originalStock) {
+      change =
+          new StockChange(
+              id,
+              saved.getProductId(),
+              saved.getCurrentStock() < originalStock
+                  ? StockAdjustmentType.MANUAL_DECREASE
+                  : StockAdjustmentType.MANUAL_INCREASE,
+              originalStock,
+              saved.getCurrentStock(),
+              reconcileProductId,
+              request.reason());
+    } else if (availableDropped) {
+      change = deactivation(id, originalProductId, originalStock, request.reason());
+    }
+    List<Order> cancelled =
+        change == null ? List.of() : stockAdjustmentService.recordChange(change).cancelledOrders();
+    return new PositionUpdate(saved, cancelled);
+  }
+
+  /** What the position contributes to its product's available stock. */
+  private static int countedStock(Position position) {
+    return position.isActive() && position.getProductId() != null ? position.getCurrentStock() : 0;
+  }
+
+  private static StockChange deactivation(
+      String positionId, String productId, int stock, String reason) {
+    return new StockChange(
+        positionId, productId, StockAdjustmentType.DEACTIVATED, stock, 0, productId, reason);
   }
 
   /**
@@ -210,11 +280,21 @@ public class PositionService {
     return trimmed;
   }
 
+  /**
+   * Soft-deletes the position. Its stock stops counting as available, so — like any other drop — it
+   * is recorded and the product's orders are re-checked.
+   */
+  @Transactional
   public void deletePosition(String id) {
     Position position =
         positionRepository.findById(id).orElseThrow(() -> new PositionNotFoundException(id));
+    int counted = countedStock(position);
     position.setActive(false);
     positionRepository.save(position);
+    if (counted > 0) {
+      stockAdjustmentService.recordChange(
+          deactivation(id, position.getProductId(), position.getCurrentStock(), null));
+    }
   }
 
   // ── Restock reception support ───────────────────────────────────────────────

@@ -315,4 +315,97 @@ class OrderRepositoryTest {
 
     assertThrows(RuntimeException.class, () -> repo.save(order));
   }
+
+  @Test
+  void cancelWithoutPublishing_persistsTheCancellationAndSendsNothing() throws Exception {
+    Order order = new Order();
+    order.setId("ord-1");
+    order.setStatus(OrderStatus.PENDING);
+    when(mongo.save(order)).thenReturn(order);
+
+    Order saved = orderRepository.cancelWithoutPublishing(order, "INSUFFICIENT_STOCK: x");
+
+    assertEquals(OrderStatus.CANCELLED, saved.getStatus());
+    assertEquals("INSUFFICIENT_STOCK: x", saved.getCancelReason());
+    Thread.sleep(100);
+    org.mockito.Mockito.verifyNoInteractions(kafka);
+  }
+
+  @Test
+  void publishCancelled_sendsTheCancelledMessageKeyedByOrderId() throws Exception {
+    Order order = new Order();
+    order.setId("ord-1");
+    order.setStops(List.of("WH|A-L1-P01"));
+
+    orderRepository.publishCancelled(order);
+
+    Thread.sleep(100);
+    JsonNode node = new ObjectMapper().readTree(sentValue("orders", "ord-1"));
+    assertEquals("cancelled", node.get("status").asString());
+  }
+
+  @Test
+  void findActiveByProductId_queriesPendingAndInProgressOrdersWithTheProduct() {
+    Order order = new Order();
+    when(mongoTemplate.find(any(Query.class), eq(Order.class))).thenReturn(List.of(order));
+
+    assertEquals(List.of(order), orderRepository.findActiveByProductId("prod-1"));
+
+    ArgumentCaptor<Query> query = ArgumentCaptor.forClass(Query.class);
+    verify(mongoTemplate).find(query.capture(), eq(Order.class));
+    org.bson.Document criteria = query.getValue().getQueryObject();
+    assertEquals("prod-1", criteria.get("items.productId"));
+    assertEquals(
+        List.of(OrderStatus.PENDING, OrderStatus.IN_PROGRESS),
+        ((org.bson.Document) criteria.get("status")).get("$in"));
+  }
+
+  @Test
+  void guardStockReconciliation_bumpsTheProductsGuardDocument() {
+    orderRepository.guardStockReconciliation("prod-1");
+
+    ArgumentCaptor<Query> query = ArgumentCaptor.forClass(Query.class);
+    verify(mongoTemplate)
+        .upsert(
+            query.capture(),
+            any(org.springframework.data.mongodb.core.query.Update.class),
+            eq("stock_guards"));
+    assertEquals("prod-1", query.getValue().getQueryObject().get("_id"));
+  }
+
+  @Test
+  void guardStockReconciliation_transientTransactionError_isAConflict() {
+    com.mongodb.MongoException conflict = new com.mongodb.MongoException("write conflict");
+    conflict.addLabel(com.mongodb.MongoException.TRANSIENT_TRANSACTION_ERROR_LABEL);
+    when(mongoTemplate.upsert(
+            any(Query.class),
+            any(org.springframework.data.mongodb.core.query.Update.class),
+            eq("stock_guards")))
+        .thenThrow(new org.springframework.dao.DataIntegrityViolationException("112", conflict));
+
+    org.springframework.web.server.ResponseStatusException e =
+        assertThrows(
+            org.springframework.web.server.ResponseStatusException.class,
+            () -> orderRepository.guardStockReconciliation("prod-1"));
+
+    assertEquals(org.springframework.http.HttpStatus.CONFLICT, e.getStatusCode());
+    assertEquals("STOCK_CHANGE_CONFLICT", e.getReason());
+  }
+
+  @Test
+  void guardStockReconciliation_otherDataErrors_propagateUnchanged() {
+    org.springframework.dao.DataAccessResourceFailureException down =
+        new org.springframework.dao.DataAccessResourceFailureException("down");
+    when(mongoTemplate.upsert(
+            any(Query.class),
+            any(org.springframework.data.mongodb.core.query.Update.class),
+            eq("stock_guards")))
+        .thenThrow(down);
+
+    assertSame(
+        down,
+        assertThrows(
+            org.springframework.dao.DataAccessResourceFailureException.class,
+            () -> orderRepository.guardStockReconciliation("prod-1")));
+  }
 }

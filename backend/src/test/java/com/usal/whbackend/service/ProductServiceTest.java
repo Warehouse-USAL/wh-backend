@@ -53,6 +53,7 @@ class ProductServiceTest {
   @Mock LineRepository lineRepository;
   @Mock ZoneRepository zoneRepository;
   @Mock StorageService storageService;
+  @Mock StockAdjustmentService stockAdjustmentService;
   @InjectMocks ProductService productService;
 
   // A real converter, configured as Spring Boot does: targeted product updates are built from the
@@ -415,6 +416,40 @@ class ProductServiceTest {
 
     assertFalse(p.isActive());
     verify(mongoTemplate).updateFirst(any(Query.class), any(Update.class), eq(Product.class));
+  }
+
+  @Test
+  void deleteProduct_recordsTheStockThatLeavesAndReconcilesOnce() {
+    Product p = activeProduct("1");
+    when(productRepository.findById("1")).thenReturn(Optional.of(p));
+    com.usal.whbackend.domain.Position active = new com.usal.whbackend.domain.Position();
+    active.setId("pos-a");
+    active.setProductId("1");
+    active.setActive(true);
+    active.setCurrentStock(4);
+    com.usal.whbackend.domain.Position inactive = new com.usal.whbackend.domain.Position();
+    inactive.setId("pos-b");
+    inactive.setProductId("1");
+    inactive.setActive(false);
+    inactive.setCurrentStock(3);
+    com.usal.whbackend.domain.Position empty = new com.usal.whbackend.domain.Position();
+    empty.setId("pos-c");
+    empty.setProductId("1");
+    empty.setActive(true);
+    when(positionRepository.findByProductIdIn(any())).thenReturn(List.of(active, inactive, empty));
+
+    productService.deleteProduct("1");
+
+    org.mockito.ArgumentCaptor<StockChange> changes =
+        org.mockito.ArgumentCaptor.forClass(StockChange.class);
+    verify(stockAdjustmentService, times(2)).recordChange(changes.capture());
+    assertEquals(
+        List.of("pos-a", "pos-b"),
+        changes.getAllValues().stream().map(StockChange::positionId).toList());
+    assertEquals("1", changes.getAllValues().get(0).reconcileProductId());
+    assertNull(changes.getAllValues().get(1).reconcileProductId());
+    assertEquals(0, active.getCurrentStock());
+    assertNull(active.getProductId());
   }
 
   @Test
