@@ -334,7 +334,12 @@ public class OrderService implements OrderCompletionPort {
         unitPrice.setTaxIncluded(product.getPrice().isTaxIncluded());
       }
       items.add(
-          new OrderItem(product.getId(), product.getSku(), itemRequest.quantity(), unitPrice));
+          new OrderItem(
+              product.getId(),
+              product.getSku(),
+              itemRequest.quantity(),
+              unitPrice,
+              itemRequest.recommended()));
     }
 
     // Pass 2: stock check + save. Every product bumps its guard document first, in sorted

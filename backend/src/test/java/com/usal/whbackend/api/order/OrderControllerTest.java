@@ -1,5 +1,6 @@
 package com.usal.whbackend.api.order;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -141,6 +142,30 @@ class OrderControllerTest {
                 .content("{\"items\":[],\"destination_area\":\"AREA-A\"}"))
         .andExpect(status().isCreated())
         .andExpect(jsonPath("$.order").exists());
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_SALES")
+  void createOrder_readsTheOptionalFromRecommendationFlagOfEachItem() throws Exception {
+    when(orderService.createOrder(any(), anyString())).thenReturn(sampleOrder);
+    mockMvc
+        .perform(
+            post("/orders")
+                .contentType("application/json")
+                .content(
+                    "{\"items\":[{\"product_id\":\"p1\",\"quantity\":1,"
+                        + "\"from_recommendation\":true},"
+                        + "{\"product_id\":\"p2\",\"quantity\":2},"
+                        + "{\"product_id\":\"p3\",\"quantity\":1,\"from_recommendation\":null}],"
+                        + "\"destination_area\":\"AREA-A\"}"))
+        .andExpect(status().isCreated());
+
+    org.mockito.ArgumentCaptor<CreateOrderRequest> captor =
+        org.mockito.ArgumentCaptor.forClass(CreateOrderRequest.class);
+    org.mockito.Mockito.verify(orderService).createOrder(captor.capture(), anyString());
+    assertThat(captor.getValue().items())
+        .extracting(CreateOrderRequest.OrderItemRequest::recommended)
+        .containsExactly(true, false, false);
   }
 
   @Test

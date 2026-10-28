@@ -20,7 +20,7 @@ Safety: the stack uses compose project `whsuite`, publishes no host ports, uses 
 
 ## Architecture
 
-- `e2e/suite.sh` - orchestrator: generates secrets, builds images (backend, bridge, fakeinfra, console, suggestions, runner), starts the stack with `SEED_DEMO=true`, creates (but does not start) `fakeinfra`, runs the `runner` container, writes results and runs `down -v` on exit.
+- `e2e/suite.sh` - orchestrator: generates secrets, builds images (backend, bridge, fakeinfra, console, suggestions, runner), starts the stack with `SEED_DEMO=true` (the real warehouse: one zone `A`, one line, six positions `PA1`-`PA3`/`PM1`-`PM3` with QR `WH2|<name>`; tests that need more zones, lines or positions create their own through the factory), creates (but does not start) `fakeinfra`, runs the `runner` container, writes results and runs `down -v` on exit.
 - `e2e/docker-compose.suite.yml` - overlay on the root compose: no host ports, isolated volumes, a local RabbitMQ (`suite/suite`), short bridge retry back-off, the `runner` service (mounts the Docker socket so resilience tests can stop/start containers).
 - `e2e/suite/` - the pytest project: `conftest.py` (health wait, role fixtures, Kafka tap, RabbitMQ API client, results-matrix plugin, group ordering), `lib/` (HTTP client with readable failures, factory for products/zones/positions/orders, an `InfraClient` that plays Infra with the API key, websocket and SSE readers, Docker control).
 - Test groups run in this order: default (Infra is played by the tests through `/infra/**`), `flow` (real chain: backend -> Kafka -> bridge -> RabbitMQ -> fakeinfra and back), `resilience` (stops/kills dependencies, always restores them).
@@ -32,11 +32,12 @@ Safety: the stack uses compose project `whsuite`, publishes no host ports, uses 
 |---|---|---|---|---|---|
 | auth | 56 | 54 | 0 | 2 | 0 |
 | bridge | 8 | 8 | 0 | 0 | 0 |
+| business_metrics | 13 | 13 | 0 | 0 | 0 |
 | catalog | 30 | 29 | 0 | 1 | 0 |
 | console | 23 | 23 | 0 | 0 | 0 |
 | metrics_query | 30 | 30 | 0 | 0 | 0 |
-| orders | 39 | 38 | 0 | 1 | 0 |
-| platform | 12 | 11 | 0 | 1 | 0 |
+| orders | 41 | 40 | 0 | 1 | 0 |
+| platform | 15 | 14 | 0 | 1 | 0 |
 | restock | 12 | 11 | 0 | 1 | 0 |
 | stock_adjustments | 23 | 23 | 0 | 0 | 0 |
 | suggestions | 11 | 11 | 0 | 0 | 0 |
@@ -45,7 +46,7 @@ Safety: the stack uses compose project `whsuite`, publishes no host ports, uses 
 | websockets | 16 | 16 | 0 | 0 | 0 |
 | flow | 7 | 7 | 0 | 0 | 0 |
 | resilience | 9 | 9 | 0 | 0 | 0 |
-| **all** | 302 | 294 | 0 | 8 | 0 |
+| **all** | 320 | 312 | 0 | 8 | 0 |
 
 ### Coverage matrix: capability -> test id -> status
 
@@ -117,6 +118,19 @@ Group `default` plays Infra by hand, `flow` uses the real chain, `resilience` st
 | `test_bridge.py::test_rejected_messages_are_discarded_not_retried` | A 4xx answer (unknown order -> 404, finished order -> 409) discards the message: the queue drains, later messages still flow | default | passed |  |
 | `test_bridge.py::test_garbage_messages_are_dropped_and_the_bridge_keeps_working` | Non-JSON and unclassifiable messages (neither order_id nor vehicle_id) are logged and dropped; the next telemetry still gets through | default | passed |  |
 | `test_bridge.py::test_bridge_forwards_the_api_key_and_request_ids` | Callbacks carry X-Api-Key (otherwise they would be 401 and discarded) and the bridge logs correlate with backend logs by request_id | default | passed |  |
+| `test_business_metrics.py::test_every_business_series_of_the_catalog_has_a_point_every_day_for_two_years` | Each business metric in GET /metrics/catalog (wh.vehicle.*) answers a 1d-step query over 730 days with one value per day, none missing; the transitions counter increases on every interior day | default | passed |  |
+| `test_business_metrics.py::test_fleet_kpi_inputs_have_data_every_day[flt0-category-failures by category (KPI 1-3: failure rate, Pareto, MTBF)]` | The fleet KPI queries of the dashboard guide (failures, offline time, busy rovers) return a value on every one of the 730 days | default | passed |  |
+| `test_business_metrics.py::test_fleet_kpi_inputs_have_data_every_day[flt1-vehicle_id-time offline per rover (KPI 4: MTTR)]` | The fleet KPI queries of the dashboard guide (failures, offline time, busy rovers) return a value on every one of the 730 days | default | passed |  |
+| `test_business_metrics.py::test_fleet_kpi_inputs_have_data_every_day[flt2-vehicle_id-busy rovers (KPI 5 and fleet utilisation)]` | The fleet KPI queries of the dashboard guide (failures, offline time, busy rovers) return a value on every one of the 730 days | default | passed |  |
+| `test_business_metrics.py::test_suggestion_conversion_has_orders_and_recommendations_every_day_for_two_years` | POST /metrics/suggestion-conversion (day) returns 730 consecutive buckets, each with orders and at least one recommended line; adoption grows over the window | default | passed |  |
+| `test_business_metrics.py::test_suggestion_conversion_week_and_month_buckets_have_no_holes[week-105]` | Weekly and monthly buckets cover the two-year window without gaps (a window of 730 days touches 105 ISO weeks / 24-25 months) | default | passed |  |
+| `test_business_metrics.py::test_suggestion_conversion_week_and_month_buckets_have_no_holes[month-25]` | Weekly and monthly buckets cover the two-year window without gaps (a window of 730 days touches 105 ISO weeks / 24-25 months) | default | passed |  |
+| `test_business_metrics.py::test_suggestion_conversion_validation_and_filters` | Bad params -> 400 INVALID_METRIC_PARAMS naming the param; a category filter narrows the lines considered; DASHBOARD may read it | default | passed |  |
+| `test_business_metrics.py::test_orders_per_day_by_status_cover_every_day` | KPIs 7-10 (orders, completion and cancellation rate per day): /query/orders grouped by day has completed orders on every day of the window and cancellations on most | default | passed |  |
+| `test_business_metrics.py::test_cycle_time_and_assignment_latency_exist_every_day` | KPIs 12-14 (cycle time, time to vehicle assignment, SLA): completed orders carry a positive average cycle_time_ms and assignment_latency_ms on every day | default | passed |  |
+| `test_business_metrics.py::test_picking_lines_and_units_exist_every_day` | KPI 15 (picking efficiency) and the demand behind KPIs 16-20: order lines and units per day, unwinding items, on every day | default | passed |  |
+| `test_business_metrics.py::test_every_rover_has_completed_orders_in_every_month` | KPI 11 (productivity per rover): each seeded vehicle has completed orders in every month of the window | default | passed |  |
+| `test_business_metrics.py::test_receptions_and_restock_orders_are_spread_over_the_two_years` | Stock inflow (receptions) is not daily by nature (deliveries arrive on some days) but must appear in every month of the window | default | passed |  |
 | `test_catalog.py::test_product_create_and_read_back` | Create a product with price/specs/images/dimensions and read it back (volume computed, stock zeroed) | default | passed |  |
 | `test_catalog.py::test_product_sku_must_be_unique` | Duplicate SKU -> 409 SKU_ALREADY_EXISTS | default | passed |  |
 | `test_catalog.py::test_product_create_validation[patch0]` | Negative dimensions/min/max or blank sku/name/category are rejected with 400 VALIDATION_ERROR | default | passed |  |
@@ -219,7 +233,7 @@ Group `default` plays Infra by hand, `flow` uses the real chain, `resilience` st
 | `test_orders.py::test_idempotency_key_replays_the_same_order` | Same Idempotency-Key + same user: the retry returns the original order, reserves once and publishes once | default | passed |  |
 | `test_orders.py::test_idempotency_key_of_another_user_conflicts` | The same key used by a different user -> 409 IDEMPOTENCY_KEY_USER_MISMATCH and no order | default | passed |  |
 | `test_orders.py::test_idempotency_key_replay_returns_original_even_if_body_differs` | A replayed key with a different body gets the original order back (no second reservation) | default | passed |  |
-| `test_orders.py::test_idempotency_key_concurrent_requests_create_one_order` | Racing requests with one key create exactly one order (others replay it or get IDEMPOTENCY_REQUEST_IN_PROGRESS) | default | passed |  |
+| `test_orders.py::test_idempotency_key_concurrent_requests_create_one_order` | Racing requests with one key create exactly one order and every request gets it back (201) | default | passed |  |
 | `test_orders.py::test_orders_topic_message_has_ordered_stops_from_qr_codes` | The pending message on topic `orders` is exactly {order_id,status,stops,destination,published_at}; stops are the positions' QR codes in zone/line/position order | default | passed |  |
 | `test_orders.py::test_stops_are_deduplicated_and_ordered_by_line_then_position_name` | Two positions of one product in one zone: stops are in line-number then position-name order, one per position | default | passed |  |
 | `test_orders.py::test_order_without_any_qr_still_created_with_empty_stops` | Positions without a QR are left out of the stops; an order with no stops at all is still created and published | default | passed |  |
@@ -233,6 +247,8 @@ Group `default` plays Infra by hand, `flow` uses the real chain, `resilience` st
 | `test_orders.py::test_infra_in_progress_assigns_vehicle_and_marks_it_busy` | in_progress with Infra's vehicle id creates/assigns the vehicle (UUIDv5 of the Infra id), starts the order and marks the vehicle busy | default | passed |  |
 | `test_orders.py::test_infra_busy_vehicle_cannot_take_a_second_order` | A vehicle already working on an order -> 409 VEHICLE_ALREADY_BUSY for the next one | default | passed |  |
 | `test_orders.py::test_completion_drains_stock_publishes_event_and_frees_vehicle` | completed: stock leaves the positions exactly once, reservation released, order.completed (camelCase) published, vehicle idle | default | passed |  |
+| `test_orders.py::test_from_recommendation_is_optional_stored_and_published_per_item` | items[].from_recommendation is optional (absent/null/false = false), kept on the order, returned by GET /orders/{id} and published as fromRecommendation on order.completed only for the flagged lines | default | passed |  |
+| `test_orders.py::test_from_recommendation_must_be_a_boolean_and_a_product_cannot_repeat_to_game_it` | A non-boolean flag -> 400; the same product twice is still DUPLICATE_PRODUCT_IN_ORDER, so a line cannot be double counted | default | passed |  |
 | `test_orders.py::test_completion_drains_across_positions_fifo_without_going_negative` | An order bigger than one position drains several positions; no position goes below zero | default | passed |  |
 | `test_orders.py::test_infra_cancel_and_late_status_on_finished_orders` | Infra may cancel a pending order; a different status on a finished order is 409 ORDER_NOT_MODIFIABLE, the same status a 200 no-op | default | passed |  |
 | `test_orders.py::test_bad_timestamp_does_not_block_a_real_status_change` | An unparseable Infra timestamp falls back to now instead of failing the transition | default | passed |  |
@@ -242,8 +258,11 @@ Group `default` plays Infra by hand, `flow` uses the real chain, `resilience` st
 | `test_platform.py::test_actuator_health_public_everything_else_protected` | /actuator/health is public and UP; info/env/metrics/prometheus are not exposed to anonymous callers | default | passed |  |
 | `test_platform.py::test_openapi_documentation_is_served` | /v3/api-docs is valid OpenAPI 3 describing the API; Swagger UI is reachable | default | passed |  |
 | `test_platform.py::test_every_documented_protected_operation_rejects_anonymous_calls` | Walk every GET path of the OpenAPI document: anonymous access is never 200 except for the public ones | default | passed |  |
-| `test_platform.py::test_seed_demo_data_is_present` | SEED_DEMO: the 8 roles' demo accounts log in, catalogue/warehouse/orders/vehicles are populated | default | passed |  |
-| `test_platform.py::test_seed_positions_have_unique_scannable_qr_codes` | Every position QR code is unique and carries the configured prefix (WH2/) | default | passed |  |
+| `test_platform.py::test_seed_demo_data_is_present` | SEED_DEMO: the 8 roles' demo accounts log in, catalogue/orders/vehicles are populated and the warehouse exists | default | passed |  |
+| `test_platform.py::test_seeded_warehouse_is_one_zone_one_line_six_positions` | The seeded warehouse mirrors the real one: zone A, line 1, positions PA1-PA3 and PM1-PM3, active, one distinct product each | default | passed |  |
+| `test_platform.py::test_seed_positions_have_the_qr_codes_infra_recognises` | Each seeded position's QR text is the configured prefix (WH2/) plus its name: WH2/PA1..PA3 and WH2/PM1..PM3, all unique | default | passed |  |
+| `test_platform.py::test_every_seeded_position_can_be_patched` | Re-sending a seeded position's own QR passes the capacity/volume guards (a past incident: a seeded position answered 409 to any edit) | default | passed |  |
+| `test_platform.py::test_an_order_across_seeded_positions_publishes_their_qr_codes_as_stops` | An order for products held in PA3 and PM1 publishes stops [WH2/PA3, WH2/PM1] (position-name order) on topic `orders` | default | passed |  |
 | `test_platform.py::test_error_contract_is_uniform` | Errors are always {"error":{"code","message"}} JSON: 404 on unknown route, 405 on wrong method, 401 anon, validation, malformed body | default | passed |  |
 | `test_platform.py::test_unknown_route_uses_the_error_contract` | 404 for an unknown path uses the same {"error":{"code","message"}} envelope as every other error | default | known-failure | BUG-PLATFORM-1: unknown routes (404) and wrong methods (405) answer with Spring's default error body {timestamp,status,error,path} instead of the API's {error:{code,message}} contract (no NoHandlerFound/NoResourceFound mapping in the global exception handler) |
 | `test_platform.py::test_responses_carry_request_id_and_security_headers` | Every response has X-Request-Id (echoed when supplied) and hardening headers | default | passed |  |
@@ -383,3 +402,17 @@ Observations that are not asserted as bugs: no login lockout (a passing test doc
 - Real Infra and real RabbitMQ (out of scope by design; `fakeinfra` plays Infra). Orders with an empty stop list (fakeinfra cancels them) were not exercised because the API offers no way to create one.
 - Browser rendering of the console UI: only the static delivery, security headers, SPA fallback, `/api` proxy and the SSE stream through the proxy are checked, not React behaviour.
 - Load/performance, TLS, and the restock-cron schedule (the container is started, and the restock suggestion/apply API is tested, but the cron timing is not).
+
+## Added after the reference run (written, not yet executed)
+
+These tests were added with the suggestion-conversion work and have not been run against the stack
+yet (Docker was unavailable when they were written); run `make e2e-suite` and fold them into the
+tables above.
+
+| Test | Capability |
+|---|---|
+| `test_orders.py::test_from_recommendation_is_optional_stored_and_published_per_item` | Optional per-item `from_recommendation`: absent/false = false, stored, returned, published as `fromRecommendation` on `order.completed` for flagged lines only |
+| `test_orders.py::test_from_recommendation_must_be_a_boolean_and_a_product_cannot_repeat_to_game_it` | Non-boolean flag is 400; a repeated product is still `DUPLICATE_PRODUCT_IN_ORDER` |
+| `test_business_metrics.py` (all) | Every business metric answers with data on every day of the seeded 730 days: catalogue series, fleet KPI inputs, `suggestion_conversion` (day/week/month, validation, filters), orders-derived KPIs, receptions. See `SEEDED_METRICS.md` |
+| `test_platform.py::test_seeded_warehouse_is_one_zone_one_line_six_positions` | Now also asserts `max_allowed_lines` = 1 and `max_allowed_positions` = 6 |
+

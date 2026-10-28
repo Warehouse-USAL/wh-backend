@@ -24,6 +24,10 @@ type Item struct {
 	SKU       string `json:"sku"`
 	ProductID string `json:"productId"`
 	Quantity  int    `json:"quantity"`
+	// FromRecommendation is true when the buyer took the line from a suggestion of this service.
+	// Absent in events published before the field existed (decodes to false). Ingestion does not
+	// use it yet: it is carried so a conversion statistic can be added without a contract change.
+	FromRecommendation bool `json:"fromRecommendation"`
 }
 
 // ErrInvalidEvent marks a payload that can never be applied, however often it is retried.

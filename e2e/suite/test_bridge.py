@@ -59,7 +59,7 @@ def test_infra_order_status_message_becomes_a_backend_callback(operator, warehou
 def test_infra_telemetry_message_becomes_a_backend_callback(warehouse, rabbit, vehicle_id):
     """Telemetry (vehicle_id, no order_id) drives POST /infra/vehicles/{id}/telemetry; last_qr is not forwarded and does not break it"""
     infra_vid, vid = vehicle_id
-    _publish_vehicle_msg(rabbit, {"vehicle_id": infra_vid, "status": "busy", "battery": 73, "last_qr": "WH2|PB1", "error": None, "timestamp": "2026-10-27T12:00:00Z"})
+    _publish_vehicle_msg(rabbit, {"vehicle_id": infra_vid, "status": "busy", "battery": 73, "last_qr": "WH2|PA1", "error": None, "timestamp": "2026-10-27T12:00:00Z"})
     v = wait_until(lambda: warehouse.get(f"/vehicles/{vid}").body if warehouse.get(f"/vehicles/{vid}").status == 200 else None, timeout=30, desc="vehicle created from telemetry")
     assert v["status"] == "busy" and v["battery"] == 73
     assert "last_qr" not in json.dumps(v)

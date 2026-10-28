@@ -9,13 +9,11 @@ import com.usal.whbackend.domain.OrderStatus;
 import com.usal.whbackend.domain.Position;
 import com.usal.whbackend.domain.Product;
 import com.usal.whbackend.domain.ProductCategory;
-import com.usal.whbackend.domain.StockSize;
 import com.usal.whbackend.domain.User;
 import com.usal.whbackend.domain.UserRole;
 import com.usal.whbackend.domain.Vehicle;
 import com.usal.whbackend.domain.VehicleStatus;
 import com.usal.whbackend.domain.Zone;
-import com.usal.whbackend.service.PositionService;
 import com.usal.whbackend.service.metrics.restock.RestockParams;
 import java.time.Instant;
 import java.time.LocalDate;
@@ -33,6 +31,9 @@ import java.util.function.UnaryOperator;
  * parameter, so it can be unit-tested directly. Every entity gets a deterministic String id, so all
  * cross-references (orders → users/products/vehicles, positions → products, vehicle ↔ order) are
  * wired in memory and the seeder only has to persist the lists.
+ *
+ * <p>The warehouse is the real one (see {@link WarehouseLayout}): one zone, one line, six
+ * positions, each holding one product; the other catalogue products are registered without stock.
  *
  * <p>Stock is produced causally: initial inbound stock is placed into positions, then COMPLETED
  * orders draw it down FIFO (oldest position first, mirroring {@code StockDrainService}) — without
@@ -57,12 +58,6 @@ public final class DemoDataset {
 
   /** Default prefix of every seeded position QR text; override with {@code WH_QR_PREFIX}. */
   public static final String DEFAULT_QR_PREFIX = "WH2|";
-
-  // A position never holds more than this many units, however small the product is.
-  private static final int POSITION_MAX_CAPACITY = 1_500;
-  // Capacity of a position nobody has assigned a product to yet, by container size.
-  private static final Map<StockSize, Integer> EMPTY_POSITION_CAPACITY =
-      Map.of(StockSize.CAJA, 100, StockSize.MEDIO_PALLET, 300, StockSize.PALLET, 500);
 
   private static final String[] DESTINATIONS = {
     "Depósito Central",
@@ -121,12 +116,13 @@ public final class DemoDataset {
     List<Position> positions = new ArrayList<>();
     buildWarehouse(products, zones, lines, positions);
     List<Vehicle> vehicles = buildVehicles();
-    List<Order> nearTerm = buildOrders(users, products, vehicles);
+    List<Product> stocked = stockedProducts(products);
+    List<Order> nearTerm = buildOrders(users, stocked, vehicles);
     DemoHistory.Result history =
         new DemoHistory(
                 now,
                 DEMO_RESTOCK_PARAMS,
-                products,
+                stocked,
                 positions,
                 vehicles,
                 (n, status, items, vehicle, created, reason) ->
@@ -642,180 +638,31 @@ public final class DemoDataset {
     return p;
   }
 
-  // ── Warehouse (zones → lines → positions) ──────────────────────────────────────
+  // ── Warehouse (one zone, one line, six positions) ─────────────────────────────
 
-  /** A position's planned content: a product (null = empty) and the container it is stored in. */
-  private record Slot(String sku, StockSize size) {}
-
-  private static Slot slot(String sku, StockSize size) {
-    return new Slot(sku, size);
+  /**
+   * The products the six positions hold (one each, in layout order). The rest of the catalogue is
+   * registered but has no position: no stock and no orders until the warehouse assigns one.
+   */
+  private List<Product> stockedProducts(List<Product> products) {
+    Map<String, Product> bySku = new HashMap<>();
+    products.forEach(p -> bySku.put(p.getSku(), p));
+    return WarehouseLayout.SLOTS.stream().map(slot -> bySku.get(slot.sku())).toList();
   }
-
-  private static final StockSize CAJA = StockSize.CAJA;
-  private static final StockSize MEDIO = StockSize.MEDIO_PALLET;
-  private static final StockSize PALLET = StockSize.PALLET;
-
-  // Zone B: small boxes. Line 1 peripherals, 2 audio and video, 3 storage, 4 cables. The best
-  // sellers (mouse, keyboard, speaker, flash drive, microSD, HDMI and USB-C cables) get two
-  // positions each.
-  private static final Slot[][] ZONE_B = {
-    {
-      slot("TEC-002", MEDIO),
-      slot("TEC-002", MEDIO),
-      slot("TEC-004", MEDIO),
-      slot("TEC-004", MEDIO),
-      slot("TEC-003", MEDIO)
-    },
-    {
-      slot("TEC-006", MEDIO),
-      slot("TEC-007", MEDIO),
-      slot("TEC-008", MEDIO),
-      slot("TEC-009", MEDIO),
-      slot("TEC-009", MEDIO)
-    },
-    {
-      slot("TEC-011", CAJA),
-      slot("TEC-012", CAJA),
-      slot("TEC-012", CAJA),
-      slot("TEC-013", CAJA),
-      slot("TEC-013", CAJA)
-    },
-    {
-      slot("OTR-002", MEDIO),
-      slot("OTR-002", MEDIO),
-      slot("OTR-004", CAJA),
-      slot("OTR-004", CAJA),
-      slot("OTR-003", MEDIO)
-    }
-  };
-
-  // Zone C: line 1 monitors (bulky, on pallets, three free pallet positions), line 2 networking and
-  // power, line 3 mini PCs and wearables (three free boxes).
-  private static final Slot[][] ZONE_C = {
-    {
-      slot("TEC-005", PALLET),
-      slot("TEC-005", PALLET),
-      slot(null, PALLET),
-      slot(null, PALLET),
-      slot(null, PALLET)
-    },
-    {
-      slot("TEC-014", MEDIO),
-      slot("OTR-001", MEDIO),
-      slot("OTR-001", MEDIO),
-      slot("OTR-005", CAJA),
-      slot("OTR-006", CAJA)
-    },
-    {
-      slot("TEC-010", CAJA),
-      slot("TEC-001", CAJA),
-      slot(null, CAJA),
-      slot(null, CAJA),
-      slot(null, CAJA)
-    }
-  };
 
   private void buildWarehouse(
       List<Product> products, List<Zone> zones, List<Line> lines, List<Position> positions) {
     Map<String, Product> bySku = new HashMap<>();
     products.forEach(p -> bySku.put(p.getSku(), p));
-
-    Zone zoneB = zone("z-B", "B");
-    Zone zoneC = zone("z-C", "C");
-    zones.add(zoneB);
-    zones.add(zoneC);
-
-    int globalIdx = 0;
-    globalIdx = buildZone(zoneB, ZONE_B, bySku, lines, positions, globalIdx);
-    buildZone(zoneC, ZONE_C, bySku, lines, positions, globalIdx);
-  }
-
-  private int buildZone(
-      Zone zone,
-      Slot[][] layout,
-      Map<String, Product> bySku,
-      List<Line> lines,
-      List<Position> positions,
-      int globalIdx) {
-    int inZone = 0;
-    for (int li = 0; li < layout.length; li++) {
-      Line ln = line("l-" + zone.getZoneCode() + "-" + (li + 1), zone.getId(), li + 1);
-      lines.add(ln);
-      for (int pi = 0; pi < layout[li].length; pi++) {
-        Slot slot = layout[li][pi];
-        String name = String.format("P%02d", pi + 1);
-        Product product = slot.sku() == null ? null : bySku.get(slot.sku());
-        Position position =
-            position(
-                "pos-" + ln.getId() + "-" + name,
-                ln,
-                name,
-                catalogueEpoch.plus(24L + globalIdx, ChronoUnit.HOURS),
-                product,
-                slot.size());
-        // WH2|P<zone><n>, n counting the zone's positions in order. Infra resolves an order's stops
-        // from these texts, so they must match the codes printed in the warehouse.
-        position.setQrCode(qrPrefix + "P" + zone.getZoneCode() + (++inZone));
-        positions.add(position);
-        globalIdx++;
-      }
+    zones.add(WarehouseLayout.zone(catalogueEpoch));
+    lines.add(WarehouseLayout.line(catalogueEpoch.plus(1, ChronoUnit.HOURS)));
+    for (int i = 0; i < WarehouseLayout.SLOTS.size(); i++) {
+      WarehouseLayout.Slot slot = WarehouseLayout.SLOTS.get(i);
+      Product product = slot.sku() == null ? null : bySku.get(slot.sku());
+      positions.add(
+          WarehouseLayout.position(
+              slot, product, qrPrefix, catalogueEpoch.plus(24L + i, ChronoUnit.HOURS)));
     }
-    return globalIdx;
-  }
-
-  private Zone zone(String id, String code) {
-    Zone z = new Zone();
-    z.setId(id);
-    z.setZoneCode(code);
-    z.setActive(true);
-    z.setMaxAllowedLines(10);
-    z.setCreatedAt(catalogueEpoch);
-    return z;
-  }
-
-  private Line line(String id, String idZone, int number) {
-    Line l = new Line();
-    l.setId(id);
-    l.setIdZone(idZone);
-    l.setNumberLine(number);
-    l.setActive(true);
-    l.setMaxAllowedPositions(20);
-    l.setCreatedAt(catalogueEpoch.plus(1, ChronoUnit.HOURS));
-    return l;
-  }
-
-  private Position position(
-      String id, Line line, String name, Instant createdAt, Product product, StockSize size) {
-    Position p = new Position();
-    p.setId(id);
-    p.setIdLine(line.getId());
-    p.setIdZone(line.getIdZone());
-    p.setPositionName(name);
-    p.setActive(true);
-    p.setSizeStockToSave(size);
-    p.setMaximumCapacity(maximumCapacity(product, size));
-    p.setProductId(product == null ? null : product.getId());
-    p.setCurrentStock(0);
-    p.setCreatedAt(createdAt);
-    return p;
-  }
-
-  /**
-   * The most units of {@code product} a {@code size} container takes by volume — the same rule
-   * {@code PositionService.updatePosition} enforces — capped at {@link #POSITION_MAX_CAPACITY}, so
-   * no stock the simulation puts away can ever be rejected when the position is edited later.
-   */
-  static int maximumCapacity(Product product, StockSize size) {
-    if (product == null) {
-      return EMPTY_POSITION_CAPACITY.get(size);
-    }
-    int byVolume = PositionService.maxUnitsByVolume(product.getVolume(), size.getVolumeCm3());
-    int capacity = Math.min(POSITION_MAX_CAPACITY, byVolume);
-    // Guard against floating-point rounding right at the boundary.
-    while (capacity > 1 && capacity * product.getVolume() > size.getVolumeCm3()) {
-      capacity--;
-    }
-    return capacity;
   }
 
   // ── Vehicles ─────────────────────────────────────────────────────────────────

@@ -245,6 +245,30 @@ class OrderServiceTest {
   }
 
   @Test
+  void createOrder_persistsWhichItemsCameFromARecommendation_absentMeansFalse() {
+    transactionalService();
+    stockedProduct("prod-a");
+    stockedProduct("prod-b");
+    stockedProduct("prod-c");
+    when(productService.computeAvailableStock(any())).thenReturn(10);
+    when(orderRepository.saveWithoutPublishing(any())).thenAnswer(i -> i.getArgument(0));
+    CreateOrderRequest req =
+        new CreateOrderRequest(
+            List.of(
+                new OrderItemRequest("prod-a", 1, true),
+                new OrderItemRequest("prod-b", 1, false),
+                new OrderItemRequest("prod-c", 1)),
+            "AREA-A",
+            validAddress());
+
+    Order order = orderService.createOrder(req, "user-1");
+
+    assertEquals(
+        List.of(true, false, false),
+        order.getItems().stream().map(OrderItem::isFromRecommendation).toList());
+  }
+
+  @Test
   void createOrder_guardsEveryProductInSortedOrderBeforeCheckingStock() {
     stockedProduct("prod-b");
     stockedProduct("prod-a");

@@ -334,6 +334,35 @@ def test_completion_drains_stock_publishes_event_and_frees_vehicle(infra, operat
     assert len(kafka.for_order(o["id"], topic="order.completed", id_key="orderId")) == 1
 
 
+def test_from_recommendation_is_optional_stored_and_published_per_item(infra, operator, warehouse, factory, vehicle_id, kafka):
+    """items[].from_recommendation is optional (absent/null/false = false), kept on the order, returned by GET /orders/{id} and published as fromRecommendation on order.completed only for the flagged lines"""
+    infra_vid, _ = vehicle_id
+    a, b, c = factory.stocked(10), factory.stocked(10), factory.stocked(10)
+    body = factory.order_body([(a.id, 1), (b.id, 1), (c.id, 1)])
+    body["items"][0]["from_recommendation"] = True
+    body["items"][1]["from_recommendation"] = False
+    o = operator.post("/orders", json=body).expect(201).json_("order")
+    assert [i["from_recommendation"] for i in o["items"]] == [True, False, False]
+    assert [i["from_recommendation"] for i in factory.get_order(o["id"])["items"]] == [True, False, False]
+    infra.status(o["id"], "in_progress", infra_vid).expect(200)
+    infra.status(o["id"], "completed", infra_vid).expect(200)
+    ev = kafka.wait_order(o["id"], topic="order.completed", id_key="orderId")["value"]
+    by_sku = {i["sku"]: i for i in ev["items"]}
+    assert by_sku[a.product["sku"]]["fromRecommendation"] is True
+    assert "fromRecommendation" not in by_sku[b.product["sku"]] and "fromRecommendation" not in by_sku[c.product["sku"]]
+
+
+def test_from_recommendation_must_be_a_boolean_and_a_product_cannot_repeat_to_game_it(operator, factory):
+    """A non-boolean flag -> 400; the same product twice is still DUPLICATE_PRODUCT_IN_ORDER, so a line cannot be double counted"""
+    s = factory.stocked(10)
+    body = factory.order_body([(s.id, 1)])
+    body["items"][0]["from_recommendation"] = "maybe"
+    assert operator.post("/orders", json=body).status == 400
+    twice = factory.order_body([(s.id, 1), (s.id, 1)])
+    twice["items"][0]["from_recommendation"] = True
+    operator.post("/orders", json=twice).expect(400, code="DUPLICATE_PRODUCT_IN_ORDER")
+
+
 def test_completion_drains_across_positions_fifo_without_going_negative(infra, operator, warehouse, factory, vehicle_id):
     """An order bigger than one position drains several positions; no position goes below zero"""
     s = factory.stocked(3, positions=3)

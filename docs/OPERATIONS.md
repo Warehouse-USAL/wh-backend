@@ -62,15 +62,22 @@ success, because the backend cannot know; the order simply comes back cancelled.
 holds stock but has no `qr_code` is left out of `stops` (the backend logs
 `Position ... has no QR code`), so if every position involved lacks one, `stops` is `[]`.
 
-The demo seed gives every position a unique code `WH2|P<zone letter><n>`, with `n` the position's
-sequence number inside its zone (`WH2|PA1`, `WH2|PB1` ... `WH2|PB20`, `WH2|PC15`). The prefix is
-`WH_QR_PREFIX` (default `WH2|`). The production Infra recognises codes of that form, but **the
-texts printed in the real warehouse and known by Infra are the source of truth**: if they differ,
-reassign them as below. Only the prefix is configurable at seed time (`WH_QR_PREFIX`, read at the
-first boot on an empty database, in `.env.example`); the zone letter and the sequence come from the
-seeded layout (zones `B`, `C`; zone `A`, created by the bootstrap, uses `WH2|PA1` and `WH2|PA2`, so
-the codes never collide). Seeding never rewrites an existing database: on a server that is already
-seeded, the codes stay as they are until you reassign them.
+The warehouse has ONE zone (`A`) with ONE line (`1`) and SIX positions: `PA1`, `PA2`, `PA3`, `PM1`,
+`PM2`, `PM3` (the zone is created with `max_allowed_lines` = 1 and the line with
+`max_allowed_positions` = 6; these limits are stored but not enforced, see BUG-WAREHOUSE-1). Their names are the QR codes the Infra vehicle recognises, and the printed texts are
+`WH2|PA1` ... `WH2|PA3` and `WH2|PM1` ... `WH2|PM3`: the prefix `WH_QR_PREFIX` (default `WH2|`)
+followed by the position name. The backend creates exactly this on the first boot of an empty
+database (`DataInitializer`, six empty positions), with or without `SEED_DEMO`; the demo seed then
+fills the same six positions with products and stock instead of adding more. So **a freshly seeded
+server already carries the codes Infra knows and nothing needs reassigning**. The texts printed in
+the real warehouse and known by Infra remain the source of truth: if they ever differ (another
+prefix, a renamed position), set `WH_QR_PREFIX` before the first boot or reassign as below. Seeding
+never rewrites an existing database: on a server that is already seeded, the codes stay as they are
+until you reassign them (an older server seeded with zones `B`/`C` keeps `WH2|PB1`..., and
+`SEED_DEMO` skips with a warning when it finds zones other than `A`).
+
+The demo seed covers two years, daily, for every business metric (list and sources in
+`docs/SEEDED_METRICS.md`); the backend logs `Demo seed took N ms` when it finishes.
 
 ### Checking the codes
 
@@ -91,7 +98,7 @@ snake_case:
 
 ```sh
 curl -X PATCH "$H/warehouse/positions/$ID" -H "Authorization: Bearer $TOKEN" \
-  -H 'Content-Type: application/json' -d '{"qr_code":"WH2|PB1"}'
+  -H 'Content-Type: application/json' -d '{"qr_code":"WH2|PA1"}'
 ```
 
 - The JSON field is `qr_code`. **`qrCode` (camelCase) is silently ignored** and the call returns
@@ -101,20 +108,20 @@ curl -X PATCH "$H/warehouse/positions/$ID" -H "Authorization: Bearer $TOKEN" \
 - Swapping codes between positions fails halfway with that same 409 (the code is still held by the
   other one): blank the codes first (`{"qr_code":""}`), or move through a temporary text.
 
-Whole warehouse in one go: `GET /warehouse/positions` lists every position (`id_position`,
-`zone_code`, `number_line`, `position_name`, ordered by zone, line, position). Build a two-column
-file `<id_position><TAB><qr_code>`, edit it to the codes Infra knows, and apply it:
+Whole warehouse in one go (only needed on a server not seeded with the current layout, or after
+changing the prefix): `GET /warehouse/positions` lists every position (`id_position`, `zone_code`,
+`number_line`, `position_name`, ordered by zone, line, position). Build a two-column file
+`<id_position><TAB><qr_code>`, edit it to the codes Infra knows, and apply it:
 
 ```sh
 H=https://<public-host>/api            # whatever the proxy exposes (docs/CONSOLE.md, Caddy)
 TOKEN=...                              # POST $H/auth/login as SUPERADMIN or ADMIN_WAREHOUSE
 
-# 1. Start from the seed's scheme: WH2|P<zone letter><n>, n counting inside the zone.
+# 1. Start from the current scheme: <prefix><position name> (WH2|PA1 ... WH2|PM3).
 curl -fsS "$H/warehouse/positions" -H "Authorization: Bearer $TOKEN" \
-  | jq -r '.positions | group_by(.zone_code)[] | to_entries[]
-           | [.value.id_position, "WH2|P\(.value.zone_code)\(.key + 1)"] | @tsv' > positions.tsv
+  | jq -r '.positions[] | [.id_position, "WH2|\(.position_name)"] | @tsv' > positions.tsv
 
-# 2. Edit positions.tsv (e.g. zone A -> WH2|PA1..., another zone letter -> WH2|PM1...), then apply:
+# 2. Edit positions.tsv if Infra's texts differ from that, then apply:
 while IFS=$'\t' read -r id qr; do
   curl -sS -X PATCH "$H/warehouse/positions/$id" -H "Authorization: Bearer $TOKEN" \
     -H 'Content-Type: application/json' -d "$(jq -nc --arg q "$qr" '{qr_code:$q}')" \
