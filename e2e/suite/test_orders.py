@@ -199,7 +199,6 @@ def test_order_listing_filters_pagination_and_errors(operator, warehouse, factor
     warehouse.get("/orders/does-not-exist").expect(404, code="ORDER_NOT_FOUND")
 
 
-@pytest.mark.known_failure(bug="BUG-ORDERS-3", reason="GET /orders applies no sort (OrderRepository.findByFilters only pages), so page 0 is the oldest rows in insertion order: with the seeded history, a freshly created order is not on the first page and pagination order is not deterministic; the contract does not say but every consumer expects newest first")
 def test_order_listing_default_order_is_newest_first(operator, warehouse, factory):
     """The first page of GET /orders contains the order created a moment ago (newest first)"""
     s = factory.stocked(3)
