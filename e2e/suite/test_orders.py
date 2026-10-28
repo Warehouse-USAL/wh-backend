@@ -240,25 +240,27 @@ def test_cancel_rules_ownership_roles_and_states(operator, operator2, warehouse,
     operator.post(f"/orders/{done['id']}/cancel").expect(409, code="ORDER_NOT_CANCELLABLE")
 
 
-def test_cancel_in_progress_order_waits_for_infra(operator, warehouse, factory, infra, vehicle_id, kafka):
-    """Cancelling an in-progress order only requests it (cancellation_requested_at); it stays in_progress until Infra reports cancelled, then the vehicle is freed"""
+def test_cancel_in_progress_order_is_immediate(operator, warehouse, factory, infra, vehicle_id, kafka):
+    """Cancelling an in-progress order cancels it at once: stock released, vehicle pointer cleared, Infra told on the orders topic; the vehicle's status keeps following telemetry and Infra's later statuses cannot resurrect the order"""
     infra_vid, vid = vehicle_id
     s = factory.stocked(10)
     o = factory.order(operator, [(s.id, 3)])
     infra.status(o["id"], "in_progress", infra_vid).expect(200)
-    c = operator.post(f"/orders/{o['id']}/cancel", json={"reason": "stop it"}).expect(200).json_("order")
-    assert c["status"] == "in_progress" and c["timestamps"]["cancellation_requested_at"], c
-    again = operator.post(f"/orders/{o['id']}/cancel").expect(200).json_("order")
-    assert again["timestamps"]["cancellation_requested_at"][:23] == c["timestamps"]["cancellation_requested_at"][:23]  # ms: Mongo truncates
-    kafka.wait_order(o["id"], "cancelled")
     assert warehouse.get(f"/vehicles/{vid}").json_("current_order_id") == o["id"]
-    infra.status(o["id"], "cancelled", infra_vid).expect(200)
-    final = factory.get_order(o["id"])
-    assert final["status"] == "cancelled"
-    v = warehouse.get(f"/vehicles/{vid}").body
-    assert v["status"] == "idle" and v["current_order_id"] is None
+    c = operator.post(f"/orders/{o['id']}/cancel", json={"reason": "stop it"}).expect(200).json_("order")
+    assert c["status"] == "cancelled" and c["cancel_reason"] == "stop it", c
+    assert c["timestamps"].get("cancellation_requested_at") is None, c  # the key stays in the response (contract) but is never set any more
+    kafka.wait_order(o["id"], "cancelled")
+    assert factory.get_order(o["id"])["status"] == "cancelled"
     assert factory.stock(s.id) == {"available": 10, "reserved": 0, "physical": 10, "min": 0}
-    infra.status(o["id"], "completed", infra_vid).expect(409, code="ORDER_NOT_MODIFIABLE")  # a late 'completed' cannot resurrect it
+    v = warehouse.get(f"/vehicles/{vid}").body
+    assert v["current_order_id"] is None and v["status"] == "busy", v  # only the pointer is cleared
+    infra.telemetry(infra_vid, "idle", 70).expect(200)
+    assert warehouse.get(f"/vehicles/{vid}").json_("status") == "idle"
+    operator.post(f"/orders/{o['id']}/cancel").expect(409, code="ORDER_NOT_CANCELLABLE")
+    infra.status(o["id"], "cancelled", infra_vid).expect(200)  # Infra's own echo is a no-op
+    infra.status(o["id"], "completed", infra_vid).expect(409, code="ORDER_NOT_MODIFIABLE")
+    assert factory.get_order(o["id"])["status"] == "cancelled"
 
 
 # ───────────────────────────── Infra callbacks ─────────────────────────────

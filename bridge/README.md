@@ -82,8 +82,8 @@ docker build --target fakeinfra -t wh-fakeinfra .   # Infra simulada
 `FAKE_VEHICLE_ID` = `VHC-001`, `FAKE_STEP_DELAY` = `1s`): toma cada orden
 `pending`, publica `in_progress`, telemetría `busy` con `last_qr` en cada stop,
 `completed` y telemetría `idle`; a una orden `cancelled` le responde
-`cancelled` y libera al vehículo (el backend deja en `in_progress` la orden que
-ya tenía un rover hasta recibir ese aviso). Sirve para pruebas E2E sin el rover
+`cancelled` y libera al vehículo (el backend ya canceló la orden en el momento;
+ese aviso no cambia su estado). Sirve para pruebas E2E sin el rover
 real.
 
 El healthcheck de la imagen es `/bridge healthcheck` (la imagen no tiene shell).

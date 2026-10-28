@@ -400,8 +400,9 @@ Cada punto son las fallas de ese rover en esa hora. Grafíquenlo tal cual.
 {"metric":"wh.vehicle.transitions","from":"…","to":"…","step":"6h",
  "agg":"increase","group_by":["category"],"filters":{"to":"OFFLINE"}}
 ```
-> `category` ahora lleva el código real cuando el mensaje `vehicle.error` de la Central lo trae
-> (`CONNECTION_LOST`, `BATTERY_CRITICAL`, `MECHANICAL_FAULT`, `COLLISION`, `NAVIGATION_ERROR`, o
+> `category` ahora lleva el código real cuando el campo `error` de la telemetría de Infra lo trae
+> (`CONNECTION_LOST`, `BATTERY_CRITICAL`, `MECHANICAL_FAULT`, `COLLISION`, `NAVIGATION_ERROR`,
+> `STOP_NOT_DETECTED`, o
 > `OTHER` si llega un código que no está en esa lista — nunca se descarta el evento por un código
 > desconocido). Sigue siendo `UNCATEGORIZED` para las transiciones a `ERROR` autoreportadas por
 > telemetría de rutina (no traen ningún código: no hay nada que categorizar ahí) y también para

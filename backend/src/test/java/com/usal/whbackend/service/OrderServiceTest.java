@@ -617,34 +617,32 @@ class OrderServiceTest {
   }
 
   @Test
-  void cancelOrder_inProgressOrder_requestsCancellationFromInfra() {
+  void cancelOrder_inProgressOrder_cancelsAtOnceAndClearsTheVehiclesOrder() {
     Order order = new Order();
     order.setId("ord-1");
     order.setStatus(OrderStatus.IN_PROGRESS);
+    order.setAssignedVehicleId("veh-1");
     when(orderRepository.findById("ord-1")).thenReturn(Optional.of(order));
-    when(orderRepository.requestCancellation(any(), any())).thenReturn(order);
+    when(orderRepository.cancel(any(), any())).thenReturn(order);
 
     orderService.cancelOrder("ord-1", "reason");
 
-    verify(orderRepository).requestCancellation(order, "reason");
-    verify(orderRepository, never()).cancel(any(), any());
+    verify(orderRepository).cancel(order, "reason");
+    verify(vehicleUpdateExecutor).apply(eq("veh-1"), any());
     verify(orderEventPublisher).broadcastOrderUpdate(order);
   }
 
   @Test
-  void cancelOrder_cancellationAlreadyRequested_returnsOrderUnchanged() {
+  void cancelOrder_pendingOrder_leavesVehiclesAlone() {
     Order order = new Order();
     order.setId("ord-1");
-    order.setStatus(OrderStatus.IN_PROGRESS);
-    order.setCancellationRequestedAt(Instant.parse("2026-10-18T10:00:00Z"));
+    order.setStatus(OrderStatus.PENDING);
     when(orderRepository.findById("ord-1")).thenReturn(Optional.of(order));
+    when(orderRepository.cancel(any(), any())).thenReturn(order);
 
-    Order result = orderService.cancelOrder("ord-1", "again");
+    orderService.cancelOrder("ord-1", "reason");
 
-    assertSame(order, result);
-    verify(orderRepository, never()).requestCancellation(any(), any());
-    verify(orderRepository, never()).cancel(any(), any());
-    verify(orderEventPublisher, never()).broadcastOrderUpdate(any());
+    verifyNoInteractions(vehicleUpdateExecutor);
   }
 
   @Test

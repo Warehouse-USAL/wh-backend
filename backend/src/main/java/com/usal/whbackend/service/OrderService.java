@@ -427,10 +427,9 @@ public class OrderService implements OrderCompletionPort {
   }
 
   /**
-   * Cancels an order or, if a vehicle is already working on it, asks Infra to. A pending order is
-   * cancelled at once. An in-progress one stays IN_PROGRESS with {@code cancellationRequestedAt}
-   * set until Infra reports it cancelled, since the vehicle must first put the goods back; asking
-   * again meanwhile returns it unchanged. Either way Infra is told on the {@code orders} topic.
+   * Cancels an order at once, whatever its state, and tells Infra on the {@code orders} topic. For
+   * an in-progress order Infra frees the vehicle and puts the goods back on its own, without
+   * answering the backend; a status it reports for the order afterwards is ignored.
    *
    * @param requesterId the user asking; must have requested the order unless {@code anyOrder}
    * @param anyOrder whether the requester may cancel orders other users requested
@@ -448,15 +447,14 @@ public class OrderService implements OrderCompletionPort {
     if (order.getStatus() == OrderStatus.COMPLETED || order.getStatus() == OrderStatus.CANCELLED) {
       throw new ResponseStatusException(HttpStatus.CONFLICT, "ORDER_NOT_CANCELLABLE");
     }
-    if (order.getStatus() == OrderStatus.IN_PROGRESS
-        && order.getCancellationRequestedAt() != null) {
-      return order;
-    }
 
-    Order saved =
-        order.getStatus() == OrderStatus.IN_PROGRESS
-            ? orderRepository.requestCancellation(order, reason)
-            : orderRepository.cancel(order, reason);
+    String vehicleId =
+        order.getStatus() == OrderStatus.IN_PROGRESS ? order.getAssignedVehicleId() : null;
+    Order saved = orderRepository.cancel(order, reason);
+    if (vehicleId != null) {
+      // Only the pointer: the vehicle's own status keeps following Infra's telemetry.
+      vehicleUpdateExecutor.apply(vehicleId, previous -> new Update().set("currentOrderId", null));
+    }
     orderEventPublishers.forEach(p -> p.broadcastOrderUpdate(saved));
     return saved;
   }

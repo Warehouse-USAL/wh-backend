@@ -3,9 +3,9 @@
 .DEFAULT_GOAL := help
 
 GRADLE = docker run --rm \
-	-v "$(PWD)/backend":/app \
+	-v "$(PWD)":/app \
 	-v wh-gradle-cache:/root/.gradle \
-	-w /app \
+	-w /app/backend \
 	eclipse-temurin:21-jdk-alpine ./gradlew
 
 help: ## Show available commands
