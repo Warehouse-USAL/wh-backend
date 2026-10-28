@@ -8,7 +8,7 @@ from typing import Any, Callable
 import docker
 import httpx
 import redis as redis_lib
-from confluent_kafka import Consumer
+from confluent_kafka import Consumer, TopicPartition
 
 from . import config
 from .api import wait_until
@@ -71,6 +71,36 @@ class KafkaTap:
         self._stop.set()
         self._thread.join(timeout=5)
         self._consumer.close()
+
+
+def suggestions_progress(topic: str = "order.completed", group: str = "wh-suggestions") -> tuple[int, int]:
+    """(offsets the suggestions consumer group has committed, offsets the topic holds), summed over partitions.
+    Reads only: the probe never joins the group, so it cannot trigger a rebalance."""
+    c = Consumer({"bootstrap.servers": config.KAFKA, "group.id": group, "enable.auto.commit": False})
+    try:
+        md = c.list_topics(topic, timeout=10)
+        parts = [TopicPartition(topic, p) for p in md.topics[topic].partitions]
+        done = end = 0
+        for tp in c.committed(parts, timeout=10):
+            low, high = c.get_watermark_offsets(tp, timeout=10)
+            done += max(tp.offset, low) if tp.offset >= 0 else low
+            end += high
+        return done, end
+    finally:
+        c.close()
+
+
+def wait_suggestions_caught_up(timeout: float = 300) -> tuple[int, int]:
+    """Block until the suggestions consumer has committed every event on order.completed and the topic is not
+    growing (two equal readings), i.e. the model holds everything published so far."""
+    last: list[tuple[int, int]] = []
+
+    def caught_up():
+        done, end = suggestions_progress()
+        last.append((done, end))
+        return (done, end) if end > 0 and done >= end and len(last) > 1 and last[-2] == (done, end) else None
+
+    return wait_until(caught_up, timeout=timeout, interval=1.5, desc="suggestions consumer caught up with order.completed")
 
 
 class Rabbit:

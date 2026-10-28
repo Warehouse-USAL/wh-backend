@@ -28,6 +28,10 @@ type Config struct {
 	DecayInterval time.Duration
 	// DedupeTTL is how long an applied order id is remembered to ignore redelivered events.
 	DedupeTTL time.Duration
+	// CommitInterval is how often consumed offsets are flushed to Kafka. Offsets are still recorded
+	// only after the event is in Redis; batching them just avoids one broker round trip per event
+	// when replaying a large backlog. 0 commits synchronously on every message.
+	CommitInterval time.Duration
 }
 
 // Load reads the configuration through getenv (os.Getenv in production), applying defaults that
@@ -74,5 +78,10 @@ func Load(getenv func(string) string) (Config, error) {
 		return Config{}, errors.New("ORDER_DEDUPE_TTL must be a positive duration such as 168h")
 	}
 	cfg.DedupeTTL = ttl
+	commit, err := time.ParseDuration(get("KAFKA_COMMIT_INTERVAL", "1s"))
+	if err != nil || commit < 0 {
+		return Config{}, errors.New("KAFKA_COMMIT_INTERVAL must be a duration such as 1s (0 commits every message)")
+	}
+	cfg.CommitInterval = commit
 	return cfg, nil
 }

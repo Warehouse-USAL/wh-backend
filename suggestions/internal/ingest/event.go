@@ -14,8 +14,8 @@ type OrderCompleted struct {
 	UserID          string `json:"userId"`
 	DestinationArea string `json:"destinationArea"`
 	Items           []Item `json:"items"`
-	// CompletedAt is the ISO-8601 instant, kept as text: nothing reads it, so a malformed value
-	// must not make an otherwise valid order undecodable.
+	// CompletedAt is the ISO-8601 instant, kept as text so a malformed value cannot make an
+	// otherwise valid order undecodable; Aging.Weight parses it and treats a bad one as "now".
 	CompletedAt string `json:"completedAt"`
 }
 

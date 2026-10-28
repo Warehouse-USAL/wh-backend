@@ -12,7 +12,7 @@ import pytest
 from lib import config
 from lib.api import Api, login, wait_until
 from lib.factory import Factory, InfraClient, uid
-from lib.infra import KafkaTap, Rabbit, Stack, redis_client
+from lib.infra import KafkaTap, Rabbit, Stack, redis_client, wait_suggestions_caught_up
 
 RESULTS_DIR = "/results"
 
@@ -40,6 +40,9 @@ def pytest_sessionstart(session):
     def ready():
         return Api().get("/actuator/health", token=None).status == 200 and Api(config.CONSOLE).get("/console/", token=None).status == 200
     wait_until(ready, timeout=300, interval=3, desc="backend /actuator/health and console UI")
+    # The backend preloads the suggestions model from the demo seed (one order.completed per seeded
+    # completed order); tests that complete orders and wait for them must not queue behind that backlog.
+    wait_suggestions_caught_up()
 
 
 # ─────────────────────────────── infrastructure fixtures ───────────────────────────────

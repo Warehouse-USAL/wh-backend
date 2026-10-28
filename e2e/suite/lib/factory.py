@@ -1,5 +1,6 @@
 """Builders for isolated test data. Every call makes new, uniquely named records, so tests never
 share state and can run in any order or twice."""
+from datetime import datetime, timezone
 import uuid
 from types import SimpleNamespace
 
@@ -20,7 +21,8 @@ class InfraClient:
         self.api = api
 
     def status(self, order_id: str, status: str, vehicle_id: str | None = None, key: str | None = config.INFRA_API_KEY) -> Resp:
-        body = {"status": status, "timestamp": "2026-10-27T12:00:00Z"}
+        # Infra stamps real time; the suggestions service weights hot items by this instant (completedAt).
+        body = {"status": status, "timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
         if vehicle_id:
             body["vehicle_id"] = vehicle_id
         return self.api.post(f"/infra/orders/{order_id}/status", token=None, json=body,
