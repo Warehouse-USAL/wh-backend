@@ -64,32 +64,32 @@ jobs:
           IMAGE="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/wh-backend"
           docker build -t "${IMAGE}:${{ steps.tag.outputs.version }}" \
                        -t "${IMAGE}:latest" ./backend
-          docker push "${IMAGE}:${{ steps.tag.outputs.version }}"
-          docker push "${IMAGE}:latest"
+          scripts/push-image.sh "${IMAGE}:${{ steps.tag.outputs.version }}"
+          scripts/push-image.sh "${IMAGE}:latest"
 
       - name: Build and push bridge Docker image
         run: |
           IMAGE="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/wh-bridge"
           docker build -t "${IMAGE}:${{ steps.tag.outputs.version }}" \
                        -t "${IMAGE}:latest" ./bridge
-          docker push "${IMAGE}:${{ steps.tag.outputs.version }}"
-          docker push "${IMAGE}:latest"
+          scripts/push-image.sh "${IMAGE}:${{ steps.tag.outputs.version }}"
+          scripts/push-image.sh "${IMAGE}:latest"
 
       - name: Build and push suggestions Docker image
         run: |
           IMAGE="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/wh-suggestions"
           docker build -t "${IMAGE}:${{ steps.tag.outputs.version }}" \
                        -t "${IMAGE}:latest" ./suggestions
-          docker push "${IMAGE}:${{ steps.tag.outputs.version }}"
-          docker push "${IMAGE}:latest"
+          scripts/push-image.sh "${IMAGE}:${{ steps.tag.outputs.version }}"
+          scripts/push-image.sh "${IMAGE}:latest"
 
       - name: Build and push console Docker image
         run: |
           IMAGE="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/wh-console"
           docker build -t "${IMAGE}:${{ steps.tag.outputs.version }}" \
                        -t "${IMAGE}:latest" ./console
-          docker push "${IMAGE}:${{ steps.tag.outputs.version }}"
-          docker push "${IMAGE}:latest"
+          scripts/push-image.sh "${IMAGE}:${{ steps.tag.outputs.version }}"
+          scripts/push-image.sh "${IMAGE}:latest"
 
       - name: Create git tag
         run: |
