@@ -13,6 +13,7 @@ import com.usal.whbackend.domain.User;
 import com.usal.whbackend.domain.UserRole;
 import com.usal.whbackend.domain.Vehicle;
 import com.usal.whbackend.domain.VehicleStatus;
+import com.usal.whbackend.service.PositionService;
 import com.usal.whbackend.service.metrics.restock.RestockFormula;
 import com.usal.whbackend.service.metrics.restock.RestockInputs;
 import com.usal.whbackend.service.metrics.restock.RestockParams;
@@ -65,20 +66,47 @@ class DemoDatasetTest {
   }
 
   @Test
-  void buildsTwentyFourProductsSixPerCategory() {
+  void buildsTwentyTechProductsWithCoherentData() {
     var products = data.getProducts();
-    assertThat(products).hasSize(24);
+    assertThat(products).hasSize(20);
     Map<String, Long> byCategory =
         products.stream()
             .collect(Collectors.groupingBy(Product::getCategory, Collectors.counting()));
-    for (ProductCategory category : ProductCategory.values()) {
-      assertThat(byCategory.get(category.name())).as("count for %s", category).isEqualTo(6L);
-    }
+    assertThat(byCategory)
+        .containsEntry(ProductCategory.TECNOLOGIA.name(), 14L)
+        .containsEntry(ProductCategory.OTROS.name(), 6L);
     assertThat(products).allMatch(Product::isActive);
+    assertThat(products).allMatch(p -> p.getId().equals("p-" + p.getSku()));
+    assertThat(products).allMatch(p -> p.getDescription() != null && !p.getDescription().isBlank());
     assertThat(products).allMatch(p -> p.getMaxQuantityPerOrder() > 0);
+    assertThat(products).allMatch(p -> p.getMinimumStock() > 0);
     assertThat(products).allMatch(p -> p.getPrice() != null && p.getPrice().getAmountCents() > 0);
-    assertThat(products).allMatch(p -> p.getImages() != null && !p.getImages().isEmpty());
-    assertThat(products.stream().map(Product::getSku).distinct().count()).isEqualTo(24);
+    assertThat(products).allMatch(p -> "ARS".equals(p.getPrice().getCurrency()));
+    assertThat(products)
+        .allMatch(p -> p.getHeight() > 0 && p.getWidth() > 0 && p.getLength() > 0)
+        .allMatch(p -> p.getWeight() > 0)
+        .allMatch(p -> p.getVolume() == p.getHeight() * p.getWidth() * p.getLength());
+    assertThat(products).allMatch(p -> p.getSpecs() != null && p.getSpecs().size() >= 3);
+    assertThat(products.stream().map(Product::getSku).distinct().count()).isEqualTo(20);
+    assertThat(products.stream().map(Product::getName).distinct().count()).isEqualTo(20);
+  }
+
+  @Test
+  void everyProductHasARealStableImage() {
+    for (Product p : data.getProducts()) {
+      assertThat(p.getImages()).as("images of %s", p.getSku()).hasSize(1);
+      var image = p.getImages().get(0);
+      assertThat(image.isPrimary()).isTrue();
+      assertThat(image.getAlt()).isEqualTo(p.getName());
+      // Wikimedia Commons (licences in docs/seed-images.md); picsum-style placeholders are gone.
+      assertThat(image.getUrl())
+          .as("image of %s", p.getSku())
+          .startsWith("https://commons.wikimedia.org/wiki/Special:FilePath/")
+          .matches(".*\\.(jpg|jpeg|png)\\?width=\\d+")
+          .doesNotContain(" ");
+    }
+    assertThat(data.getProducts().stream().map(p -> p.getImages().get(0).getUrl()).distinct())
+        .hasSize(20);
   }
 
   @Test
@@ -90,6 +118,8 @@ class DemoDatasetTest {
     assertThat(data.getZones()).allMatch(z -> z.isActive());
     assertThat(data.getLines()).hasSize(7);
     assertThat(data.getPositions()).hasSize(35);
+    assertThat(data.getPositions().stream().map(Position::getId).distinct().count()).isEqualTo(35);
+    assertThat(data.getPositions()).allMatch(p -> p.getId().matches("pos-l-[BC]-\\d-P\\d{2}"));
   }
 
   @Test
@@ -582,10 +612,90 @@ class DemoDatasetTest {
   }
 
   @Test
-  void everyPositionHasAUniqueQrCode() {
+  void everyPositionHasAUniqueNonBlankQrCode() {
     assertThat(data.getPositions())
         .allSatisfy(p -> assertThat(p.getQrCode()).isNotBlank())
         .extracting(Position::getQrCode)
         .doesNotHaveDuplicates();
+  }
+
+  @Test
+  void qrCodesFollowTheWh2ZoneSequenceScheme() {
+    Map<String, String> zoneCodeById =
+        data.getZones().stream().collect(Collectors.toMap(z -> z.getId(), z -> z.getZoneCode()));
+    Map<String, Integer> nextInZone = new java.util.HashMap<>();
+    for (Position pos : data.getPositions()) {
+      String zone = zoneCodeById.get(pos.getIdZone());
+      int n = nextInZone.merge(zone, 1, Integer::sum);
+      assertThat(pos.getQrCode()).as(pos.getId()).isEqualTo("WH2|P" + zone + n);
+    }
+    assertThat(nextInZone).containsEntry("B", 20).containsEntry("C", 15);
+  }
+
+  @Test
+  void qrPrefixIsConfigurable() {
+    DemoData custom = new DemoDataset(p -> p, "ALM1|").build();
+    assertThat(custom.getPositions()).allMatch(p -> p.getQrCode().startsWith("ALM1|P"));
+    assertThat(custom.getPositions().get(0).getQrCode()).isEqualTo("ALM1|PB1");
+  }
+
+  @Test
+  void blankQrPrefixMeansTheDefault() {
+    assertThat(DemoDataset.qrPrefixOrDefault("")).isEqualTo("WH2|");
+    assertThat(DemoDataset.qrPrefixOrDefault("  ")).isEqualTo("WH2|");
+    assertThat(DemoDataset.qrPrefixOrDefault(null)).isEqualTo("WH2|");
+    assertThat(DemoDataset.qrPrefixOrDefault("ALM1|")).isEqualTo("ALM1|");
+    assertThat(new DemoDataset(p -> p, "").build().getPositions().get(0).getQrCode())
+        .isEqualTo("WH2|PB1");
+  }
+
+  @Test
+  void everySeededPositionSatisfiesTheInvariantsTheApiEnforces() {
+    Map<String, Product> productById =
+        data.getProducts().stream().collect(Collectors.toMap(Product::getId, p -> p));
+    for (Position pos : data.getPositions()) {
+      assertThat(pos.getSizeStockToSave()).as("size of %s", pos.getId()).isNotNull();
+      assertThat(pos.getMaximumCapacity()).as("capacity of %s", pos.getId()).isPositive();
+      // PositionService.updatePosition: stock <= maximumCapacity ...
+      assertThat(pos.getCurrentStock())
+          .as("stock of %s", pos.getId())
+          .isBetween(0, pos.getMaximumCapacity());
+      if (pos.getProductId() == null) {
+        assertThat(pos.getCurrentStock()).as("empty %s holds nothing", pos.getId()).isZero();
+        continue;
+      }
+      Product product = productById.get(pos.getProductId());
+      // ... and stock x volume <= the container's volume, so PATCHing any field never fails.
+      assertThat(pos.getCurrentStock() * product.getVolume())
+          .as("volume held by %s", pos.getId())
+          .isLessThanOrEqualTo(pos.getSizeStockToSave().getVolumeCm3());
+      // The capacity itself was derived from the volume rule, not just the stock that happens to
+      // be there, so a restock up to maximumCapacity is also accepted.
+      assertThat(pos.getMaximumCapacity() * product.getVolume())
+          .as("full volume of %s", pos.getId())
+          .isLessThanOrEqualTo(pos.getSizeStockToSave().getVolumeCm3());
+      assertThat(pos.getMaximumCapacity())
+          .isLessThanOrEqualTo(
+              PositionService.maxUnitsByVolume(
+                  product.getVolume(), pos.getSizeStockToSave().getVolumeCm3()));
+    }
+  }
+
+  @Test
+  void productsAreStoredInTheContainerThatSuitsThem() {
+    // A container is only sensible if a decent number of units fit in it: at least a dozen.
+    Map<String, Product> productById =
+        data.getProducts().stream().collect(Collectors.toMap(Product::getId, p -> p));
+    for (Position pos : data.getPositions()) {
+      if (pos.getProductId() == null) {
+        continue;
+      }
+      Product product = productById.get(pos.getProductId());
+      assertThat(
+              PositionService.maxUnitsByVolume(
+                  product.getVolume(), pos.getSizeStockToSave().getVolumeCm3()))
+          .as("units of %s that fit %s", product.getSku(), pos.getId())
+          .isGreaterThanOrEqualTo(12);
+    }
   }
 }

@@ -24,8 +24,8 @@ and boot again with the flag set.
 | Collection | Count | Notes |
 |---|---|---|
 | Users | 12 + admin | One per role (plus extra operators/providers); the SUPERADMIN comes from `ADMIN_EMAIL`/`ADMIN_PASSWORD` |
-| Products | 24 | 6 per category (`TECNOLOGIA`, `HERRAMIENTAS`, `ALIMENTOS`, `OTROS`); one is intentionally low-stock |
-| Warehouse | 2 zones / 7 lines / 35 positions | Zones B and C (Zone A is the baseline); most positions hold stock |
+| Products | 20 | Technology catalogue (14 `TECNOLOGIA`, 6 `OTROS` accessories) with Commons photos ([licences](seed-images.md)); one is intentionally low-stock |
+| Warehouse | 2 zones / 7 lines / 35 positions | Zones B and C (Zone A is the baseline); 29 positions hold stock that fits their size and `maximum_capacity`, 6 are free. Every position has a QR `WH2\|P<zone><n>` (e.g. `WH2\|PB1`, `WH2\|PC15`; prefix via `WH_QR_PREFIX`) |
 | Vehicles | 6 | 2 IDLE, 2 BUSY (linked to the in-progress orders), 1 OFFLINE, 1 ERROR |
 | Orders | 25 | 7 PENDING, 2 IN_PROGRESS, 13 COMPLETED, 3 CANCELLED — stock reflects this history |
 

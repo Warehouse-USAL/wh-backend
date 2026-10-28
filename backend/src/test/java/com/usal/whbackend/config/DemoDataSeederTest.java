@@ -65,7 +65,8 @@ class DemoDataSeederTest {
         receptionRepository,
         passwordEncoder,
         demoTelemetrySeeder,
-        seedDemo);
+        seedDemo,
+        DemoDataset.DEFAULT_QR_PREFIX);
   }
 
   @Test
@@ -139,7 +140,7 @@ class DemoDataSeederTest {
         .isNotEmpty()
         .noneMatch(line -> line.contains(DemoDataset.SHARED_PASSWORD));
     verify(userRepository).saveAll(argThat((Iterable<User> it) -> count(it) == 13));
-    verify(productRepository).saveAll(argThat((Iterable<Product> it) -> count(it) == 24));
+    verify(productRepository).saveAll(argThat((Iterable<Product> it) -> count(it) == 20));
     verify(zoneRepository).saveAll(argThat((Iterable<Zone> it) -> count(it) == 2));
     verify(lineRepository).saveAll(argThat((Iterable<Line> it) -> count(it) == 7));
     verify(positionRepository).saveAll(argThat((Iterable<Position> it) -> count(it) == 35));

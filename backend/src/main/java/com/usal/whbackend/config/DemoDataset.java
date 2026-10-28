@@ -15,12 +15,15 @@ import com.usal.whbackend.domain.UserRole;
 import com.usal.whbackend.domain.Vehicle;
 import com.usal.whbackend.domain.VehicleStatus;
 import com.usal.whbackend.domain.Zone;
+import com.usal.whbackend.service.PositionService;
 import com.usal.whbackend.service.metrics.restock.RestockParams;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.function.UnaryOperator;
 
 /**
@@ -52,9 +55,14 @@ public final class DemoDataset {
    */
   static final RestockParams DEMO_RESTOCK_PARAMS = new RestockParams(0.3, 7, 60, 2, 5, 7);
 
-  private static final int PRODUCT_POSITIONS = 32;
-  private static final int POSITIONS_PER_LINE = 5;
-  private static final int POSITION_MAX_CAPACITY = 500;
+  /** Default prefix of every seeded position QR text; override with {@code WH_QR_PREFIX}. */
+  public static final String DEFAULT_QR_PREFIX = "WH2|";
+
+  // A position never holds more than this many units, however small the product is.
+  private static final int POSITION_MAX_CAPACITY = 1_500;
+  // Capacity of a position nobody has assigned a product to yet, by container size.
+  private static final Map<StockSize, Integer> EMPTY_POSITION_CAPACITY =
+      Map.of(StockSize.CAJA, 100, StockSize.MEDIO_PALLET, 300, StockSize.PALLET, 500);
 
   private static final String[] DESTINATIONS = {
     "Depósito Central",
@@ -72,19 +80,35 @@ public final class DemoDataset {
     "Calle Canelones 1500"
   };
 
+  /** A blank {@code WH_QR_PREFIX} (set but empty) means the default, never "no prefix". */
+  static String qrPrefixOrDefault(String qrPrefix) {
+    return qrPrefix == null || qrPrefix.isBlank() ? DEFAULT_QR_PREFIX : qrPrefix;
+  }
+
   private final UnaryOperator<String> passwordHasher;
   private final Instant now;
+  private final String qrPrefix;
   // The catalogue, warehouse and accounts predate the order history that references them.
   private final Instant catalogueEpoch;
 
   public DemoDataset(UnaryOperator<String> passwordHasher) {
-    this(passwordHasher, Instant.now());
+    this(passwordHasher, Instant.now(), DEFAULT_QR_PREFIX);
+  }
+
+  /** As above, with the prefix of the position QR texts (see {@link #DEFAULT_QR_PREFIX}). */
+  public DemoDataset(UnaryOperator<String> passwordHasher, String qrPrefix) {
+    this(passwordHasher, Instant.now(), qrPrefix);
   }
 
   /** Anchors the whole dataset at {@code now}; tests use it to build the seed on any date. */
   DemoDataset(UnaryOperator<String> passwordHasher, Instant now) {
+    this(passwordHasher, now, DEFAULT_QR_PREFIX);
+  }
+
+  DemoDataset(UnaryOperator<String> passwordHasher, Instant now, String qrPrefix) {
     this.passwordHasher = passwordHasher;
     this.now = now;
+    this.qrPrefix = qrPrefixOrDefault(qrPrefix);
     this.catalogueEpoch = now.minus(DemoHistory.HISTORY_DAYS + 10L, ChronoUnit.DAYS);
   }
 
@@ -162,154 +186,581 @@ public final class DemoDataset {
 
   // ── Products ─────────────────────────────────────────────────────────────────
 
+  // Photos come from Wikimedia Commons (licences in docs/seed-images.md). Special:FilePath is the
+  // stable entry point: it redirects to upload.wikimedia.org and ?width= serves a resized copy.
+  private static final String COMMONS = "https://commons.wikimedia.org/wiki/Special:FilePath/";
+  private static final String IMAGE_WIDTH = "?width=800";
+
+  /**
+   * One catalogue entry. Dimensions are the retail box in cm and the weight is the boxed product in
+   * kg; the price is in whole pesos (the model stores cents).
+   */
+  private record Item(
+      String sku,
+      String name,
+      String description,
+      double heightCm,
+      double widthCm,
+      double lengthCm,
+      double weightKg,
+      long pricePesos,
+      int minimumStock,
+      int maxPerOrder,
+      String imageFile,
+      String[][] specs) {}
+
+  // Index 0 is the intentionally low-stock, never-ordered item (a new arrival): DemoHistory and its
+  // tests rely on that, and the ids stay p-<CAT>-NNN.
+  private static final List<Item> CATALOGUE =
+      List.of(
+          new Item(
+              "TEC-001",
+              "Pulsera inteligente Xiaomi Mi Band 6",
+              "Pulsera de actividad con pantalla AMOLED de 1,56\", monitor de ritmo cardíaco y SpO2",
+              5.0,
+              9.0,
+              14.0,
+              0.10,
+              65_000,
+              50,
+              10,
+              "Mi_Band_6_default_face.jpg",
+              new String[][] {
+                {"Marca", "Xiaomi"},
+                {"Modelo", "Mi Band 6"},
+                {"Pantalla", "AMOLED 1,56\""},
+                {"Resistencia al agua", "5 ATM"},
+                {"Garantía", "12 meses"}
+              }),
+          new Item(
+              "TEC-002",
+              "Mouse inalámbrico Logitech M185",
+              "Mouse óptico inalámbrico de 2,4 GHz con receptor nano USB y pila incluida",
+              6.5,
+              10.0,
+              14.0,
+              0.10,
+              19_900,
+              40,
+              30,
+              "Logitech_M185_mouse_HS01.jpg",
+              new String[][] {
+                {"Marca", "Logitech"},
+                {"Modelo", "M185"},
+                {"Conectividad", "Inalámbrico 2,4 GHz (receptor USB)"},
+                {"Resolución", "1000 DPI"},
+                {"Garantía", "12 meses"}
+              }),
+          new Item(
+              "TEC-003",
+              "Teclado mecánico inalámbrico Keychron K8",
+              "Teclado mecánico TKL de 87 teclas, Bluetooth 5.1 y cable USB-C, compatible con Mac y"
+                  + " Windows",
+              6.0,
+              16.0,
+              42.0,
+              1.10,
+              165_000,
+              15,
+              5,
+              "Keychron_K8_Non-Backlight_Wireless_Mechanical_Keyboard_-_52772912798.jpg",
+              new String[][] {
+                {"Marca", "Keychron"},
+                {"Modelo", "K8"},
+                {"Formato", "TKL (87 teclas)"},
+                {"Conectividad", "Bluetooth 5.1 / USB-C"},
+                {"Garantía", "12 meses"}
+              }),
+          new Item(
+              "TEC-004",
+              "Teclado USB Logitech K120",
+              "Teclado de tamaño completo con teclas silenciosas y cable USB de 1,5 m",
+              4.5,
+              15.0,
+              46.0,
+              0.65,
+              17_500,
+              30,
+              20,
+              "Logitech_K120_Keyboard.jpg",
+              new String[][] {
+                {"Marca", "Logitech"},
+                {"Modelo", "K120"},
+                {"Conectividad", "USB con cable"},
+                {"Distribución", "Español Latinoamérica"},
+                {"Garantía", "12 meses"}
+              }),
+          new Item(
+              "TEC-005",
+              "Monitor ASUS ProArt PB278Q 27\"",
+              "Monitor LED de 27 pulgadas, resolución WQHD 2560x1440 y panel PLS de 5 ms",
+              20.0,
+              45.0,
+              72.0,
+              7.50,
+              450_000,
+              8,
+              3,
+              "ASUS_PB278Q_(PXL_20250914_223256075).jpg",
+              new String[][] {
+                {"Marca", "ASUS"},
+                {"Modelo", "ProArt PB278Q"},
+                {"Pantalla", "27\" WQHD 2560x1440"},
+                {"Entradas", "HDMI, DVI-D, DisplayPort"},
+                {"Garantía", "12 meses"}
+              }),
+          new Item(
+              "TEC-006",
+              "Webcam Logitech C922 Pro Stream",
+              "Cámara web Full HD 1080p a 30 fps con micrófono estéreo y trípode incluido",
+              7.0,
+              15.0,
+              21.0,
+              0.35,
+              95_000,
+              20,
+              10,
+              "Webcam_(Logitech_c922).jpg",
+              new String[][] {
+                {"Marca", "Logitech"},
+                {"Modelo", "C922 Pro Stream"},
+                {"Resolución", "1080p a 30 fps"},
+                {"Conectividad", "USB 2.0"},
+                {"Garantía", "12 meses"}
+              }),
+          new Item(
+              "TEC-007",
+              "Auriculares Bluetooth Sony WH-CH510",
+              "Auriculares inalámbricos on-ear con hasta 35 horas de batería y micrófono integrado",
+              8.0,
+              17.0,
+              20.0,
+              0.30,
+              62_000,
+              20,
+              10,
+              "Sony_WH-CH510_Bluetooth_Over-Ear_Headphone.jpg",
+              new String[][] {
+                {"Marca", "Sony"},
+                {"Modelo", "WH-CH510"},
+                {"Conectividad", "Bluetooth 5.0"},
+                {"Autonomía", "35 horas"},
+                {"Garantía", "12 meses"}
+              }),
+          new Item(
+              "TEC-008",
+              "Auriculares gamer Creative Sound BlasterX H5",
+              "Auriculares con cable para gaming, drivers de 50 mm y micrófono desmontable",
+              11.0,
+              22.0,
+              24.0,
+              0.45,
+              175_000,
+              10,
+              5,
+              "Sound_BlasterX_H5_Gaming_Headset.jpg",
+              new String[][] {
+                {"Marca", "Creative"},
+                {"Modelo", "Sound BlasterX H5"},
+                {"Conectividad", "Jack 3,5 mm"},
+                {"Drivers", "50 mm"},
+                {"Garantía", "12 meses"}
+              }),
+          new Item(
+              "TEC-009",
+              "Parlante Bluetooth JBL Go 2",
+              "Parlante portátil resistente al agua IPX7 con hasta 5 horas de reproducción",
+              9.5,
+              12.0,
+              14.0,
+              0.20,
+              42_000,
+              30,
+              15,
+              "JBL_GO2_Bluetooth_speaker_00_10_21_131000.jpeg",
+              new String[][] {
+                {"Marca", "JBL"},
+                {"Modelo", "Go 2"},
+                {"Conectividad", "Bluetooth 4.1"},
+                {"Resistencia al agua", "IPX7"},
+                {"Garantía", "12 meses"}
+              }),
+          new Item(
+              "TEC-010",
+              "Raspberry Pi 4 Model B 4 GB",
+              "Mini computadora con procesador Quad-core Cortex-A72, 4 GB de RAM, Wi-Fi y"
+                  + " Bluetooth",
+              4.5,
+              11.0,
+              15.0,
+              0.12,
+              120_000,
+              15,
+              5,
+              "Raspberry_Pi_4_Model_B_-_Top.jpg",
+              new String[][] {
+                {"Marca", "Raspberry Pi"},
+                {"Modelo", "4 Model B"},
+                {"Memoria", "4 GB LPDDR4"},
+                {"Conectividad", "Wi-Fi 5, Bluetooth 5.0, Gigabit Ethernet"},
+                {"Garantía", "6 meses"}
+              }),
+          new Item(
+              "TEC-011",
+              "SSD externo Samsung Portable T5 1 TB",
+              "Unidad de estado sólido portátil USB 3.1 con velocidades de lectura de hasta 540 MB/s",
+              3.5,
+              9.5,
+              13.0,
+              0.10,
+              175_000,
+              15,
+              5,
+              "Samsung_T5_Portable_External_SSD_(Solid_State_Drive)_(43544308485).jpg",
+              new String[][] {
+                {"Marca", "Samsung"},
+                {"Modelo", "Portable SSD T5"},
+                {"Capacidad", "1 TB"},
+                {"Interfaz", "USB 3.1 Gen 2 (USB-C)"},
+                {"Garantía", "36 meses"}
+              }),
+          new Item(
+              "TEC-012",
+              "Pendrive Kingston DataTraveler G4 32 GB",
+              "Memoria USB 3.0 de 32 GB con capuchón deslizante",
+              1.5,
+              7.0,
+              12.0,
+              0.02,
+              8_500,
+              100,
+              50,
+              "Kingston_Technology_DataTraveler_G4_USB_flash_drive_USB_3.0_32_Gb.jpg",
+              new String[][] {
+                {"Marca", "Kingston"},
+                {"Modelo", "DataTraveler G4"},
+                {"Capacidad", "32 GB"},
+                {"Interfaz", "USB 3.0"},
+                {"Garantía", "60 meses"}
+              }),
+          new Item(
+              "TEC-013",
+              "Tarjeta microSD SanDisk Ultra 32 GB",
+              "Tarjeta microSDHC clase 10 de hasta 98 MB/s con adaptador SD",
+              1.0,
+              6.0,
+              10.0,
+              0.01,
+              7_800,
+              100,
+              50,
+              "SanDisk_Ultra_32GB_MicroSD_card_with_Adapter_-_2015.jpg",
+              new String[][] {
+                {"Marca", "SanDisk"},
+                {"Modelo", "Ultra microSDHC"},
+                {"Capacidad", "32 GB"},
+                {"Clase", "Clase 10 / UHS-I"},
+                {"Garantía", "120 meses"}
+              }),
+          new Item(
+              "TEC-014",
+              "Router Wi-Fi TP-Link TL-WR740N",
+              "Router inalámbrico N de 150 Mbps con 4 puertos LAN de 100 Mbps y antena fija",
+              6.0,
+              17.0,
+              23.0,
+              0.45,
+              29_000,
+              20,
+              10,
+              "TP-Link_TL-WR740N_router_HS1.jpg",
+              new String[][] {
+                {"Marca", "TP-Link"},
+                {"Modelo", "TL-WR740N"},
+                {"Wi-Fi", "802.11n 150 Mbps"},
+                {"Puertos", "4 LAN + 1 WAN"},
+                {"Garantía", "12 meses"}
+              }),
+          new Item(
+              "OTR-001",
+              "Power bank Xiaomi Mi 10000 mAh",
+              "Batería externa de 10.000 mAh con dos salidas USB y carga rápida",
+              4.5,
+              8.0,
+              15.5,
+              0.26,
+              42_000,
+              40,
+              20,
+              "Xiaomi_10000_mAh_Power_Bank.jpg",
+              new String[][] {
+                {"Marca", "Xiaomi"},
+                {"Capacidad", "10.000 mAh"},
+                {"Salidas", "2 x USB-A"},
+                {"Entrada", "Micro USB / USB-C"},
+                {"Garantía", "6 meses"}
+              }),
+          new Item(
+              "OTR-002",
+              "Cable HDMI 2.0 de 1,8 m",
+              "Cable HDMI de alta velocidad compatible con 4K a 60 Hz y conectores dorados",
+              4.0,
+              10.0,
+              15.0,
+              0.15,
+              9_500,
+              60,
+              30,
+              "Computer_HDMI_cable_(2026).jpg",
+              new String[][] {
+                {"Versión", "HDMI 2.0"},
+                {"Longitud", "1,8 m"},
+                {"Resolución máxima", "4K a 60 Hz"},
+                {"Garantía", "6 meses"}
+              }),
+          new Item(
+              "OTR-003",
+              "Cable de red Cat 8 de 2 m",
+              "Patch cord blindado Cat 8 con conectores RJ45, hasta 40 Gbps",
+              5.0,
+              12.0,
+              16.0,
+              0.20,
+              12_500,
+              40,
+              20,
+              "CAT8_Ethernet_Cable-5839.jpg",
+              new String[][] {
+                {"Categoría", "Cat 8"},
+                {"Longitud", "2 m"},
+                {"Velocidad máxima", "40 Gbps"},
+                {"Garantía", "6 meses"}
+              }),
+          new Item(
+              "OTR-004",
+              "Cable USB-C a USB-C de 1 m",
+              "Cable de carga y datos USB 2.0 con conectores USB-C en ambos extremos",
+              1.5,
+              8.0,
+              12.0,
+              0.05,
+              6_900,
+              80,
+              40,
+              "Black_charging_cable_type_USB-C_plugs_01.jpg",
+              new String[][] {
+                {"Conectores", "USB-C a USB-C"},
+                {"Longitud", "1 m"},
+                {"Carga", "Hasta 60 W"},
+                {"Garantía", "6 meses"}
+              }),
+          new Item(
+              "OTR-005",
+              "Hub USB 2.0 de 4 puertos Gembird",
+              "Concentrador USB 2.0 de 4 puertos con cable integrado",
+              4.0,
+              10.0,
+              15.0,
+              0.08,
+              9_800,
+              30,
+              15,
+              "USB_hub_Gembird.jpg",
+              new String[][] {
+                {"Marca", "Gembird"},
+                {"Puertos", "4 x USB 2.0"},
+                {"Velocidad", "480 Mbps"},
+                {"Garantía", "6 meses"}
+              }),
+          new Item(
+              "OTR-006",
+              "Cargador inalámbrico Qi de 10 W",
+              "Base de carga inalámbrica Qi para celulares compatibles, con cable USB-C",
+              4.0,
+              12.0,
+              12.0,
+              0.15,
+              15_900,
+              30,
+              15,
+              "Wireless_Charger_white_front.jpg",
+              new String[][] {
+                {"Estándar", "Qi"},
+                {"Potencia", "10 W"},
+                {"Entrada", "USB-C"},
+                {"Garantía", "6 meses"}
+              }));
+
   private List<Product> buildProducts() {
     List<Product> products = new ArrayList<>();
-    addCategory(
-        products,
-        ProductCategory.TECNOLOGIA,
-        "TEC",
-        new String[][] {
-          {"Notebook Lenovo ThinkPad E14", "Portátil 14\" Intel i5, 16GB RAM, 512GB SSD"},
-          {"Monitor LG UltraGear 27\"", "Monitor 27 pulgadas 144Hz Full HD"},
-          {"Teclado mecánico Redragon", "Teclado mecánico retroiluminado switches red"},
-          {"Mouse inalámbrico Logitech M720", "Mouse ergonómico Bluetooth multidispositivo"},
-          {"Auriculares Sony WH-1000XM4", "Auriculares inalámbricos con cancelación de ruido"},
-          {"Webcam Logitech C920 HD", "Cámara web Full HD 1080p con micrófono"}
-        });
-    addCategory(
-        products,
-        ProductCategory.HERRAMIENTAS,
-        "HER",
-        new String[][] {
-          {"Taladro percutor Bosch 750W", "Taladro percutor con maletín y accesorios"},
-          {"Amoladora angular DeWalt 4.5\"", "Amoladora angular 850W para corte y desbaste"},
-          {"Set destornilladores Stanley x12", "Juego de 12 destornilladores de precisión"},
-          {"Martillo carpintero 16oz", "Martillo de uña con mango de fibra de vidrio"},
-          {"Llave ajustable Bahco 10\"", "Llave inglesa ajustable cromada"},
-          {"Caja de herramientas metálica", "Caja organizadora de 5 compartimentos"}
-        });
-    addCategory(
-        products,
-        ProductCategory.ALIMENTOS,
-        "ALI",
-        new String[][] {
-          {"Arroz blanco 1kg", "Arroz largo fino tipo 00000"},
-          {"Aceite de girasol 900ml", "Aceite vegetal de girasol"},
-          {"Yerba mate 1kg", "Yerba mate con palo tradicional"},
-          {"Harina 0000 1kg", "Harina de trigo refinada"},
-          {"Azúcar blanca 1kg", "Azúcar refinada"},
-          {"Fideos secos 500g", "Fideos tipo spaghetti"}
-        });
-    addCategory(
-        products,
-        ProductCategory.OTROS,
-        "OTR",
-        new String[][] {
-          {"Resma papel A4 500 hojas", "Papel blanco 75g/m² para impresión"},
-          {"Silla de oficina ergonómica", "Silla giratoria con apoyabrazos regulable"},
-          {"Cuaderno tapa dura A4", "Cuaderno rayado 100 hojas"},
-          {"Caja de archivo cartón", "Caja organizadora de documentos"},
-          {"Cinta de embalar transparente", "Rollo de cinta adhesiva 48mm x 100m"},
-          {"Bolígrafos azules x12", "Caja de 12 bolígrafos de tinta azul"}
-        });
+    for (Item item : CATALOGUE) {
+      products.add(product(products.size(), item));
+    }
     return products;
   }
 
-  private void addCategory(
-      List<Product> products, ProductCategory category, String prefix, String[][] entries) {
-    for (int i = 0; i < entries.length; i++) {
-      int globalIdx = products.size();
-      String sku = prefix + String.format("-%03d", i + 1);
-      products.add(product(globalIdx, category, sku, entries[i][0], entries[i][1]));
-    }
-  }
-
-  private Product product(
-      int globalIdx, ProductCategory category, String sku, String name, String description) {
+  private Product product(int globalIdx, Item item) {
     Product p = new Product();
-    p.setId("p-" + sku);
-    p.setSku(sku);
-    p.setName(name);
-    p.setDescription(description);
-    p.setCategory(category.name());
+    String prefix = item.sku().substring(0, 3);
+    p.setId("p-" + item.sku());
+    p.setSku(item.sku());
+    p.setName(item.name());
+    p.setDescription(item.description());
+    p.setCategory(
+        (prefix.equals("TEC") ? ProductCategory.TECNOLOGIA : ProductCategory.OTROS).name());
     p.setActive(true);
     p.setCreatedAt(catalogueEpoch.plus(5L * 24 + globalIdx, ChronoUnit.HOURS));
 
     Product.Price price = new Product.Price();
-    price.setAmountCents(50_000L + category.ordinal() * 100_000L + globalIdx * 25_000L);
+    price.setAmountCents(item.pricePesos() * 100);
     price.setCurrency(CURRENCY);
     price.setTaxIncluded(true);
     p.setPrice(price);
 
     Product.ProductImage image = new Product.ProductImage();
-    image.setUrl("https://picsum.photos/seed/" + sku + "/600/400");
-    image.setAlt(name);
+    image.setUrl(COMMONS + item.imageFile() + IMAGE_WIDTH);
+    image.setAlt(item.name());
     image.setPrimary(true);
     p.setImages(List.of(image));
 
-    Product.Spec origin = new Product.Spec();
-    origin.setLabel("Origen");
-    origin.setValue("Importado");
-    Product.Spec warranty = new Product.Spec();
-    warranty.setLabel("Garantía");
-    warranty.setValue("12 meses");
-    p.setSpecs(List.of(origin, warranty));
+    List<Product.Spec> specs = new ArrayList<>();
+    for (String[] entry : item.specs()) {
+      Product.Spec spec = new Product.Spec();
+      spec.setLabel(entry[0]);
+      spec.setValue(entry[1]);
+      specs.add(spec);
+    }
+    p.setSpecs(specs);
 
-    p.setHeight(10.0 + globalIdx);
-    p.setWidth(20.0 + globalIdx);
-    p.setLength(30.0 + globalIdx);
-    p.setWeight(1.0 + globalIdx * 0.5);
-    // Product 0 is intentionally left below its minimum stock for a realistic "low stock" demo.
-    p.setMinimumStock(globalIdx == 0 ? 50 : 10);
-    p.setMaxQuantityPerOrder(20 + (globalIdx % 5) * 10);
+    // volume is derived (height x width x length), so it can never disagree with the dimensions.
+    p.setHeight(item.heightCm());
+    p.setWidth(item.widthCm());
+    p.setLength(item.lengthCm());
+    p.setWeight(item.weightKg());
+    p.setMinimumStock(item.minimumStock());
+    p.setMaxQuantityPerOrder(item.maxPerOrder());
     return p;
   }
 
   // ── Warehouse (zones → lines → positions) ──────────────────────────────────────
 
+  /** A position's planned content: a product (null = empty) and the container it is stored in. */
+  private record Slot(String sku, StockSize size) {}
+
+  private static Slot slot(String sku, StockSize size) {
+    return new Slot(sku, size);
+  }
+
+  private static final StockSize CAJA = StockSize.CAJA;
+  private static final StockSize MEDIO = StockSize.MEDIO_PALLET;
+  private static final StockSize PALLET = StockSize.PALLET;
+
+  // Zone B: small boxes. Line 1 peripherals, 2 audio and video, 3 storage, 4 cables. The best
+  // sellers (mouse, keyboard, speaker, flash drive, microSD, HDMI and USB-C cables) get two
+  // positions each.
+  private static final Slot[][] ZONE_B = {
+    {
+      slot("TEC-002", MEDIO),
+      slot("TEC-002", MEDIO),
+      slot("TEC-004", MEDIO),
+      slot("TEC-004", MEDIO),
+      slot("TEC-003", MEDIO)
+    },
+    {
+      slot("TEC-006", MEDIO),
+      slot("TEC-007", MEDIO),
+      slot("TEC-008", MEDIO),
+      slot("TEC-009", MEDIO),
+      slot("TEC-009", MEDIO)
+    },
+    {
+      slot("TEC-011", CAJA),
+      slot("TEC-012", CAJA),
+      slot("TEC-012", CAJA),
+      slot("TEC-013", CAJA),
+      slot("TEC-013", CAJA)
+    },
+    {
+      slot("OTR-002", MEDIO),
+      slot("OTR-002", MEDIO),
+      slot("OTR-004", CAJA),
+      slot("OTR-004", CAJA),
+      slot("OTR-003", MEDIO)
+    }
+  };
+
+  // Zone C: line 1 monitors (bulky, on pallets, three free pallet positions), line 2 networking and
+  // power, line 3 mini PCs and wearables (three free boxes).
+  private static final Slot[][] ZONE_C = {
+    {
+      slot("TEC-005", PALLET),
+      slot("TEC-005", PALLET),
+      slot(null, PALLET),
+      slot(null, PALLET),
+      slot(null, PALLET)
+    },
+    {
+      slot("TEC-014", MEDIO),
+      slot("OTR-001", MEDIO),
+      slot("OTR-001", MEDIO),
+      slot("OTR-005", CAJA),
+      slot("OTR-006", CAJA)
+    },
+    {
+      slot("TEC-010", CAJA),
+      slot("TEC-001", CAJA),
+      slot(null, CAJA),
+      slot(null, CAJA),
+      slot(null, CAJA)
+    }
+  };
+
   private void buildWarehouse(
       List<Product> products, List<Zone> zones, List<Line> lines, List<Position> positions) {
+    Map<String, Product> bySku = new HashMap<>();
+    products.forEach(p -> bySku.put(p.getSku(), p));
+
     Zone zoneB = zone("z-B", "B");
     Zone zoneC = zone("z-C", "C");
     zones.add(zoneB);
     zones.add(zoneC);
 
-    List<Line> demoLines = new ArrayList<>();
-    for (int i = 1; i <= 4; i++) {
-      demoLines.add(line("l-B-" + i, zoneB.getId(), i));
-    }
-    for (int i = 1; i <= 3; i++) {
-      demoLines.add(line("l-C-" + i, zoneC.getId(), i));
-    }
-    lines.addAll(demoLines);
-
     int globalIdx = 0;
-    for (Line ln : demoLines) {
-      for (int pi = 1; pi <= POSITIONS_PER_LINE; pi++) {
-        String name = String.format("P%02d", pi);
-        String posId = "pos-" + ln.getId() + "-" + name;
-        Instant created = catalogueEpoch.plus(24L + globalIdx, ChronoUnit.HOURS);
-        String productId =
-            globalIdx < PRODUCT_POSITIONS
-                ? products.get(globalIdx % products.size()).getId()
-                : null;
+    globalIdx = buildZone(zoneB, ZONE_B, bySku, lines, positions, globalIdx);
+    buildZone(zoneC, ZONE_C, bySku, lines, positions, globalIdx);
+  }
+
+  private int buildZone(
+      Zone zone,
+      Slot[][] layout,
+      Map<String, Product> bySku,
+      List<Line> lines,
+      List<Position> positions,
+      int globalIdx) {
+    int inZone = 0;
+    for (int li = 0; li < layout.length; li++) {
+      Line ln = line("l-" + zone.getZoneCode() + "-" + (li + 1), zone.getId(), li + 1);
+      lines.add(ln);
+      for (int pi = 0; pi < layout[li].length; pi++) {
+        Slot slot = layout[li][pi];
+        String name = String.format("P%02d", pi + 1);
+        Product product = slot.sku() == null ? null : bySku.get(slot.sku());
         Position position =
-            position(posId, ln.getId(), ln.getIdZone(), name, globalIdx, created, productId);
-        // Same shape the printed QR codes use: warehouse | zone - line - position.
-        position.setQrCode(
-            "WH|" + zoneCodeOf(zones, ln.getIdZone()) + "-L" + ln.getNumberLine() + "-" + name);
+            position(
+                "pos-" + ln.getId() + "-" + name,
+                ln,
+                name,
+                catalogueEpoch.plus(24L + globalIdx, ChronoUnit.HOURS),
+                product,
+                slot.size());
+        // WH2|P<zone><n>, n counting the zone's positions in order. Infra resolves an order's stops
+        // from these texts, so they must match the codes printed in the warehouse.
+        position.setQrCode(qrPrefix + "P" + zone.getZoneCode() + (++inZone));
         positions.add(position);
         globalIdx++;
       }
     }
-  }
-
-  private static String zoneCodeOf(List<Zone> zones, String zoneId) {
-    return zones.stream()
-        .filter(z -> z.getId().equals(zoneId))
-        .map(Zone::getZoneCode)
-        .findFirst()
-        .orElse(zoneId);
+    return globalIdx;
   }
 
   private Zone zone(String id, String code) {
@@ -334,26 +785,37 @@ public final class DemoDataset {
   }
 
   private Position position(
-      String id,
-      String idLine,
-      String idZone,
-      String name,
-      int sizeIdx,
-      Instant createdAt,
-      String productId) {
+      String id, Line line, String name, Instant createdAt, Product product, StockSize size) {
     Position p = new Position();
     p.setId(id);
-    p.setIdLine(idLine);
-    p.setIdZone(idZone);
+    p.setIdLine(line.getId());
+    p.setIdZone(line.getIdZone());
     p.setPositionName(name);
     p.setActive(true);
-    p.setMaximumCapacity(POSITION_MAX_CAPACITY);
-    StockSize[] sizes = StockSize.values();
-    p.setSizeStockToSave(sizes[Math.floorMod(sizeIdx, sizes.length)]);
-    p.setProductId(productId);
+    p.setSizeStockToSave(size);
+    p.setMaximumCapacity(maximumCapacity(product, size));
+    p.setProductId(product == null ? null : product.getId());
     p.setCurrentStock(0);
     p.setCreatedAt(createdAt);
     return p;
+  }
+
+  /**
+   * The most units of {@code product} a {@code size} container takes by volume — the same rule
+   * {@code PositionService.updatePosition} enforces — capped at {@link #POSITION_MAX_CAPACITY}, so
+   * no stock the simulation puts away can ever be rejected when the position is edited later.
+   */
+  static int maximumCapacity(Product product, StockSize size) {
+    if (product == null) {
+      return EMPTY_POSITION_CAPACITY.get(size);
+    }
+    int byVolume = PositionService.maxUnitsByVolume(product.getVolume(), size.getVolumeCm3());
+    int capacity = Math.min(POSITION_MAX_CAPACITY, byVolume);
+    // Guard against floating-point rounding right at the boundary.
+    while (capacity > 1 && capacity * product.getVolume() > size.getVolumeCm3()) {
+      capacity--;
+    }
+    return capacity;
   }
 
   // ── Vehicles ─────────────────────────────────────────────────────────────────
