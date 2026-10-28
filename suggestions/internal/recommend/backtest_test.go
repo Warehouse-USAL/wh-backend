@@ -106,6 +106,45 @@ func TestBacktestCartPairs(t *testing.T) {
 	}
 }
 
+// A niche partner that is always bought with the anchor loses to the best-sellers on raw counts: the
+// anchor is ordered 12 times with each of three popular SKUs (and 6 times with its partner), so the
+// summed co-occurrence puts the popular trio first. Normalised by popularity the partner leads.
+func TestBacktestCartPopularityBias(t *testing.T) {
+	_, rdb, svc := setup(t)
+	rng := rand.New(rand.NewPCG(7, 8))
+	background(t, rdb, rng, 60)
+
+	type pair struct{ a, b string }
+	pairs := []pair{{"ANC-1", "NICHE-1"}, {"ANC-2", "NICHE-2"}, {"ANC-3", "NICHE-3"}, {"ANC-4", "NICHE-4"}}
+	for i, p := range pairs {
+		user := fmt.Sprintf("bias-user-%d", i)
+		for range 6 {
+			apply(t, rdb, user, p.a, p.b)
+		}
+		for _, pop := range []string{"POP-1", "POP-2", "POP-3"} {
+			for range 12 {
+				apply(t, rdb, fmt.Sprintf("bias-pop-%d", i), p.a, pop)
+			}
+		}
+	}
+
+	var system, baseline []float64
+	for _, p := range pairs {
+		truth := map[string]bool{p.b: true}
+		got, err := svc.Cart(ctx, []string{p.a}, k)
+		if err != nil {
+			t.Fatal(err)
+		}
+		system = append(system, precisionAtK(got, truth))
+		base, _ := svc.hot(ctx, k, map[string]bool{p.a: true})
+		baseline = append(baseline, precisionAtK(base, truth))
+	}
+	t.Logf("cart popularity-bias precision@%d: system=%.3f baseline(hot)=%.3f", k, mean(system), mean(baseline))
+	if mean(system) <= mean(baseline) || mean(system) < 0.3 {
+		t.Fatalf("niche partners buried under best-sellers: %.3f vs %.3f", mean(system), mean(baseline))
+	}
+}
+
 func TestBacktestUserSimilarUsers(t *testing.T) {
 	_, rdb, svc := setup(t)
 	rng := rand.New(rand.NewPCG(3, 4))

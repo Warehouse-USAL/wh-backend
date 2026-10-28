@@ -2,6 +2,7 @@
 import os
 
 BACKEND = os.environ.get("BACKEND_URL", "http://backend:8080")
+BACKEND2 = os.environ.get("BACKEND2_URL", "")  # second instance, only in the multi-instance group (e2e/multi.sh)
 CONSOLE = os.environ.get("CONSOLE_URL", "http://console")
 SUGGESTIONS = os.environ.get("SUGGESTIONS_URL", "http://suggestions:8080")
 BRIDGE_HEALTH = os.environ.get("BRIDGE_URL", "http://bridge:8081")

@@ -11,9 +11,10 @@ import (
 	"github.com/Warehouse-USAL/wh-backend/suggestions/internal/store"
 )
 
-// floor is the score below which a SKU is dropped from hot:global: after enough decay rounds an
-// idle SKU is noise, and removing it keeps the set from growing without bound.
-const floor = 0.01
+// Floor is the score below which a SKU is dropped from hot:global: after enough decay rounds an
+// idle SKU is noise, and removing it keeps the set from growing without bound. Ingestion uses it
+// too, to not add what the next round would remove.
+const Floor = 0.01
 
 // script multiplies every score of KEYS[1] by ARGV[1] in one atomic step and removes entries that
 // fall under ARGV[2]. It returns the number of members it visited.
@@ -36,7 +37,7 @@ return n
 
 // Once multiplies every hot:global score by factor (EVAL) and returns how many SKUs it visited.
 func Once(ctx context.Context, rdb redis.Cmdable, factor float64) (int64, error) {
-	return rdb.Eval(ctx, script, []string{store.HotGlobal}, factor, floor).Int64()
+	return rdb.Eval(ctx, script, []string{store.HotGlobal}, factor, Floor).Int64()
 }
 
 // Run calls Once every interval until ctx is done. A failed round is logged and retried on the

@@ -10,7 +10,7 @@
 #         PYTEST_ARGS="-m 'not resilience'" e2e/suite.sh
 #         PYTEST_ARGS="suite/test_auth.py" e2e/suite.sh
 #         KEEP=1 e2e/suite.sh             # leave the stack up (re-run the runner with e2e/suite.sh rerun)
-# Env:    E2E_PROJECT (default whsuite). Needs: docker with compose v2. Never touches Infra's broker.
+# Env:    E2E_PROJECT (default whsuite); E2E_EXTRA_COMPOSE, E2E_EXTRA_SERVICES (see e2e/multi.sh). Needs: docker with compose v2. Never touches Infra's broker.
 # ---------------------------------------------------------------------------
 set -uo pipefail
 cd "$(dirname "$0")/.."
@@ -28,11 +28,16 @@ fi
 set -a; . "$STATE"; set +a
 export PYTEST_ARGS="${PYTEST_ARGS:-}"
 
-DC=(docker compose -p "$COMPOSE_PROJECT_NAME" -f docker-compose.yml -f e2e/docker-compose.suite.yml
+# E2E_EXTRA_COMPOSE / E2E_EXTRA_SERVICES: an extra overlay and the services it adds (e2e/multi.sh).
+EXTRA_FILES=()
+[ -n "${E2E_EXTRA_COMPOSE:-}" ] && EXTRA_FILES=(-f "$E2E_EXTRA_COMPOSE")
+DC=(docker compose -p "$COMPOSE_PROJECT_NAME" -f docker-compose.yml -f e2e/docker-compose.suite.yml ${EXTRA_FILES[@]+"${EXTRA_FILES[@]}"}
     --profile infra --profile suggestions --profile runner)
 # fakeinfra is created but not started: the suite starts it for the `flow` group only (see conftest.py).
 STACK=(backend bridge rabbitmq mongodb redpanda minio console suggestions suggestions-redis
        otel-collector victoriametrics victorialogs restock-cron)
+# shellcheck disable=SC2206 # a space separated list of service names
+[ -n "${E2E_EXTRA_SERVICES:-}" ] && STACK+=(${E2E_EXTRA_SERVICES})
 
 cleanup() {
   if [ "${KEEP:-0}" = 1 ]; then echo "KEEP=1: stack left up (project $COMPOSE_PROJECT_NAME)"; return; fi

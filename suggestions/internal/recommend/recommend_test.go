@@ -3,6 +3,7 @@ package recommend
 import (
 	"context"
 	"fmt"
+	"math"
 	"sync/atomic"
 	"testing"
 
@@ -89,13 +90,60 @@ func TestCartSumsCooccurrenceAndExcludesCart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// C co-occurs once with A and once with B; A and B are in the cart.
-	if len(recs) != 1 || recs[0].SKU != "C" || recs[0].Score != 2 {
+	// C co-occurs once with A and once with B; A and B are in the cart. Orders per SKU: A=3, B=3,
+	// C=2, so the score is 1/sqrt(3*2) + 1/sqrt(3*2) = 2/sqrt(6) = 0.8165.
+	if len(recs) != 1 || recs[0].SKU != "C" || math.Abs(recs[0].Score-2/math.Sqrt(6)) > 1e-9 {
 		t.Fatalf("recs = %+v", recs)
 	}
 	recs, _ = s.Cart(ctx, []string{"A"}, 1)
 	if len(recs) != 1 || recs[0].SKU != "B" {
 		t.Fatalf("limit/order wrong: %+v", recs)
+	}
+}
+
+// Raw counts put the best-seller P first (3 orders with A against 2 for N); normalised by how often
+// each SKU sells, the niche N, which is bought with A in 2 of its 2 orders, leads.
+func TestCartNormalisesByPopularity(t *testing.T) {
+	_, rdb, s := setup(t)
+	for range 3 {
+		order(t, rdb, "u", "A", "P")
+	}
+	for range 2 {
+		order(t, rdb, "u", "A", "N")
+	}
+	for range 7 {
+		order(t, rdb, "u", "P")
+	}
+	// count(A)=5, count(P)=10, count(N)=2; cooccur(A,P)=3, cooccur(A,N)=2.
+	if raw, _ := rdb.ZRevRangeWithScores(ctx, "cooccur:A", 0, -1).Result(); raw[0].Member != "P" {
+		t.Fatalf("setup: raw counts should rank P first: %+v", raw)
+	}
+	recs, err := s.Cart(ctx, []string{"A"}, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantN, wantP := 2/math.Sqrt(5*2), 3/math.Sqrt(5*10) // 0.63246, 0.42426
+	if len(recs) != 2 || recs[0].SKU != "N" || recs[1].SKU != "P" ||
+		math.Abs(recs[0].Score-wantN) > 1e-9 || math.Abs(recs[1].Score-wantP) > 1e-9 {
+		t.Fatalf("recs = %+v, want N %.5f then P %.5f", recs, wantN, wantP)
+	}
+}
+
+// A model built before sku:count existed has co-occurrence without counts: the cart still answers,
+// scoring each pair as if it were the only order of both SKUs.
+func TestCartWithoutCountsStillAnswers(t *testing.T) {
+	mr, rdb, s := setup(t)
+	order(t, rdb, "u", "A", "B")
+	order(t, rdb, "u", "A", "B")
+	order(t, rdb, "u", "A", "C")
+	mr.Del("sku:count")
+	recs, err := s.Cart(ctx, []string{"A"}, 5)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// cooccur(A,B)=2, cooccur(A,C)=1; counts missing, so each is max(0, cooccur): scores 1 and 1.
+	if !equal(skusOf(recs), []string{"B", "C"}) || recs[0].Score != 1 || recs[1].Score != 1 {
+		t.Fatalf("recs = %+v", recs)
 	}
 }
 

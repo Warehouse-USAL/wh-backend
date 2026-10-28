@@ -77,7 +77,12 @@ until you reassign them (an older server seeded with zones `B`/`C` keeps `WH2|PB
 `SEED_DEMO` skips with a warning when it finds zones other than `A`).
 
 The demo seed covers two years, daily, for every business metric (list and sources in
-`docs/SEEDED_METRICS.md`); the backend logs `Demo seed took N ms` when it finishes.
+`docs/SEEDED_METRICS.md`); the backend logs `Demo seed took N ms` when it finishes. It then publishes
+one `order.completed` per seeded completed order so the suggestions service starts with the same
+orders (about 1 s to publish, a few seconds for the service to ingest them; see
+`docs/SUGGESTIONS.md`, "Preload from the demo seed", for the Redis-wipe, group-reset and
+retention procedures). If Kafka is down at that moment the backend only logs a warning and the
+suggestions model starts empty.
 
 ### Checking the codes
 

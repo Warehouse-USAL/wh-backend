@@ -1,0 +1,42 @@
+# Overlay for the load harness (`make load`, docs/LOAD_TESTING.md). Used with docker-compose.suite.yml (no host
+# ports, named volumes) under its own project name (whload): it adds the load generators and nothing else.
+services:
+  backend:
+    environment:
+      # The harness hammers /auth/login and /orders from a handful of users; nothing else is relaxed.
+      TELEMETRY_ENABLED: "true"
+
+  k6:
+    image: grafana/k6:2.3.0
+    entrypoint: ["k6"]
+    volumes:
+      - ./load/k6:/scripts:ro
+      - ./load/results:/results
+    environment:
+      BACKEND_URL: http://backend:8080
+      SUGGESTIONS_URL: http://suggestions:8080
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      INFRA_API_KEY: ${INFRA_API_KEY}
+    networks: [wh-network]
+    profiles: [load]
+
+  loadpy:
+    build: ./e2e/suite
+    entrypoint: ["python", "-u"]
+    volumes:
+      - ./load/py:/load:ro
+    environment:
+      BACKEND_URL: http://backend:8080
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      INFRA_API_KEY: ${INFRA_API_KEY}
+      SSE_SECONDS: ${SSE_SECONDS:-20}
+      ORDERS: ${WS_ORDERS:-30}
+    networks: [wh-network]
+    profiles: [load]
+
+  mongodb:
+    volumes:
+      - ./load/explain.js:/load/explain.js:ro

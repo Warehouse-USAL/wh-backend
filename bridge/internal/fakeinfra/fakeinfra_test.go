@@ -1,260 +1,277 @@
 package fakeinfra_test
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"io"
 	"log/slog"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/Warehouse-USAL/wh-backend/bridge/internal/classify"
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/fakeinfra"
 	"github.com/Warehouse-USAL/wh-backend/bridge/internal/vehicles"
 )
 
-var clock = time.Date(2026, 10, 16, 10, 0, 0, 0, time.UTC)
+type delivery struct{ body string }
 
-type summary struct {
-	Kind   string
-	Status string
-	QR     string
+func (d delivery) Body() []byte   { return []byte(d.body) }
+func (d delivery) Ack() error     { return nil }
+func (d delivery) Requeue() error { return nil }
+
+type source struct{ ch chan vehicles.Delivery }
+
+func (s source) Deliveries(
+	_ context.Context,
+) <-chan vehicles.Delivery {
+	return s.ch
 }
 
-func summarize(
-	t *testing.T,
-	steps []fakeinfra.Step,
-) []summary {
-	out := make([]summary, 0, len(steps))
-	for _, step := range steps {
-		out = append(out, describe(t, step.Body))
+type recorder struct {
+	mu     sync.Mutex
+	bodies []map[string]any
+}
+
+func (r *recorder) Publish(
+	_ context.Context,
+	body []byte,
+) error {
+	var m map[string]any
+	if err := json.Unmarshal(body, &m); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	r.bodies = append(r.bodies, m)
+	r.mu.Unlock()
+	return nil
+}
+
+// events lists "status:<order status>" and "tel:<vehicle status>" in publish order.
+func (r *recorder) events() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]string, 0, len(r.bodies))
+	for _, b := range r.bodies {
+		if _, ok := b["order_id"]; ok {
+			out = append(out, "order:"+b["order_id"].(string)+":"+b["status"].(string))
+		} else {
+			out = append(out, "tel:"+b["status"].(string))
+		}
 	}
 	return out
 }
 
-func describe(
+type harness struct {
+	orders  chan vehicles.Delivery
+	control chan vehicles.Delivery
+	rec     *recorder
+	cancel  context.CancelFunc
+	done    chan error
+}
+
+func start(
 	t *testing.T,
-	body []byte,
-) summary {
-	req, err := classify.Classify(body)
-	if err != nil {
-		t.Fatalf("fake infra produced an unclassifiable message %s: %v", body, err)
+	cfg fakeinfra.Config,
+) *harness {
+	t.Helper()
+	h := &harness{
+		orders: make(chan vehicles.Delivery, 16), control: make(chan vehicles.Delivery, 4),
+		rec: &recorder{}, done: make(chan error, 1),
 	}
-	var fields struct {
-		Status string  `json:"status"`
-		LastQR *string `json:"last_qr"`
-	}
-	if err := json.Unmarshal(body, &fields); err != nil {
-		t.Fatal(err)
-	}
-	qr := ""
-	if fields.LastQR != nil {
-		qr = *fields.LastQR
-	}
-	return summary{Kind: req.Kind, Status: fields.Status, QR: qr}
-}
-
-func TestScriptForPendingOrderWalksEveryStop(
-	t *testing.T,
-) {
-	order := []byte(`{"order_id":"ORD-1","status":"pending","stops":["S1","S2"],"destination":"AREA-B"}`)
-	steps, err := fakeinfra.Script(order, "VHC-009", clock)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	want := []summary{
-		{classify.KindOrderStatus, "in_progress", ""},
-		{classify.KindVehicleTelemetry, "busy", "S1"},
-		{classify.KindVehicleTelemetry, "busy", "S1"},
-		{classify.KindVehicleTelemetry, "busy", "S2"},
-		{classify.KindOrderStatus, "completed", ""},
-		{classify.KindVehicleTelemetry, "idle", ""},
-	}
-	got := summarize(t, steps)
-	if len(got) != len(want) {
-		t.Fatalf("got %v, want %v", got, want)
-	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("step %d = %v, want %v", i, got[i], want[i])
-		}
-	}
-}
-
-func TestScriptUsesTheGivenVehicleAndOrder(
-	t *testing.T,
-) {
-	order := []byte(`{"order_id":"ORD-7","status":"pending","stops":["S1"]}`)
-	steps, err := fakeinfra.Script(order, "VHC-009", clock)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	var status struct {
-		OrderID   string `json:"order_id"`
-		VehicleID string `json:"vehicle_id"`
-		Timestamp string `json:"timestamp"`
-	}
-	if err := json.Unmarshal(steps[0].Body, &status); err != nil {
-		t.Fatal(err)
-	}
-	if status.OrderID != "ORD-7" || status.VehicleID != "VHC-009" || status.Timestamp != "2026-10-16T10:00:00Z" {
-		t.Fatalf("got %+v", status)
-	}
-}
-
-func TestScriptForCancelledOrderConfirmsItAndFreesTheVehicle(
-	t *testing.T,
-) {
-	order := []byte(`{"order_id":"ORD-1","status":"cancelled"}`)
-	steps, err := fakeinfra.Script(order, "VHC-001", clock)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	got := summarize(t, steps)
-	want := []summary{
-		{classify.KindOrderStatus, "cancelled", ""},
-		{classify.KindVehicleTelemetry, "idle", ""},
-	}
-	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
-		t.Fatalf("got %v, want %v", got, want)
-	}
-}
-
-func TestScriptRejectsGarbage(
-	t *testing.T,
-) {
-	if _, err := fakeinfra.Script([]byte(`nope`), "VHC-001", clock); err == nil {
-		t.Fatal("expected an error")
-	}
-	if _, err := fakeinfra.Script([]byte(`{"status":"pending"}`), "VHC-001", clock); !errors.Is(err, fakeinfra.ErrNoOrderID) {
-		t.Fatalf("got %v, want ErrNoOrderID for a missing order_id", err)
-	}
-}
-
-type fakeDelivery struct {
-	body  string
-	acked chan struct{}
-}
-
-func (d *fakeDelivery) Body() []byte { return []byte(d.body) }
-func (d *fakeDelivery) Ack() error   { close(d.acked); return nil }
-func (d *fakeDelivery) Requeue() error {
-	return nil
-}
-
-type fakeSource struct {
-	deliveries chan vehicles.Delivery
-}
-
-func (s *fakeSource) Deliveries(
-	_ context.Context,
-) <-chan vehicles.Delivery {
-	return s.deliveries
-}
-
-type recordingPublisher struct {
-	mu     sync.Mutex
-	bodies []string
-}
-
-func (p *recordingPublisher) Publish(
-	_ context.Context,
-	body []byte,
-) error {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.bodies = append(p.bodies, string(body))
-	return nil
-}
-
-func (p *recordingPublisher) count() int {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return len(p.bodies)
-}
-
-func TestRunPublishesTheScriptAndAcksTheOrder(
-	t *testing.T,
-) {
-	source := &fakeSource{deliveries: make(chan vehicles.Delivery, 1)}
-	publisher := &recordingPublisher{}
-	order := &fakeDelivery{
-		body:  `{"order_id":"ORD-1","status":"pending","stops":["S1"]}`,
-		acked: make(chan struct{}),
-	}
-	source.deliveries <- order
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	done := make(chan error, 1)
-	go func() { done <- fakeinfra.Run(ctx, source, publisher, "VHC-001", time.Millisecond, logger) }()
+	h.cancel = cancel
+	cfg.VehicleID = "VHC-T"
+	go func() {
+		h.done <- fakeinfra.Run(ctx, source{h.orders}, source{h.control}, h.rec, cfg, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	}()
+	t.Cleanup(func() { h.stop(t) })
+	return h
+}
+
+func (h *harness) stop(
+	t *testing.T,
+) {
+	t.Helper()
+	h.cancel()
 	select {
-	case <-order.acked:
+	case err := <-h.done:
+		if err != nil {
+			t.Errorf("Run returned %v", err)
+		}
 	case <-time.After(2 * time.Second):
-		t.Fatal("order was never acked")
+		t.Error("Run did not stop")
 	}
-	if publisher.count() != 5 {
-		t.Fatalf("published %d messages, want 5", publisher.count())
-	}
-	cancel()
-	if err := <-done; err != nil {
-		t.Fatalf("Run returned %v", err)
-	}
+	h.done <- nil
 }
 
-func TestLogsCarryPayloadSizesNeverPayloads(
-	t *testing.T,
+func (h *harness) order(
+	body string,
 ) {
-	source := &fakeSource{deliveries: make(chan vehicles.Delivery, 2)}
-	good := &fakeDelivery{body: `{"order_id":"ORD-1","status":"pending","stops":["PII-MARKER"]}`, acked: make(chan struct{})}
-	bad := &fakeDelivery{body: `PII-MARKER {`, acked: make(chan struct{})}
-	noID := &fakeDelivery{body: `{"status":"PII-MARKER"}`, acked: make(chan struct{})}
-	source.deliveries = make(chan vehicles.Delivery, 3)
-	source.deliveries <- bad
-	source.deliveries <- noID
-	source.deliveries <- good
-	logs := &lockedBuffer{}
-	logger := slog.New(slog.NewTextHandler(logs, nil))
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	done := make(chan error, 1)
-	go func() { done <- fakeinfra.Run(ctx, source, &recordingPublisher{}, "VHC-001", time.Millisecond, logger) }()
-	for _, d := range []*fakeDelivery{bad, noID, good} {
-		select {
-		case <-d.acked:
-		case <-time.After(2 * time.Second):
-			t.Fatal("delivery was never acked")
+	h.orders <- delivery{body}
+}
+
+func (h *harness) waitFor(
+	t *testing.T,
+	want string,
+) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		for _, e := range h.rec.events() {
+			if e == want {
+				return
+			}
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("never saw %q, got %v", want, h.rec.events())
+}
+
+func (h *harness) count(
+	want string,
+) int {
+	n := 0
+	for _, e := range h.rec.events() {
+		if e == want {
+			n++
 		}
 	}
-	cancel()
-	<-done
-	if got := logs.String(); strings.Contains(got, "PII-MARKER") || !strings.Contains(got, "payload_bytes=") {
-		t.Fatalf("logs must carry sizes and no payload: %s", got)
+	return n
+}
+
+func TestOrderRunsToCompletionAndVehicleReturnsToIdle(
+	t *testing.T,
+) {
+	h := start(t, fakeinfra.Config{StepDelay: 5 * time.Millisecond})
+	h.order(`{"order_id":"A","status":"pending","stops":["S1","S2"]}`)
+	h.waitFor(t, "order:A:completed")
+	time.Sleep(20 * time.Millisecond)
+	ev := h.rec.events()
+	if ev[0] != "tel:idle" || ev[1] != "order:A:in_progress" || ev[len(ev)-1] != "tel:idle" {
+		t.Fatalf("unexpected sequence %v", ev)
 	}
-	if got := logs.String(); !strings.Contains(got, `reason="malformed order"`) || !strings.Contains(got, `reason="no order_id"`) {
-		t.Fatalf("ignored orders must carry a static reason: %s", got)
+}
+
+func TestCancelOfOrderOnTheRoadReportsNothingAndFreesTheVehicleAfterTheWayBack(
+	t *testing.T,
+) {
+	h := start(t, fakeinfra.Config{StepDelay: 40 * time.Millisecond})
+	h.order(`{"order_id":"A","status":"pending","stops":["S1","S2","S3"]}`)
+	h.waitFor(t, "order:A:in_progress")
+	time.Sleep(60 * time.Millisecond)
+	h.order(`{"order_id":"A","status":"cancelled"}`)
+	deadline := time.Now().Add(3 * time.Second)
+	for h.rec.events()[len(h.rec.events())-1] != "tel:idle" && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	time.Sleep(60 * time.Millisecond)
+	if h.count("order:A:completed")+h.count("order:A:cancelled") != 0 {
+		t.Fatalf("a cancelled order must not be reported: %v", h.rec.events())
+	}
+	if last := h.rec.events()[len(h.rec.events())-1]; last != "tel:idle" {
+		t.Fatalf("vehicle never went back to idle: %v", h.rec.events())
 	}
 }
 
-type lockedBuffer struct {
-	mu  sync.Mutex
-	buf bytes.Buffer
+func TestCancelledOrderInQueueIsNeverDispatched(
+	t *testing.T,
+) {
+	h := start(t, fakeinfra.Config{StepDelay: 30 * time.Millisecond})
+	h.order(`{"order_id":"A","status":"pending","stops":["S1"]}`)
+	h.order(`{"order_id":"B","status":"pending","stops":["S1"]}`)
+	h.order(`{"order_id":"B","status":"cancelled"}`)
+	h.waitFor(t, "order:A:completed")
+	time.Sleep(100 * time.Millisecond)
+	if h.count("order:B:in_progress") != 0 {
+		t.Fatalf("B was dispatched after its cancel: %v", h.rec.events())
+	}
 }
 
-func (b *lockedBuffer) Write(
-	p []byte,
-) (int, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buf.Write(p)
+func TestCancelArrivingBeforeTheOrderIgnoresTheOrder(
+	t *testing.T,
+) {
+	h := start(t, fakeinfra.Config{StepDelay: 5 * time.Millisecond})
+	h.order(`{"order_id":"A","status":"cancelled"}`)
+	h.order(`{"order_id":"A","status":"pending","stops":["S1"]}`)
+	h.order(`{"order_id":"B","status":"pending","stops":["S1"]}`)
+	h.waitFor(t, "order:B:completed")
+	if h.count("order:A:in_progress") != 0 {
+		t.Fatalf("A ran although it was cancelled first: %v", h.rec.events())
+	}
 }
 
-func (b *lockedBuffer) String() string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buf.String()
+func TestOrderWithoutStopsIsReportedCancelledAndDuplicatesAreIgnored(
+	t *testing.T,
+) {
+	h := start(t, fakeinfra.Config{StepDelay: 5 * time.Millisecond})
+	h.order(`{"order_id":"E","status":"pending","stops":[]}`)
+	h.waitFor(t, "order:E:cancelled")
+	h.order(`{"order_id":"D","status":"pending","stops":["S1"]}`)
+	h.order(`{"order_id":"D","status":"pending","stops":["S1"]}`)
+	h.waitFor(t, "order:D:completed")
+	time.Sleep(30 * time.Millisecond)
+	if h.count("order:D:in_progress") != 1 {
+		t.Fatalf("duplicate order ran twice: %v", h.rec.events())
+	}
+}
+
+func TestDropCancelsLosesTheCancelSoTheOrderCompletes(
+	t *testing.T,
+) {
+	h := start(t, fakeinfra.Config{StepDelay: 20 * time.Millisecond, DropCancels: true})
+	h.order(`{"order_id":"A","status":"pending","stops":["S1"]}`)
+	h.waitFor(t, "order:A:in_progress")
+	h.order(`{"order_id":"A","status":"cancelled"}`)
+	h.waitFor(t, "order:A:completed")
+}
+
+func TestDuplicateStatusesPublishesEveryStatusTwice(
+	t *testing.T,
+) {
+	h := start(t, fakeinfra.Config{StepDelay: 5 * time.Millisecond, DuplicateStatuses: true})
+	h.order(`{"order_id":"A","status":"pending","stops":["S1"]}`)
+	h.waitFor(t, "order:A:completed")
+	time.Sleep(20 * time.Millisecond)
+	if h.count("order:A:in_progress") != 2 || h.count("order:A:completed") != 2 {
+		t.Fatalf("got %v", h.rec.events())
+	}
+}
+
+func TestStuckBusyNeverReportsIdleAgain(
+	t *testing.T,
+) {
+	h := start(t, fakeinfra.Config{StepDelay: 5 * time.Millisecond, StuckBusy: true})
+	h.order(`{"order_id":"A","status":"pending","stops":["S1"]}`)
+	h.waitFor(t, "order:A:completed")
+	time.Sleep(30 * time.Millisecond)
+	if last := h.rec.events()[len(h.rec.events())-1]; last != "tel:busy" {
+		t.Fatalf("got %v", h.rec.events())
+	}
+}
+
+func TestControlFlipsModesAndRestartForgetsTheOrderOnTheRoad(
+	t *testing.T,
+) {
+	h := start(t, fakeinfra.Config{StepDelay: 40 * time.Millisecond, TelemetryEvery: 30 * time.Millisecond})
+	h.control <- delivery{`{"drop_cancels":true,"duplicate_statuses":false,"stuck_busy":false,"step_delay":"10ms"}`}
+	h.control <- delivery{`not json`}
+	h.order(`{"order_id":"A","status":"pending","stops":["S1","S2"]}`)
+	h.waitFor(t, "order:A:in_progress")
+	h.control <- delivery{`{"restart":true}`}
+	time.Sleep(150 * time.Millisecond)
+	if h.count("order:A:completed") != 0 {
+		t.Fatalf("a restarted central must forget the order: %v", h.rec.events())
+	}
+	h.order(`{"order_id":"B","status":"pending","stops":["S1"]}`)
+	h.waitFor(t, "order:B:completed")
+}
+
+func TestMalformedAndAnonymousOrdersAreIgnored(
+	t *testing.T,
+) {
+	h := start(t, fakeinfra.Config{StepDelay: 5 * time.Millisecond})
+	h.order(`nope`)
+	h.order(`{"status":"pending"}`)
+	h.order(`{"order_id":"A","status":"pending","stops":["S1"]}`)
+	h.waitFor(t, "order:A:completed")
 }

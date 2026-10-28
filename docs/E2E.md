@@ -16,6 +16,8 @@ Requirements: Docker with compose v2 (about 8 GB RAM). Nothing else; no Java, no
 
 Outputs (git-ignored) in `e2e/results/`: `junit.xml`, `matrix.md` (human readable, per area and per test), `.env` (throwaway secrets generated for the run: JWT secret, Infra API key, admin password; never reuse real ones).
 
+`make e2e-multi` runs the two-instance group in its own project (`whmulti`); `make load` (docs/LOAD_TESTING.md) is the load harness (`whload`). Neither is part of the PR checks.
+
 Safety: the stack uses compose project `whsuite`, publishes no host ports, uses the fake Infra (`fakeinfra`) and its own RabbitMQ container, and never touches any external host. `e2e/docker-compose.infra-real.yml` is not used.
 
 ## Architecture
@@ -26,6 +28,25 @@ Safety: the stack uses compose project `whsuite`, publishes no host ports, uses 
 - Test groups run in this order: default (Infra is played by the tests through `/infra/**`), `flow` (real chain: backend -> Kafka -> bridge -> RabbitMQ -> fakeinfra and back), `resilience` (stops/kills dependencies, always restores them).
 - `max_allowed_lines` and `max_allowed_positions` are informational fields: the seed sets them to 1 line per zone and 6 positions per line to describe the real warehouse, and the backend deliberately does NOT enforce them (owner decision; formerly tracked as BUG-WAREHOUSE-1, which is therefore not a bug). No test asserts enforcement.
 - Known product bugs are kept as tests that assert the CORRECT behaviour, marked `@pytest.mark.known_failure(bug=..., reason=...)`. They are strict xfail: they show as "known-failure" now and turn into a hard failure (XPASS) the day the bug is fixed, forcing the marker to be removed.
+
+## Infra failure modes (`test_infra_failures.py`, `flow` group)
+
+The fake Infra follows the real central ([INFRA_CONTRACT.md](INFRA_CONTRACT.md)): it queues orders, handles a cancel at once and, for an order on the road, drives the vehicle back and says nothing about the order. Its failure modes are flipped at run time through the RabbitMQ routing key `fakeinfra.control` (the `control` fixture does it; defaults are restored after each test). Covered: cancel of an in-progress order (immediate, stock released, vehicle frees itself from telemetry), a cancel that never reaches Infra (the late `completed` is refused with 409, stock stays, documented residual risk), duplicate order statuses (stock drained once), Infra restarting without its database (the order stays `in_progress` until an admin cancels it), and a vehicle that never reports `idle` (stays `busy` without an order, one `idle` reading frees it).
+
+## Multiple backend instances (`make e2e-multi`)
+
+`e2e/multi.sh` (project `whmulti`, so it can run next to `make e2e-suite`) starts the suite stack plus a second backend (`backend2`, `e2e/docker-compose.multi.yml`) on the same MongoDB replica set, Redpanda and MinIO, both booted at the same moment on an empty database, and runs only the tests marked `multi` (`test_multi_instance.py`; the default suite excludes them with `-m "not multi"`). It proves:
+
+| Concern | Result |
+|---|---|
+| Two instances seeding/initialising an empty database at once | both healthy, same data, one admin, no duplicated layout |
+| Order creation split across instances on scarce stock | exactly the stock sells, `INSUFFICIENT_STOCK` for the rest, never `reserved > physical` (stock guards are in MongoDB, not in memory) |
+| Same `Idempotency-Key` on both instances | one order, every request gets it back |
+| Concurrent stock adjustments across instances | one winner, the other 400/409 `STOCK_CHANGE_CONFLICT`, never 5xx |
+| JWT of a user deactivated on instance 1 | rejected at once there; on instance 2 within `jwt.user-status-cache-ttl-ms` (15 s default). Measured: 15.2 s (the TTL; the test prints the delay, `-rP` shows it) |
+| Scheduled jobs | the backend has **no** `@Scheduled` job and no ShedLock-style lock; the only periodic work is the external `restock-cron` container (one process) calling `POST /metrics/restock-suggestions/apply`, which recomputes and overwrites, so two overlapping runs agree (tested) |
+| WebSocket events | **FINDING (BUG-MULTI-1)**: sessions live in each instance's memory and a broadcast reaches only the clients connected to the instance that handled the request. An admin on instance 2 does not see an order created through instance 1. Strict xfail `test_websocket_events_published_by_one_instance_reach_clients_of_the_other` pins it. Proposed fix (not implemented here, it touches the four WS handlers and adds a consumer): publish every broadcast to a Kafka topic (for example `ws.events`, key = channel, with the origin instance id) and have every instance consume it with its own group id and deliver to its local sessions, skipping its own messages. With one instance (today's production) nothing changes. Until then run the backend as a single instance or use sticky routing for WebSocket clients plus a shared REST path |
+| Console SSE stream | per-instance too (the stream caps `max-streams` 50 and `max-streams-per-principal` 10 apply per instance) |
 
 ## Results of the reference run
 
@@ -42,12 +63,13 @@ Safety: the stack uses compose project `whsuite`, publishes no host ports, uses 
 | restock | 12 | 12 | 0 | 0 | 0 |
 | stock_adjustments | 23 | 23 | 0 | 0 | 0 |
 | suggestions | 11 | 11 | 0 | 0 | 0 |
+| suggestions_seed | 6 | 6 | 0 | 0 | 0 |
 | vehicles | 9 | 9 | 0 | 0 | 0 |
 | warehouse | 16 | 16 | 0 | 0 | 0 |
 | websockets | 16 | 16 | 0 | 0 | 0 |
 | flow | 7 | 7 | 0 | 0 | 0 |
 | resilience | 9 | 9 | 0 | 0 | 0 |
-| **all** | 319 | 319 | 0 | 0 | 0 |
+| **all** | 330 | 330 | 0 | 0 | 0 |
 
 ### Coverage matrix: capability -> test id -> status
 
@@ -317,6 +339,12 @@ Group `default` plays Infra by hand, `flow` uses the real chain, `resilience` st
 | `test_suggestions.py::test_hot_ranks_by_popularity_and_honours_limit` | /hot returns SKUs by descending score; limit default 10, max 50 | default | passed |  |
 | `test_suggestions.py::test_unknown_routes_return_json_not_found` | Unknown paths answer 404 | default | passed |  |
 | `test_suggestions.py::test_replayed_event_is_ignored` | Kafka redelivery (at-least-once) must not double count an order: re-publishing the same order.completed leaves scores unchanged | default | passed |  |
+| `test_suggestions_seed.py::test_the_topic_holds_one_event_per_completed_order_and_the_consumer_applied_them_all` | order.completed holds at least one event per COMPLETED order in MongoDB (the seeded ones plus those of earlier tests) and the group committed all of them | default | passed |  |
+| `test_suggestions_seed.py::test_order_counts_per_sku_equal_the_orders_in_mongo` | sku:count (orders containing each SKU) equals the number of completed orders containing it, for every SKU | default | passed |  |
+| `test_suggestions_seed.py::test_user_histories_equal_what_mongo_says_they_ordered` | user:{id}:skus holds the quantities each user ordered, checked for the 5 busiest buyers | default | passed |  |
+| `test_suggestions_seed.py::test_user_recommendations_never_repeat_the_history_and_answer_when_there_is_room` | /user/:id for the seeded buyers with the smallest history: never a SKU they already bought, and non-empty whenever the catalogue has something they have not bought (the seeded buyers order from the whole 15-SKU catalogue, so most own everything and legitimately get nothing new) | default | passed |  |
+| `test_suggestions_seed.py::test_cart_recommendations_match_the_copurchases_in_mongo` | For 3 seeded SKUs the service's 'also add' answer equals the popularity-normalised co-purchase ranking computed from MongoDB's orders | default | passed |  |
+| `test_suggestions_seed.py::test_hot_favours_recently_ordered_skus` | /hot is the age-weighted demand: its top 10 equal quantity * 0.97^(age/15min) summed over MongoDB's orders (up to the decay rounds run since), far below the raw two-year totals | default | passed |  |
 | `test_vehicles.py::test_register_list_and_get_vehicle` | POST /vehicles registers an OFFLINE vehicle; it is listed (paginated) and readable by id; WAREHOUSE can read but not register | default | passed |  |
 | `test_vehicles.py::test_patch_vehicle_state` | PATCH /internal/vehicles/{id}: partial update of status/position/battery; unknown id 404; bad status 400; WAREHOUSE 403 | default | passed |  |
 | `test_vehicles.py::test_battery_must_be_a_percentage` | A battery level outside 0..100 is refused or clamped, never stored as is | default | known-failure | BUG-VEHICLES-1: battery is a percentage but is stored unvalidated: PATCH /internal/vehicles/{id} and /infra telemetry accept 250 or -40 (no 0..100 check in VehicleService.updateVehicle / VehicleTelemetryService.apply) |
@@ -393,6 +421,7 @@ Group `default` plays Infra by hand, `flow` uses the real chain, `resilience` st
 | BUG-PLATFORM-1 | LOW | platform | Unknown route (404) and wrong method (405) use Spring's default body, not `{error:{code,message}}` | `GlobalExceptionHandler` lacks NoResourceFound / HttpRequestMethodNotSupported mapping | fixed (PR deferred-contract-fixes, owner decision pending) |
 | BUG-VEHICLES-1 | LOW | vehicles | Battery outside 0..100 accepted via PATCH and telemetry | `VehicleService.updateVehicle`, `VehicleTelemetryService.apply` | fixed (PR deferred-contract-fixes, owner decision pending) |
 | BUG-SUGGEST-1 | LOW | suggestions | A redelivered `order.completed` event is counted twice (documented limitation) | `suggestions/internal/ingest/apply.go` | fixed in #148 |
+| BUG-MULTI-1 | MEDIUM | multi-instance | WebSocket events are delivered only to clients of the instance that handled the request | WebSocket handlers keep their sessions in memory (see "Multiple backend instances") | open: proposal in docs, only matters with more than one backend |
 
 Observations that are not asserted as bugs: no login lockout (a passing test documents it); deleting a missing file answers 204 (idempotent); a pending order can move straight to completed via `/infra`; a metrics query with `from > to` answers QUERY_TOO_BROAD; the first file upload right after a MinIO restart was observed once to stall (>30 s) in an exploratory run, not reproduced in the full run.
 

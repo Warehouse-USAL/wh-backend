@@ -213,26 +213,7 @@ public class OrderRepository {
 
   /** Publishes the {@code order.completed} fact consumed by {@code wh-suggestions}. */
   public void publishCompleted(Order order) {
-    List<OrderCompletedMessage.Item> items =
-        order.getItems() == null
-            ? List.of()
-            : order.getItems().stream()
-                .map(
-                    i ->
-                        new OrderCompletedMessage.Item(
-                            i.getSku(),
-                            i.getProductId(),
-                            i.getQuantity(),
-                            i.isFromRecommendation()))
-                .toList();
-    OrderCompletedMessage msg =
-        new OrderCompletedMessage(
-            order.getId(),
-            order.getRequestedByUserId(),
-            order.getDestinationArea(),
-            items,
-            order.getCompletedAt() == null ? null : order.getCompletedAt().toString());
-    sendAsync("order.completed", null, msg);
+    sendAsync(OrderCompletedMessage.TOPIC, null, OrderCompletedMessage.from(order));
   }
 
   private void sendAsync(String topic, String key, Object payload) {

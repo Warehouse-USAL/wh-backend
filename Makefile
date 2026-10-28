@@ -1,4 +1,4 @@
-.PHONY: e2e e2e-suite bridge-test suggestions-test help up-dev run up-prod up-infra deploy infra-key down build test test-coverage lint format format-fix pr-checks logs clean
+.PHONY: e2e e2e-suite e2e-multi load bridge-test suggestions-test help up-dev run up-prod up-infra deploy infra-key down build test test-coverage lint format format-fix pr-checks logs clean
 
 .DEFAULT_GOAL := help
 
@@ -117,6 +117,12 @@ suggestions-test: ## Run the Go suggestions service's vet + tests
 
 e2e-suite: ## Full-system E2E suite: whole stack + pytest, JUnit + matrix in e2e/results (needs Docker; see docs/E2E.md)
 	e2e/suite.sh
+
+e2e-multi: ## Two backend instances on one MongoDB/Redpanda/MinIO: concurrency, idempotency, JWT, WebSocket (project whmulti; see docs/E2E.md)
+	e2e/multi.sh
+
+load: ## Load tests (k6 + asyncio) against the seeded stack, project whload; report in load/results/summary.md (docs/LOAD_TESTING.md; not part of CI)
+	load/load.sh
 
 e2e: ## Full-stack dry run: backend <-> bridge <-> fake Infra (needs Docker; see e2e/run.sh)
 	./e2e/run.sh
