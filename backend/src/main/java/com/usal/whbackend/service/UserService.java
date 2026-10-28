@@ -29,15 +29,17 @@ public class UserService {
     this.passwordEncoder = passwordEncoder;
   }
 
-  public Page<User> getUsers(String role, Boolean active, Pageable pageable) {
-    UserRole parsedRole = null;
-    if (role != null) {
-      try {
-        parsedRole = UserRole.valueOf(role);
-      } catch (IllegalArgumentException e) {
-        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "INVALID_ROLE");
-      }
+  /** An unknown role is a client error with a stable code, never the raw enum message. */
+  private static UserRole parseRole(String role) {
+    try {
+      return UserRole.valueOf(role);
+    } catch (IllegalArgumentException e) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "INVALID_ROLE");
     }
+  }
+
+  public Page<User> getUsers(String role, Boolean active, Pageable pageable) {
+    UserRole parsedRole = role != null ? parseRole(role) : null;
     if (parsedRole != null && active != null) {
       return userRepository.findByRoleAndActive(parsedRole, active, pageable);
     }
@@ -61,7 +63,7 @@ public class UserService {
     User user = new User();
     user.setEmail(request.email());
     user.setName(request.name());
-    user.setRole(UserRole.valueOf(request.role()));
+    user.setRole(parseRole(request.role()));
     user.setSupplier(request.supplier());
     normalizeSupplierForRole(user);
     user.setPasswordHash(passwordEncoder.encode(request.initialPassword()));
@@ -79,7 +81,7 @@ public class UserService {
   public User updateUser(String id, UpdateUserRequest request) {
     User user = userRepository.findById(id).orElseThrow(() -> new UserNotFoundException(id));
     if (request.name() != null) user.setName(request.name());
-    if (request.role() != null) user.setRole(UserRole.valueOf(request.role()));
+    if (request.role() != null) user.setRole(parseRole(request.role()));
     if (request.active() != null) user.setActive(request.active());
     if (request.supplier() != null) user.setSupplier(request.supplier());
     normalizeSupplierForRole(user);

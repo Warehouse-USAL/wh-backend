@@ -175,6 +175,28 @@ class UserServiceTest {
   }
 
   @Test
+  void createUser_unknownRole_isInvalidRoleNotTheEnumMessage() {
+    assertThatThrownBy(
+            () -> userService.createUser(new CreateUserRequest("w@test.com", "W", "WIZARD", "pw")))
+        .isInstanceOfSatisfying(
+            ResponseStatusException.class,
+            ex -> {
+              assertThat(ex.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+              assertThat(ex.getReason()).isEqualTo("INVALID_ROLE");
+            });
+  }
+
+  @Test
+  void updateUser_unknownRole_isInvalidRole() {
+    when(userRepository.findById("USR-001")).thenReturn(Optional.of(sample("USR-001")));
+    assertThatThrownBy(
+            () -> userService.updateUser("USR-001", new UpdateUserRequest(null, "WIZARD", null)))
+        .isInstanceOfSatisfying(
+            ResponseStatusException.class,
+            ex -> assertThat(ex.getReason()).isEqualTo("INVALID_ROLE"));
+  }
+
+  @Test
   void updateUser_evictsTheUsersCachedActivity() {
     UserActivityCache activity = org.mockito.Mockito.mock(UserActivityCache.class);
     userService.setUserActivityCache(activity);
