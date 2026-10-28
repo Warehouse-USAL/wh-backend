@@ -153,7 +153,6 @@ def test_unknown_routes_return_json_not_found(sg, operator):
     assert sg.get("/v1/recommendations/nothing", token=_token(operator.id)).status == 404
 
 
-@pytest.mark.known_failure(bug="BUG-SUGGEST-1", reason="Kafka redelivery of an order.completed event is counted twice (documented in suggestions/internal/ingest/apply.go: 'a replayed order counts twice'); no per-order dedupe key")
 def test_replayed_event_is_ignored(admin, factory, infra, redis_c, stack):
     """Kafka redelivery (at-least-once) must not double count an order: re-publishing the same order.completed leaves scores unchanged"""
     from confluent_kafka import Producer

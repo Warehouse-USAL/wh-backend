@@ -226,7 +226,6 @@ def test_concurrent_adjustments_of_different_positions_conflict_cleanly(warehous
     _adjust(warehouse, pids[0], 1).expect(201)  # a conflict is retryable: nothing was changed by it
 
 
-@pytest.mark.known_failure(bug="BUG-STOCK-1", reason="parallel adjustments of the SAME position answer 500 (DataIntegrityViolationException: Mongo WriteConflict 112 TransientTransactionError on the position save) instead of 409 STOCK_CHANGE_CONFLICT; only the guard-document write inside OrderRepository.guardStockReconciliation maps that error, StockAdjustmentService.adjust saves the position first")
 def test_concurrent_adjustments_of_the_same_position_conflict_cleanly(warehouse, factory):
     """Parallel adjustments of one position never 500: they answer 201 or 409 STOCK_CHANGE_CONFLICT"""
     s = factory.stocked(100)

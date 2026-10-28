@@ -38,14 +38,14 @@ Safety: the stack uses compose project `whsuite`, publishes no host ports, uses 
 | orders | 39 | 38 | 0 | 1 | 0 |
 | platform | 12 | 11 | 0 | 1 | 0 |
 | restock | 12 | 11 | 0 | 1 | 0 |
-| stock_adjustments | 23 | 22 | 0 | 1 | 0 |
-| suggestions | 11 | 10 | 0 | 1 | 0 |
+| stock_adjustments | 23 | 23 | 0 | 0 | 0 |
+| suggestions | 11 | 11 | 0 | 0 | 0 |
 | vehicles | 9 | 8 | 0 | 1 | 0 |
 | warehouse | 17 | 16 | 0 | 1 | 0 |
 | websockets | 16 | 16 | 0 | 0 | 0 |
 | flow | 7 | 7 | 0 | 0 | 0 |
 | resilience | 9 | 9 | 0 | 0 | 0 |
-| **all** | 302 | 292 | 0 | 10 | 0 |
+| **all** | 302 | 294 | 0 | 8 | 0 |
 
 ### Coverage matrix: capability -> test id -> status
 
@@ -284,7 +284,7 @@ Group `default` plays Infra by hand, `flow` uses the real chain, `resilience` st
 | `test_stock_adjustments.py::test_delete_product_cancels_what_cannot_be_covered_but_spares_in_progress` | DELETE product: pending orders are cancelled, the in-progress one is respected; UNASSIGNED entry says 'Product deleted' | default | passed |  |
 | `test_stock_adjustments.py::test_adjustment_history_endpoints_order_pagination_and_roles` | History: newest first, paginated; position history for WAREHOUSE/SUPERADMIN, product history also for SALES; 404s | default | passed |  |
 | `test_stock_adjustments.py::test_concurrent_adjustments_of_different_positions_conflict_cleanly` | Simultaneous adjustments of one product's different positions: each answers 201 or 409 STOCK_CHANGE_CONFLICT, never 5xx, and the numbers add up | default | passed |  |
-| `test_stock_adjustments.py::test_concurrent_adjustments_of_the_same_position_conflict_cleanly` | Parallel adjustments of one position never 500: they answer 201 or 409 STOCK_CHANGE_CONFLICT | default | known-failure | BUG-STOCK-1: parallel adjustments of the SAME position answer 500 (DataIntegrityViolationException: Mongo WriteConflict 112 TransientTransactionError on the position save) instead of 409 STOCK_CHANGE_CONFLICT; only the guard-document write inside OrderRepository.guardStockReconciliation maps that error, StockAdjustmentService.adjust saves the position first |
+| `test_stock_adjustments.py::test_concurrent_adjustments_of_the_same_position_conflict_cleanly` | Parallel adjustments of one position never 500: they answer 201 or 409 STOCK_CHANGE_CONFLICT | default | passed |  |
 | `test_stock_adjustments.py::test_cancellation_is_published_only_for_committed_changes` | A rejected adjustment publishes no cancellation; a committed one publishes exactly one cancelled message per order | default | passed |  |
 | `test_suggestions.py::test_healthz_needs_no_auth` | GET /healthz is public and healthy (Redis and consumer alive) | default | passed |  |
 | `test_suggestions.py::test_recommendations_require_a_valid_jwt` | No token, malformed, wrong secret, expired and unsigned tokens -> 401 unauthorized in the service's own error format | default | passed |  |
@@ -296,7 +296,7 @@ Group `default` plays Infra by hand, `flow` uses the real chain, `resilience` st
 | `test_suggestions.py::test_cold_start_user_gets_the_hot_list` | A user without history receives the global popular list instead of nothing | default | passed |  |
 | `test_suggestions.py::test_hot_ranks_by_popularity_and_honours_limit` | /hot returns SKUs by descending score; limit default 10, max 50 | default | passed |  |
 | `test_suggestions.py::test_unknown_routes_return_json_not_found` | Unknown paths answer 404 | default | passed |  |
-| `test_suggestions.py::test_replayed_event_is_ignored` | Kafka redelivery (at-least-once) must not double count an order: re-publishing the same order.completed leaves scores unchanged | default | known-failure | BUG-SUGGEST-1: Kafka redelivery of an order.completed event is counted twice (documented in suggestions/internal/ingest/apply.go: 'a replayed order counts twice'); no per-order dedupe key |
+| `test_suggestions.py::test_replayed_event_is_ignored` | Kafka redelivery (at-least-once) must not double count an order: re-publishing the same order.completed leaves scores unchanged | default | passed |  |
 | `test_vehicles.py::test_register_list_and_get_vehicle` | POST /vehicles registers an OFFLINE vehicle; it is listed (paginated) and readable by id; WAREHOUSE can read but not register | default | passed |  |
 | `test_vehicles.py::test_patch_vehicle_state` | PATCH /internal/vehicles/{id}: partial update of status/position/battery; unknown id 404; bad status 400; WAREHOUSE 403 | default | passed |  |
 | `test_vehicles.py::test_battery_must_be_a_percentage` | A battery level outside 0..100 is refused or clamped, never stored as is | default | known-failure | BUG-VEHICLES-1: battery is a percentage but is stored unvalidated: PATCH /internal/vehicles/{id} and /infra telemetry accept 250 or -40 (no 0..100 check in VehicleService.updateVehicle / VehicleTelemetryService.apply) |
@@ -362,7 +362,7 @@ Group `default` plays Infra by hand, `flow` uses the real chain, `resilience` st
 |---|---|---|---|---|---|
 | BUG-ORDERS-1 | HIGH | orders | Overselling: 12 parallel orders of 3 units on 10 in stock all return 201 | `OrderService.createOrder` is `@Transactional` but the per-product lock is released at the end of `executeCreateOrder`, before commit | fixed (this branch) |
 | BUG-ORDERS-2 | MEDIUM | orders | Concurrent requests with the same `Idempotency-Key` give 500 (Mongo WriteConflict) instead of replay/409; no duplicate order | idempotency claim in `OrderService` / idempotency repository | fixed (this branch) |
-| BUG-STOCK-1 | MEDIUM | stock | Parallel adjustments of the same position give 500 instead of 409 `STOCK_CHANGE_CONFLICT` | `StockAdjustmentService.adjust` (only `guardStockReconciliation` maps the conflict) | owned by PR #150 |
+| BUG-STOCK-1 | MEDIUM | stock | Parallel adjustments of the same position give 500 instead of 409 `STOCK_CHANGE_CONFLICT` | `StockAdjustmentService.adjust` (only `guardStockReconciliation` maps the conflict) | fixed in #150 |
 | BUG-AUTH-1 | MEDIUM | auth | JWT of a deactivated user keeps working until it expires | `JwtAuthFilter` never consults the user store | fixed (this branch) |
 | BUG-RESTOCK-1 | MEDIUM | metrics | Cancelled restock orders still count as stock on order in `/metrics/restock-suggestions` | `RestockSuggestionService.findOnOrder` ignores status | fixed (this branch) |
 | BUG-RESIL-1 | MEDIUM | resilience | MongoDB down: requests hang about 30 s then 500 with Spring default body; `/actuator/health` hangs instead of reporting DOWN | Mongo client `serverSelectionTimeout`, missing 503 mapping, health indicator | fixed (this branch) |
@@ -374,7 +374,7 @@ Group `default` plays Infra by hand, `flow` uses the real chain, `resilience` st
 | BUG-PLATFORM-1 | LOW | platform | Unknown route (404) and wrong method (405) use Spring's default body, not `{error:{code,message}}` | `GlobalExceptionHandler` lacks NoResourceFound / HttpRequestMethodNotSupported mapping | deferred (contract / owner input) |
 | BUG-VEHICLES-1 | LOW | vehicles | Battery outside 0..100 accepted via PATCH and telemetry | `VehicleService.updateVehicle`, `VehicleTelemetryService.apply` | deferred (contract / owner input) |
 | BUG-WAREHOUSE-1 | LOW | warehouse | `max_allowed_lines` / `max_allowed_positions` are never enforced (requirement implied by names only) | `LineService.createLine`, `PositionService.createPosition` | deferred (contract / owner input) |
-| BUG-SUGGEST-1 | LOW | suggestions | A redelivered `order.completed` event is counted twice (documented limitation) | `suggestions/internal/ingest/apply.go` | owned by PR #148 |
+| BUG-SUGGEST-1 | LOW | suggestions | A redelivered `order.completed` event is counted twice (documented limitation) | `suggestions/internal/ingest/apply.go` | fixed in #148 |
 
 Observations that are not asserted as bugs: no login lockout (a passing test documents it); deleting a missing file answers 204 (idempotent); a pending order can move straight to completed via `/infra`; a metrics query with `from > to` answers QUERY_TOO_BROAD; the first file upload right after a MinIO restart was observed once to stall (>30 s) in an exploratory run, not reproduced in the full run.
 
