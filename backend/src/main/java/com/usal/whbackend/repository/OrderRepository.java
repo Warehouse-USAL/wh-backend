@@ -155,18 +155,6 @@ public class OrderRepository {
     return mongoTemplate.find(query, Order.class);
   }
 
-  /**
-   * Asks Infra to cancel an order a vehicle is already working on. The order keeps its status: it
-   * only becomes CANCELLED when Infra reports it, once the vehicle has put the goods back.
-   */
-  public Order requestCancellation(Order order, String reason) {
-    order.setCancelReason(reason);
-    order.setCancellationRequestedAt(Instant.now());
-    Order saved = mongo.save(order);
-    publishOrder(saved, "cancelled");
-    return saved;
-  }
-
   public Optional<Order> findById(String id) {
     return mongo.findById(id);
   }

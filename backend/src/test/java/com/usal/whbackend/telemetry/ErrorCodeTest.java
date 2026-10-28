@@ -12,6 +12,11 @@ class ErrorCodeTest {
   }
 
   @Test
+  void fromRaw_stopNotDetected_isTheCodeInfraSendsWhenTheRoverMissesAQr() {
+    assertEquals(ErrorCode.STOP_NOT_DETECTED, ErrorCode.fromRaw("STOP_NOT_DETECTED"));
+  }
+
+  @Test
   void fromRaw_isCaseInsensitiveAndTrimmed() {
     assertEquals(ErrorCode.BATTERY_CRITICAL, ErrorCode.fromRaw("  battery_critical  "));
   }

@@ -18,6 +18,7 @@ public enum ErrorCode {
   MECHANICAL_FAULT,
   COLLISION,
   NAVIGATION_ERROR,
+  STOP_NOT_DETECTED,
   OTHER;
 
   public static ErrorCode fromRaw(String raw) {

@@ -122,14 +122,11 @@ public class OrderController {
   @Operation(
       summary = "Cancel order",
       description =
-          "Cancels a pending order at once and restores reserved stock. An in_progress order"
-              + " stays in_progress with timestamps.cancellation_requested_at set until Infra"
-              + " reports it cancelled, once the vehicle has put the goods back; the change"
-              + " arrives over the WebSocket. ADMIN_WAREHOUSE and ADMIN_SALES may cancel any"
-              + " order, OPERATOR only the orders they requested.")
-  @ApiResponse(
-      responseCode = "200",
-      description = "Order cancelled, or its cancellation requested from Infra")
+          "Cancels the order at once and restores reserved stock; Infra is told on the orders"
+              + " topic and, if a vehicle was on it, frees the vehicle by itself. ADMIN_WAREHOUSE"
+              + " and ADMIN_SALES may cancel any order, OPERATOR only the orders they"
+              + " requested.")
+  @ApiResponse(responseCode = "200", description = "Order cancelled")
   @ApiResponse(
       responseCode = "403",
       description = "Insufficient role, or ORDER_NOT_OWNED — an operator's order of someone else")
