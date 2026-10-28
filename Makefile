@@ -1,4 +1,4 @@
-.PHONY: e2e bridge-test help up-dev run up-prod up-infra deploy down build test test-coverage lint format format-fix pr-checks logs clean
+.PHONY: e2e e2e-suite e2e-multi load bridge-test suggestions-test help up-dev run up-prod up-infra deploy infra-key down build test test-coverage lint format format-fix pr-checks logs clean
 
 .DEFAULT_GOAL := help
 
@@ -37,17 +37,30 @@ up-prod: ## Start services in production mode (requires env vars set)
 
 PROD_COMPOSE = docker compose -f docker-compose.yml -f docker-compose.prod.yml
 
-deploy: ## Pull the newest backend + bridge + console images and restart them, plus restock-cron (data untouched)
-	$(PROD_COMPOSE) pull backend bridge console
+deploy: ## Pull the pinned backend + console + suggestions (+ bridge when Infra is configured) images and restart them, plus restock-cron (data untouched)
+	@# Fails loudly, before touching anything, when .env lacks a required variable (docs/OPERATIONS.md).
+	@scripts/prod-env.sh check
+	@# The Infra bridge is the prod overlay's `infra` profile: started only when INFRA_AMQP_URL and
+	@# INFRA_API_KEY are both set, so a server without Infra no longer crash-loops it.
 	@# Telemetry first (docs/CONSOLE.md, Rollout): the collector's logs pipeline must be up before the
 	@# new backend and bridge export to it. Recreated only when their compose config changed; the
 	@# collector always, since its config is a bind mount compose cannot diff. Volumes persist.
-	@# MongoDB and Redpanda are never touched. WH_IMAGE_TAG in .env pins the three app images.
-	$(PROD_COMPOSE) up -d --no-deps victorialogs
-	$(PROD_COMPOSE) up -d --no-deps --force-recreate otel-collector
-	$(PROD_COMPOSE) up -d --no-deps minio victoriametrics
-	$(PROD_COMPOSE) up -d --no-deps backend bridge console restock-cron
+	@# MongoDB and Redpanda are never touched. WH_IMAGE_TAG in .env pins the app images.
+	@BRIDGE=$$(scripts/prod-env.sh bridge); \
+	  if [ "$$BRIDGE" = yes ]; then PROFILE="--profile infra"; SVC="backend bridge console suggestions"; \
+	  else PROFILE=""; SVC="backend console suggestions"; \
+	    $(PROD_COMPOSE) --profile infra rm -sf bridge >/dev/null 2>&1 || true; fi; \
+	  set -e; \
+	  $(PROD_COMPOSE) $$PROFILE pull $$SVC; \
+	  $(PROD_COMPOSE) $$PROFILE up -d --no-deps victorialogs; \
+	  $(PROD_COMPOSE) $$PROFILE up -d --no-deps --force-recreate otel-collector; \
+	  $(PROD_COMPOSE) $$PROFILE up -d --no-deps minio victoriametrics; \
+	  $(PROD_COMPOSE) $$PROFILE up -d --no-deps suggestions-redis; \
+	  $(PROD_COMPOSE) $$PROFILE up -d --no-deps $$SVC restock-cron
 	@echo "Backend redeployed"
+
+infra-key: ## Print a random INFRA_API_KEY to put in .env (shared by the backend and the bridge)
+	@openssl rand -hex 32
 
 up-infra: ## Start only MongoDB, Redpanda and MinIO (for local Gradle development)
 	docker compose up mongodb redpanda minio -d
@@ -98,6 +111,18 @@ format-fix: ## Apply Google Java Format to all source files
 
 bridge-test: ## Run the Go bridge's vet + tests
 	cd bridge && go vet ./... && go test -race ./...
+
+suggestions-test: ## Run the Go suggestions service's vet + tests
+	cd suggestions && go vet ./... && go test -race ./...
+
+e2e-suite: ## Full-system E2E suite: whole stack + pytest, JUnit + matrix in e2e/results (needs Docker; see docs/E2E.md)
+	e2e/suite.sh
+
+e2e-multi: ## Two backend instances on one MongoDB/Redpanda/MinIO: concurrency, idempotency, JWT, WebSocket (project whmulti; see docs/E2E.md)
+	e2e/multi.sh
+
+load: ## Load tests (k6 + asyncio) against the seeded stack, project whload; report in load/results/summary.md (docs/LOAD_TESTING.md; not part of CI)
+	load/load.sh
 
 e2e: ## Full-stack dry run: backend <-> bridge <-> fake Infra (needs Docker; see e2e/run.sh)
 	./e2e/run.sh

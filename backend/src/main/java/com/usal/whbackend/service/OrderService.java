@@ -1,5 +1,6 @@
 package com.usal.whbackend.service;
 
+import com.mongodb.MongoException;
 import com.usal.whbackend.api.order.CreateOrderRequest;
 import com.usal.whbackend.domain.Address;
 import com.usal.whbackend.domain.IdempotencyRecord;
@@ -22,8 +23,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.Supplier;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.domain.Page;
@@ -31,9 +32,11 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.mongodb.core.query.Update;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
@@ -51,18 +54,16 @@ public class OrderService implements OrderCompletionPort {
   private final IdempotencyRecordRepository idempotencyRecordRepository;
 
   /**
-   * Per-product locks that serialize the stock-check → order-save window. Prevents the TOCTOU race
-   * where two concurrent POST /orders for the same product both pass the availability check and
-   * both get persisted, overselling available stock.
-   *
-   * <p>NOTE: this is a single-instance solution. Multi-instance deployments require a distributed
-   * lock (e.g. Redis Redlock) or an atomic reservation counter in MongoDB.
+   * Runs order creation in one MongoDB transaction that this service retries itself. Null (plain
+   * unit tests, no transaction manager) runs the body directly, without a transaction or retries.
    */
-  private final ConcurrentHashMap<String, ReentrantLock> productLocks = new ConcurrentHashMap<>();
+  private TransactionTemplate transactionTemplate;
 
-  private ReentrantLock getProductLock(String productId) {
-    return productLocks.computeIfAbsent(productId, k -> new ReentrantLock());
-  }
+  /** How many times a creation that lost a write conflict is re-evaluated against fresh data. */
+  private int maxCreateAttempts = DEFAULT_CREATE_ATTEMPTS;
+
+  private static final int DEFAULT_CREATE_ATTEMPTS = 40;
+  private static final long MAX_BACKOFF_MS = 60;
 
   @Autowired
   public OrderService(
@@ -111,6 +112,16 @@ public class OrderService implements OrderCompletionPort {
         null);
   }
 
+  @Autowired(required = false)
+  public void setTransactionManager(PlatformTransactionManager transactionManager) {
+    this.transactionTemplate = new TransactionTemplate(transactionManager);
+  }
+
+  /** Overrides how many attempts a conflicting order creation gets (tests, tuning). */
+  public void setMaxCreateAttempts(int maxCreateAttempts) {
+    this.maxCreateAttempts = Math.max(1, maxCreateAttempts);
+  }
+
   public Page<Order> getOrders(
       String status, String from, String to, String vehicleId, Pageable pageable) {
     OrderStatus parsedStatus = null;
@@ -149,15 +160,85 @@ public class OrderService implements OrderCompletionPort {
         .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "ORDER_NOT_FOUND"));
   }
 
-  @Transactional
   public Order createOrder(CreateOrderRequest request, String userId) {
-    Order order = executeCreateOrder(request, userId);
-    publishOrderUpdateAfterCommit(order);
-    return order;
+    return createOrder(request, userId, null);
   }
 
-  @Transactional
+  /**
+   * Creates the order in a transaction. Concurrent creations (and stock adjustments) of the same
+   * product, and concurrent requests with the same idempotency key, collide on a document written
+   * inside the transaction; the loser's transaction aborts with a transient write conflict and is
+   * run again from scratch, so it sees what the winner committed: the stock left (the surplus is
+   * answered {@code INSUFFICIENT_STOCK}) or the order the key already maps to (replayed).
+   */
   public Order createOrder(CreateOrderRequest request, String userId, String idempotencyKey) {
+    return inCreationTransaction(
+        () -> createOrderInTransaction(request, userId, idempotencyKey),
+        idempotencyKey != null && !idempotencyKey.isBlank());
+  }
+
+  private Order inCreationTransaction(Supplier<Order> body, boolean keyed) {
+    if (transactionTemplate == null
+        || TransactionSynchronizationManager.isActualTransactionActive()) {
+      // No transaction manager, or the caller's transaction: it owns commit and any retry.
+      return body.get();
+    }
+    RuntimeException last = null;
+    for (int attempt = 1; attempt <= maxCreateAttempts; attempt++) {
+      try {
+        return transactionTemplate.execute(status -> body.get());
+      } catch (RuntimeException e) {
+        if (!isWriteConflict(e)) {
+          throw e;
+        }
+        last = e;
+        backOff(attempt);
+      }
+    }
+    if (last instanceof ResponseStatusException) {
+      throw last;
+    }
+    throw new ResponseStatusException(
+        HttpStatus.CONFLICT,
+        keyed ? "IDEMPOTENCY_REQUEST_IN_PROGRESS" : "STOCK_CHANGE_CONFLICT",
+        last);
+  }
+
+  /**
+   * Whether {@code error} means "another transaction got there first, run it again": a transient
+   * transaction error from MongoDB, a write conflict, or an idempotency claim that lost the race.
+   */
+  private static boolean isWriteConflict(Throwable error) {
+    for (Throwable t = error; t != null; t = t.getCause()) {
+      if (t instanceof DuplicateKeyException) {
+        return true;
+      }
+      if (t instanceof MongoException m
+          && (m.hasErrorLabel(MongoException.TRANSIENT_TRANSACTION_ERROR_LABEL)
+              || m.getCode() == WRITE_CONFLICT_CODE)) {
+        return true;
+      }
+      if (t.getCause() == t) {
+        break;
+      }
+    }
+    return false;
+  }
+
+  private static final int WRITE_CONFLICT_CODE = 112;
+
+  private static void backOff(int attempt) {
+    long bound = Math.min(MAX_BACKOFF_MS, 4L * attempt) + 1;
+    try {
+      Thread.sleep(ThreadLocalRandom.current().nextLong(1, bound + 1));
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "STOCK_CHANGE_CONFLICT", e);
+    }
+  }
+
+  private Order createOrderInTransaction(
+      CreateOrderRequest request, String userId, String idempotencyKey) {
     if (idempotencyKey != null
         && !idempotencyKey.isBlank()
         && idempotencyRecordRepository != null) {
@@ -185,8 +266,8 @@ public class OrderService implements OrderCompletionPort {
             idempotencyRecordRepository.save(
                 new IdempotencyRecord(trimmedKey, userId, null, Instant.now()));
       } catch (DuplicateKeyException e) {
-        // Another instance claimed this key after our read. Do not create an order in this
-        // transaction; the caller can retry and will then receive the winning order.
+        // Another request claimed this key after our read. Do not create an order in this
+        // transaction; the retry loop runs it again and then replays the winning order.
         throw new ResponseStatusException(
             HttpStatus.CONFLICT, "IDEMPOTENCY_REQUEST_IN_PROGRESS", e);
       }
@@ -253,68 +334,72 @@ public class OrderService implements OrderCompletionPort {
         unitPrice.setTaxIncluded(product.getPrice().isTaxIncluded());
       }
       items.add(
-          new OrderItem(product.getId(), product.getSku(), itemRequest.quantity(), unitPrice));
+          new OrderItem(
+              product.getId(),
+              product.getSku(),
+              itemRequest.quantity(),
+              unitPrice,
+              itemRequest.recommended()));
     }
 
-    // Pass 2: stock check + save under per-product locks. Locks are acquired in sorted product-ID
-    // order to prevent deadlocks when two orders share overlapping product sets.
-    List<String> sortedIds = items.stream().map(OrderItem::getProductId).sorted().toList();
-    List<ReentrantLock> locks = sortedIds.stream().map(this::getProductLock).toList();
-    locks.forEach(ReentrantLock::lock);
-    try {
-      for (OrderItem item : items) {
-        int available = productService.computeAvailableStock(item.getProductId());
-        int reserved = productService.computeReservedStock(item.getProductId());
-        if (available - reserved < item.getQuantity()) {
-          throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "INSUFFICIENT_STOCK");
-        }
+    // Pass 2: stock check + save. Every product bumps its guard document first, in sorted
+    // product-ID order: inside a MongoDB transaction reads come from a snapshot and only writes to
+    // the same document collide, so two concurrent orders (or an order and a stock adjustment) of
+    // one product cannot both commit on the strength of the same availability reading. The loser
+    // aborts with a write conflict and createOrder re-runs it against fresh data.
+    items.stream()
+        .map(OrderItem::getProductId)
+        .sorted()
+        .forEach(orderRepository::guardStockReconciliation);
+    for (OrderItem item : items) {
+      int available = productService.computeAvailableStock(item.getProductId());
+      int reserved = productService.computeReservedStock(item.getProductId());
+      if (available - reserved < item.getQuantity()) {
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "INSUFFICIENT_STOCK");
       }
-
-      Address address = new Address();
-      address.setStreet(request.address().street());
-      address.setDepartment(request.address().department());
-      address.setFloor(request.address().floor());
-      address.setPostalCode(request.address().postalCode());
-
-      long totalAmountCents = 0L;
-      String currency = "ARS";
-      boolean taxIncluded = true;
-      boolean hasAnyPrice = false;
-
-      for (OrderItem item : items) {
-        if (item.getUnitPrice() != null) {
-          hasAnyPrice = true;
-          totalAmountCents += item.getUnitPrice().getAmountCents() * item.getQuantity();
-          if (item.getUnitPrice().getCurrency() != null) {
-            currency = item.getUnitPrice().getCurrency();
-          }
-          taxIncluded = item.getUnitPrice().isTaxIncluded();
-        }
-      }
-
-      Order order = new Order();
-      order.setStatus(OrderStatus.PENDING);
-      order.setPriority(request.priority() != null ? request.priority() : OrderPriority.MEDIUM);
-      order.setRequestedByUserId(userId);
-      order.setItems(items);
-      order.setStops(stopResolver.resolve(items));
-      order.setDestinationArea(request.destinationArea());
-      order.setAddress(address);
-      order.setCreatedAt(Instant.now());
-
-      if (hasAnyPrice) {
-        Product.Price total = new Product.Price();
-        total.setAmountCents(totalAmountCents);
-        total.setCurrency(currency);
-        total.setTaxIncluded(taxIncluded);
-        order.setTotal(total);
-      }
-
-      Order saved = orderRepository.saveWithoutPublishing(order);
-      return saved;
-    } finally {
-      locks.forEach(ReentrantLock::unlock);
     }
+
+    Address address = new Address();
+    address.setStreet(request.address().street());
+    address.setDepartment(request.address().department());
+    address.setFloor(request.address().floor());
+    address.setPostalCode(request.address().postalCode());
+
+    long totalAmountCents = 0L;
+    String currency = "ARS";
+    boolean taxIncluded = true;
+    boolean hasAnyPrice = false;
+
+    for (OrderItem item : items) {
+      if (item.getUnitPrice() != null) {
+        hasAnyPrice = true;
+        totalAmountCents += item.getUnitPrice().getAmountCents() * item.getQuantity();
+        if (item.getUnitPrice().getCurrency() != null) {
+          currency = item.getUnitPrice().getCurrency();
+        }
+        taxIncluded = item.getUnitPrice().isTaxIncluded();
+      }
+    }
+
+    Order order = new Order();
+    order.setStatus(OrderStatus.PENDING);
+    order.setPriority(request.priority() != null ? request.priority() : OrderPriority.MEDIUM);
+    order.setRequestedByUserId(userId);
+    order.setItems(items);
+    order.setStops(stopResolver.resolve(items));
+    order.setDestinationArea(request.destinationArea());
+    order.setAddress(address);
+    order.setCreatedAt(Instant.now());
+
+    if (hasAnyPrice) {
+      Product.Price total = new Product.Price();
+      total.setAmountCents(totalAmountCents);
+      total.setCurrency(currency);
+      total.setTaxIncluded(taxIncluded);
+      order.setTotal(total);
+    }
+
+    return orderRepository.saveWithoutPublishing(order);
   }
 
   private void publishOrderUpdateAfterCommit(Order order) {

@@ -89,3 +89,11 @@ bridge/coverage.xml
 docs/bruno/collection.bru
 docs/superpowers/
 CLAUDE.md
+
+# E2E suite output (generated per run, includes throwaway secrets)
+e2e/results/
+load/results/
+
+# Python bytecode
+__pycache__/
+*.pyc

@@ -40,7 +40,10 @@ class DerivedQueryNamesTest {
         new Object[] {ProductRepository.class, Product.class},
         new Object[] {UserRepository.class, User.class},
         new Object[] {VehicleRepository.class, Vehicle.class},
-        new Object[] {OrderMongoRepository.class, Order.class});
+        new Object[] {OrderMongoRepository.class, Order.class},
+        new Object[] {
+          StockAdjustmentRepository.class, com.usal.whbackend.domain.StockAdjustment.class
+        });
   }
 
   private static List<Object[]> derivedQueryMethods() {

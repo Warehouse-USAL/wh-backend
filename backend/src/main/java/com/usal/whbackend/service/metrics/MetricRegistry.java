@@ -309,6 +309,48 @@ public class MetricRegistry {
                       "Limita a estos productos; vacío o ausente = todos los activos"),
                   new ComputedMetricDescriptor.Field(
                       "category", "string", null, null, "Limita a una categoría del catálogo")),
+              READERS),
+          new ComputedMetricDescriptor(
+              "suggestion_conversion",
+              "/metrics/suggestion-conversion",
+              "Conversión de sugerencias",
+              "Por día, semana o mes, cuántos pedidos, líneas y unidades salieron de una"
+                  + " recomendación (from_recommendation en POST /orders) y qué proporción"
+                  + " representan. Los pedidos cancelados no cuentan.",
+              List.of(
+                  new ComputedMetricDescriptor.Field(
+                      "from", "string", null, null, "Inicio del rango, inclusive (ISO-8601)"),
+                  new ComputedMetricDescriptor.Field(
+                      "to",
+                      "string",
+                      null,
+                      null,
+                      "Fin del rango, exclusivo (ISO-8601); como máximo 731 días después de from"),
+                  new ComputedMetricDescriptor.Field(
+                      "granularity",
+                      "string",
+                      null,
+                      null,
+                      "Tamaño del bucket: day, week (lunes a domingo) o month")),
+              List.of(
+                  new ComputedMetricDescriptor.Field(
+                      "time_zone",
+                      "string",
+                      null,
+                      null,
+                      "Zona horaria IANA con la que se cortan los buckets; UTC si se omite"),
+                  new ComputedMetricDescriptor.Field(
+                      "product_ids",
+                      "string[]",
+                      null,
+                      null,
+                      "Considera solo las líneas de estos productos; vacío o ausente = todos"),
+                  new ComputedMetricDescriptor.Field(
+                      "category",
+                      "string",
+                      null,
+                      null,
+                      "Considera solo las líneas de una categoría del catálogo")),
               READERS));
 
   private static MetricDescriptor histogram(

@@ -85,6 +85,10 @@ jobs:
 
       - name: Verify bridge is up
         run: |
+          # `make deploy` starts the bridge only when Infra is configured (scripts/prod-env.sh).
+          if [ "$(cd /opt/wh/wh-backend && scripts/prod-env.sh bridge)" != yes ]; then
+            echo "Infra bridge not configured (INFRA_AMQP_URL / INFRA_API_KEY unset) — skipping"; exit 0
+          fi
           for i in $(seq 1 24); do
             state=$(docker inspect -f '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' wh-backend-bridge-1 2>/dev/null || echo missing)
             if [ "$state" = "running healthy" ]; then
@@ -92,8 +96,21 @@ jobs:
             fi
             sleep 5
           done
-          echo "bridge not healthy (state: $state) — check INFRA_AMQP_URL / INFRA_API_KEY in /opt/wh/wh-backend/.env:" | tee -a /tmp/wh-deploy.log
+          echo "bridge not healthy (state: $state) — check INFRA_AMQP_URL (AMQP port 5672, not MQTT 1883) / INFRA_API_KEY in /opt/wh/wh-backend/.env:" | tee -a /tmp/wh-deploy.log
           docker logs --tail 40 wh-backend-bridge-1 2>&1 | tail -30 >> /tmp/wh-deploy.log
+          exit 1
+
+      - name: Verify suggestions is up
+        run: |
+          for _ in $(seq 1 24); do
+            state=$(docker inspect -f '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' wh-backend-suggestions-1 2>/dev/null || echo missing)
+            if [ "$state" = "running healthy" ]; then
+              echo "suggestions healthy"; exit 0
+            fi
+            sleep 5
+          done
+          echo "suggestions not healthy (state: $state) — check JWT_SECRET and Redpanda; /healthz reports Redis and the Kafka consumer:" | tee -a /tmp/wh-deploy.log
+          docker logs --tail 40 wh-backend-suggestions-1 2>&1 | tail -30 >> /tmp/wh-deploy.log
           exit 1
 
       - name: Verify console is up

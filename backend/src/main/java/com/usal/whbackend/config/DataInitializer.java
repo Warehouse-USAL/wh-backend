@@ -1,11 +1,7 @@
 package com.usal.whbackend.config;
 
-import com.usal.whbackend.domain.Line;
-import com.usal.whbackend.domain.Position;
-import com.usal.whbackend.domain.StockSize;
 import com.usal.whbackend.domain.User;
 import com.usal.whbackend.domain.UserRole;
-import com.usal.whbackend.domain.Zone;
 import com.usal.whbackend.repository.LineRepository;
 import com.usal.whbackend.repository.PositionRepository;
 import com.usal.whbackend.repository.UserRepository;
@@ -34,6 +30,7 @@ public class DataInitializer implements ApplicationRunner {
   private final ZoneRepository zoneRepository;
   private final LineRepository lineRepository;
   private final PositionRepository positionRepository;
+  private final String qrPrefix;
 
   public DataInitializer(
       UserRepository userRepository,
@@ -42,7 +39,8 @@ public class DataInitializer implements ApplicationRunner {
       @Value("${ADMIN_PASSWORD:#{null}}") String adminPassword,
       ZoneRepository zoneRepository,
       LineRepository lineRepository,
-      PositionRepository positionRepository) {
+      PositionRepository positionRepository,
+      @Value("${WH_QR_PREFIX:" + DemoDataset.DEFAULT_QR_PREFIX + "}") String qrPrefix) {
     this.userRepository = userRepository;
     this.passwordEncoder = passwordEncoder;
     this.adminEmail = adminEmail;
@@ -50,6 +48,7 @@ public class DataInitializer implements ApplicationRunner {
     this.zoneRepository = zoneRepository;
     this.lineRepository = lineRepository;
     this.positionRepository = positionRepository;
+    this.qrPrefix = DemoDataset.qrPrefixOrDefault(qrPrefix);
   }
 
   @Override
@@ -88,51 +87,23 @@ public class DataInitializer implements ApplicationRunner {
     }
   }
 
+  /**
+   * The real warehouse (see {@link WarehouseLayout}): one zone, one line, six empty positions whose
+   * QR texts are the codes Infra recognises. {@code SEED_DEMO} later fills these same documents
+   * with products and stock.
+   */
   private void doSeedWarehouse() {
-
-    // Zone A
-    Zone zoneA = new Zone();
-    zoneA.setZoneCode("A");
-    zoneA.setMaxAllowedLines(10);
-    zoneA.setActive(true);
-    zoneA.setCreatedAt(Instant.now());
-    zoneA = zoneRepository.save(zoneA);
-
-    // Line 1 in Zone A
-    Line lineA1 = new Line();
-    lineA1.setIdZone(zoneA.getId());
-    lineA1.setNumberLine(1);
-    lineA1.setMaxAllowedPositions(20);
-    lineA1.setActive(true);
-    lineA1.setCreatedAt(Instant.now());
-    lineA1 = lineRepository.save(lineA1);
-
-    // Position P01 in Line A1
-    Position posA1P1 = new Position();
-    posA1P1.setIdLine(lineA1.getId());
-    posA1P1.setIdZone(zoneA.getId());
-    posA1P1.setPositionName("P01");
-    posA1P1.setQrCode("WH|A-L1-P01");
-    posA1P1.setMaximumCapacity(200);
-    posA1P1.setSizeStockToSave(StockSize.MEDIO_PALLET);
-    posA1P1.setActive(true);
-    posA1P1.setCurrentStock(0);
-    posA1P1.setCreatedAt(Instant.now());
-    positionRepository.save(posA1P1);
-
-    // Position P02 in Line A1
-    Position posA1P2 = new Position();
-    posA1P2.setIdLine(lineA1.getId());
-    posA1P2.setIdZone(zoneA.getId());
-    posA1P2.setPositionName("P02");
-    posA1P2.setQrCode("WH|A-L1-P02");
-    posA1P2.setMaximumCapacity(200);
-    posA1P2.setSizeStockToSave(StockSize.PALLET);
-    posA1P2.setActive(true);
-    posA1P2.setCurrentStock(0);
-    posA1P2.setCreatedAt(Instant.now());
-    positionRepository.save(posA1P2);
-
-    log.info("Seeded warehouse structure: Zone A, Line 1, Positions P01-P02");
+    Instant now = Instant.now();
+    zoneRepository.save(WarehouseLayout.zone(now));
+    lineRepository.save(WarehouseLayout.line(now));
+    for (WarehouseLayout.Slot slot : WarehouseLayout.SLOTS) {
+      positionRepository.save(WarehouseLayout.position(slot, null, qrPrefix, now));
+    }
+    log.info(
+        "Seeded warehouse structure: Zone {}, Line {}, {} positions ({}).",
+        WarehouseLayout.ZONE_CODE,
+        WarehouseLayout.LINE_NUMBER,
+        WarehouseLayout.SLOTS.size(),
+        WarehouseLayout.SLOTS.stream().map(WarehouseLayout.Slot::name).toList());
   }
 }

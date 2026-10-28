@@ -24,8 +24,14 @@ body:json {
     "items": [
       {
         "product_id": "6a03ba18c21a802f22a4c3db",
-        "quantity": 2
+        "quantity": 2,
+        "from_recommendation": true
       }
     ]
   }
+}
+
+docs {
+  from_recommendation is optional per item (absent = false): send true on the lines the user added
+  from a suggestion of the suggestions service. It feeds POST /metrics/suggestion-conversion.
 }

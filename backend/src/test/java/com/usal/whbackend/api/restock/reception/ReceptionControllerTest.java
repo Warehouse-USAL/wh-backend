@@ -13,6 +13,7 @@ import com.usal.whbackend.domain.Reception;
 import com.usal.whbackend.domain.ReceptionStatus;
 import com.usal.whbackend.domain.StockSize;
 import com.usal.whbackend.service.ReceptionService;
+import com.usal.whbackend.service.UserService;
 import com.usal.whbackend.service.exception.ReceptionNotFoundException;
 import java.time.Instant;
 import java.util.List;
@@ -40,6 +41,7 @@ class ReceptionControllerTest {
   MockMvc mockMvc;
   @MockitoBean ReceptionService receptionService;
   @MockitoBean JwtService jwtService;
+  @MockitoBean UserService userService;
 
   @BeforeEach
   void setUp() {
@@ -70,7 +72,8 @@ class ReceptionControllerTest {
   @Test
   @WithMockUser(username = "user-1", roles = "ADMIN_WAREHOUSE")
   void createReception_valid_returns201() throws Exception {
-    when(receptionService.createReception(any(), eq("user-1"))).thenReturn(reception("rcp-1"));
+    when(receptionService.createReception(any(), eq("user-1"), isNull()))
+        .thenReturn(reception("rcp-1"));
 
     mockMvc
         .perform(
@@ -84,11 +87,43 @@ class ReceptionControllerTest {
   }
 
   @Test
-  @WithMockUser(roles = "PROVIDER")
+  @WithMockUser(roles = "OPERATOR")
   void createReception_unauthorizedRole_returns403() throws Exception {
     mockMvc
         .perform(
             post("/restock/receptions").contentType(MediaType.APPLICATION_JSON).content(VALID_BODY))
+        .andExpect(status().isForbidden());
+  }
+
+  @Test
+  @WithMockUser(username = "provider-1", roles = "PROVIDER")
+  void createReception_asProvider_registersDeliveryForItsOwnSupplier() throws Exception {
+    Reception pending = reception("rcp-1");
+    pending.setAssignments(List.of());
+    pending.setStatus(ReceptionStatus.PENDING_LOCATION);
+    when(userService.supplierOf("provider-1")).thenReturn("Distribuidora XYZ");
+    when(receptionService.createReception(any(), eq("provider-1"), eq("Distribuidora XYZ")))
+        .thenReturn(pending);
+
+    mockMvc
+        .perform(
+            post("/restock/receptions")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    "{\"restock_order_id\":\"rso-1\",\"product_id\":\"product-1\","
+                        + "\"quantity_received\":48,\"delivery_unit\":\"PALLET\"}"))
+        .andExpect(status().isCreated())
+        .andExpect(jsonPath("$.reception.status").value("PENDING_LOCATION"));
+  }
+
+  @Test
+  @WithMockUser(roles = "PROVIDER")
+  void assignPositions_asProvider_returns403() throws Exception {
+    mockMvc
+        .perform(
+            patch("/restock/receptions/rcp-1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"assignments\":[{\"position_id\":\"pos-1\",\"quantity\":48}]}"))
         .andExpect(status().isForbidden());
   }
 
@@ -98,7 +133,7 @@ class ReceptionControllerTest {
     Reception pending = reception("rcp-1");
     pending.setAssignments(List.of());
     pending.setStatus(ReceptionStatus.PENDING_LOCATION);
-    when(receptionService.createReception(any(), eq("user-1"))).thenReturn(pending);
+    when(receptionService.createReception(any(), eq("user-1"), isNull())).thenReturn(pending);
 
     mockMvc
         .perform(
@@ -115,7 +150,7 @@ class ReceptionControllerTest {
   @Test
   @WithMockUser(roles = "ADMIN_WAREHOUSE")
   void createReception_assignmentMismatch_returns400() throws Exception {
-    when(receptionService.createReception(any(), any()))
+    when(receptionService.createReception(any(), any(), isNull()))
         .thenThrow(
             new org.springframework.web.server.ResponseStatusException(
                 org.springframework.http.HttpStatus.BAD_REQUEST, "ASSIGNMENT_QUANTITY_MISMATCH"));

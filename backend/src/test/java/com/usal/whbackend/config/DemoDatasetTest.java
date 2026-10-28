@@ -13,6 +13,10 @@ import com.usal.whbackend.domain.User;
 import com.usal.whbackend.domain.UserRole;
 import com.usal.whbackend.domain.Vehicle;
 import com.usal.whbackend.domain.VehicleStatus;
+import com.usal.whbackend.service.PositionService;
+import com.usal.whbackend.service.metrics.conversion.ConversionBucket;
+import com.usal.whbackend.service.metrics.conversion.Granularity;
+import com.usal.whbackend.service.metrics.conversion.SuggestionConversion;
 import com.usal.whbackend.service.metrics.restock.RestockFormula;
 import com.usal.whbackend.service.metrics.restock.RestockInputs;
 import com.usal.whbackend.service.metrics.restock.RestockParams;
@@ -21,7 +25,10 @@ import java.time.DayOfWeek;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.Month;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -30,7 +37,7 @@ import org.junit.jupiter.api.Test;
 
 class DemoDatasetTest {
 
-  // Built once: two years of history is ~50k orders, and every test only reads it.
+  // Built once: two years of history is ~22k orders, and every test only reads it.
   private static DemoData data;
 
   @BeforeAll
@@ -65,35 +72,70 @@ class DemoDatasetTest {
   }
 
   @Test
-  void buildsTwentyFourProductsSixPerCategory() {
+  void buildsTwentyTechProductsWithCoherentData() {
     var products = data.getProducts();
-    assertThat(products).hasSize(24);
+    assertThat(products).hasSize(20);
     Map<String, Long> byCategory =
         products.stream()
             .collect(Collectors.groupingBy(Product::getCategory, Collectors.counting()));
-    for (ProductCategory category : ProductCategory.values()) {
-      assertThat(byCategory.get(category.name())).as("count for %s", category).isEqualTo(6L);
-    }
+    assertThat(byCategory)
+        .containsEntry(ProductCategory.TECNOLOGIA.name(), 14L)
+        .containsEntry(ProductCategory.OTROS.name(), 6L);
     assertThat(products).allMatch(Product::isActive);
+    assertThat(products).allMatch(p -> p.getId().equals("p-" + p.getSku()));
+    assertThat(products).allMatch(p -> p.getDescription() != null && !p.getDescription().isBlank());
     assertThat(products).allMatch(p -> p.getMaxQuantityPerOrder() > 0);
+    assertThat(products).allMatch(p -> p.getMinimumStock() > 0);
     assertThat(products).allMatch(p -> p.getPrice() != null && p.getPrice().getAmountCents() > 0);
-    assertThat(products).allMatch(p -> p.getImages() != null && !p.getImages().isEmpty());
-    assertThat(products.stream().map(Product::getSku).distinct().count()).isEqualTo(24);
+    assertThat(products).allMatch(p -> "ARS".equals(p.getPrice().getCurrency()));
+    assertThat(products)
+        .allMatch(p -> p.getHeight() > 0 && p.getWidth() > 0 && p.getLength() > 0)
+        .allMatch(p -> p.getWeight() > 0)
+        .allMatch(p -> p.getVolume() == p.getHeight() * p.getWidth() * p.getLength());
+    assertThat(products).allMatch(p -> p.getSpecs() != null && p.getSpecs().size() >= 3);
+    assertThat(products.stream().map(Product::getSku).distinct().count()).isEqualTo(20);
+    assertThat(products.stream().map(Product::getName).distinct().count()).isEqualTo(20);
   }
 
   @Test
-  void warehouseHasExpectedZonesLinesAndPositions() {
-    assertThat(data.getZones()).hasSize(2);
-    assertThat(data.getZones())
-        .extracting(z -> z.getZoneCode())
-        .containsExactlyInAnyOrder("B", "C");
-    assertThat(data.getZones()).allMatch(z -> z.isActive());
-    assertThat(data.getLines()).hasSize(7);
-    assertThat(data.getPositions()).hasSize(35);
+  void everyProductHasARealStableImage() {
+    for (Product p : data.getProducts()) {
+      assertThat(p.getImages()).as("images of %s", p.getSku()).hasSize(1);
+      var image = p.getImages().get(0);
+      assertThat(image.isPrimary()).isTrue();
+      assertThat(image.getAlt()).isEqualTo(p.getName());
+      // Wikimedia Commons (licences in docs/seed-images.md); picsum-style placeholders are gone.
+      assertThat(image.getUrl())
+          .as("image of %s", p.getSku())
+          .startsWith("https://commons.wikimedia.org/wiki/Special:FilePath/")
+          .matches(".*\\.(jpg|jpeg|png)\\?width=\\d+")
+          .doesNotContain(" ");
+    }
+    assertThat(data.getProducts().stream().map(p -> p.getImages().get(0).getUrl()).distinct())
+        .hasSize(20);
   }
 
   @Test
-  void everyPositionReferencesValidZoneLineAndOptionalProduct() {
+  void warehouseIsTheRealOneZoneOneLineSixPositions() {
+    assertThat(data.getZones()).hasSize(1);
+    assertThat(data.getZones().get(0).getZoneCode()).isEqualTo("A");
+    assertThat(data.getZones().get(0).isActive()).isTrue();
+    assertThat(data.getLines()).hasSize(1);
+    assertThat(data.getLines().get(0).getNumberLine()).isEqualTo(1);
+    assertThat(data.getLines().get(0).isActive()).isTrue();
+    assertThat(data.getPositions()).hasSize(6);
+    assertThat(data.getPositions())
+        .extracting(Position::getPositionName)
+        .containsExactlyInAnyOrder("PA1", "PA2", "PA3", "PM1", "PM2", "PM3");
+    assertThat(data.getPositions()).allMatch(Position::isActive);
+    assertThat(data.getPositions())
+        .extracting(Position::getId)
+        .doesNotHaveDuplicates()
+        .allMatch(id -> id.matches("pos-l-A-1-P[AM][1-3]"));
+  }
+
+  @Test
+  void everyPositionReferencesValidZoneLineAndProduct() {
     Set<String> zoneIds = data.getZones().stream().map(z -> z.getId()).collect(Collectors.toSet());
     Set<String> lineIds = data.getLines().stream().map(l -> l.getId()).collect(Collectors.toSet());
     Set<String> productIds =
@@ -102,22 +144,32 @@ class DemoDatasetTest {
       assertThat(zoneIds).contains(pos.getIdZone());
       assertThat(lineIds).contains(pos.getIdLine());
       assertThat(pos.getCurrentStock()).isGreaterThanOrEqualTo(0);
-      if (pos.getProductId() != null) {
-        assertThat(productIds).contains(pos.getProductId());
-      }
+      assertThat(productIds).contains(pos.getProductId());
     }
   }
 
   @Test
-  void everyProductIsStoredInAtLeastOnePosition() {
-    Set<String> hostedProductIds =
-        data.getPositions().stream()
-            .map(Position::getProductId)
-            .filter(id -> id != null)
-            .collect(Collectors.toSet());
-    for (Product p : data.getProducts()) {
-      assertThat(hostedProductIds).as("product %s is hosted", p.getSku()).contains(p.getId());
-    }
+  void eachPositionHoldsADifferentProductAndTheRestOfTheCatalogueIsUnstocked() {
+    // The model assigns one product per position; six positions stock six of the twenty products.
+    assertThat(data.getPositions())
+        .extracting(Position::getProductId)
+        .doesNotHaveDuplicates()
+        .doesNotContainNull();
+    assertThat(data.getPositions()).allMatch(p -> p.getCurrentStock() > 0);
+    Set<String> hosted =
+        data.getPositions().stream().map(Position::getProductId).collect(Collectors.toSet());
+    assertThat(data.getProducts().stream().filter(p -> !hosted.contains(p.getId())))
+        .hasSize(14)
+        .as("the unstocked catalogue has no orders, receptions or restock orders")
+        .allSatisfy(
+            p -> {
+              assertThat(data.getOrders())
+                  .noneMatch(
+                      o -> o.getItems().stream().anyMatch(i -> i.getProductId().equals(p.getId())));
+              assertThat(data.getReceptions()).noneMatch(r -> r.getProductId().equals(p.getId()));
+              assertThat(data.getRestockOrders())
+                  .noneMatch(r -> r.getProductId().equals(p.getId()));
+            });
   }
 
   @Test
@@ -157,14 +209,14 @@ class DemoDatasetTest {
   @Test
   void buildsTwoYearsOfOrdersAcrossAllStatuses() {
     var orders = data.getOrders();
-    // ~40–120 a day over two years; the exact count depends on the calendar the seed lands on.
-    assertThat(orders).hasSizeBetween(40_000, 70_000);
+    // ~16–45 a day over two years; the exact count depends on the calendar the seed lands on.
+    assertThat(orders).hasSizeBetween(12_000, 40_000);
     Map<OrderStatus, Long> byStatus =
         orders.stream().collect(Collectors.groupingBy(Order::getStatus, Collectors.counting()));
     // The near-term batch (7 pending, 2 riding a rover) plus whatever arrived too recently to ship.
     assertThat(byStatus.get(OrderStatus.PENDING)).isGreaterThanOrEqualTo(7);
     assertThat(byStatus.get(OrderStatus.IN_PROGRESS)).isEqualTo(2);
-    assertThat(byStatus.get(OrderStatus.COMPLETED)).isGreaterThan(35_000);
+    assertThat(byStatus.get(OrderStatus.COMPLETED)).isGreaterThan(10_000);
     assertThat(byStatus.get(OrderStatus.CANCELLED)).isPositive();
   }
 
@@ -380,8 +432,8 @@ class DemoDatasetTest {
     long recent =
         data.getRestockOrders().stream().filter(r -> r.getCreatedAt().isAfter(oneYearAgo)).count();
     long older = data.getRestockOrders().size() - recent;
-    assertThat(recent).isGreaterThan(200);
-    assertThat(older).isGreaterThan(200);
+    assertThat(recent).isGreaterThan(30);
+    assertThat(older).isGreaterThan(30);
   }
 
   @Test
@@ -437,6 +489,98 @@ class DemoDatasetTest {
             });
   }
 
+  // ── Suggestion conversion ────────────────────────────────────────────────────
+
+  private static List<ConversionBucket> dailyConversion() {
+    ZoneId zone = ZoneId.of("America/Argentina/Buenos_Aires");
+    LocalDate today = LocalDate.now(zone);
+    return SuggestionConversion.compute(
+        data.getOrders(), null, zone, Granularity.DAY, today.minusDays(729), today);
+  }
+
+  @Test
+  void everyDayOfTheTwoYearsHasOrdersAndAtLeastOneRecommendedLine() {
+    var days = dailyConversion();
+
+    assertThat(days).hasSize(730);
+    assertThat(days).allSatisfy(d -> assertThat(d.orders()).as(d.bucket()).isPositive());
+    assertThat(days)
+        .allSatisfy(d -> assertThat(d.linesFromRecommendation()).as(d.bucket()).isPositive());
+  }
+
+  @Test
+  void suggestionAdoptionGrowsOverTheTwoYears() {
+    var days = dailyConversion();
+
+    double early =
+        days.subList(0, 180).stream().mapToDouble(d -> d.lineConversionRate()).average().orElse(0);
+    double late =
+        days.subList(550, 730).stream()
+            .mapToDouble(d -> d.lineConversionRate())
+            .average()
+            .orElse(0);
+
+    assertThat(early).isBetween(0.02, 0.15);
+    assertThat(late).isBetween(0.15, 0.45);
+    assertThat(late).isGreaterThan(early * 2);
+  }
+
+  @Test
+  void cancelledOrdersCarryNoRecommendationThatCounts() {
+    var all =
+        SuggestionConversion.compute(
+            data.getOrders().stream().filter(o -> o.getStatus() == OrderStatus.CANCELLED).toList(),
+            null,
+            ZoneOffset.UTC,
+            Granularity.MONTH,
+            LocalDate.now().minusDays(729),
+            LocalDate.now());
+    assertThat(all).allMatch(b -> b.orders() == 0);
+  }
+
+  // ── Daily business series (docs/SEEDED_METRICS.md) ───────────────────────────
+
+  @Test
+  void everyDayOfTheTwoYearsHasCompletedAndCancelledOrdersWithTimings() {
+    ZoneId zone = ZoneId.of("America/Argentina/Buenos_Aires");
+    LocalDate today = LocalDate.now(zone);
+    Map<LocalDate, java.util.List<Order>> byDay =
+        data.getOrders().stream()
+            .collect(Collectors.groupingBy(o -> LocalDate.ofInstant(o.getCreatedAt(), zone)));
+
+    // Today and the day before may still be in flight; the 728 before them are settled.
+    for (int back = 2; back <= 729; back++) {
+      LocalDate day = today.minusDays(back);
+      java.util.List<Order> orders = byDay.getOrDefault(day, java.util.List.of());
+      assertThat(orders).as(day.toString()).isNotEmpty();
+      assertThat(orders)
+          .as("completed on " + day)
+          .anyMatch(
+              o ->
+                  o.getStatus() == OrderStatus.COMPLETED
+                      && o.getCompletedAt() != null
+                      && o.getStartedAt() != null
+                      && o.getAssignedVehicleId() != null);
+    }
+  }
+
+  @Test
+  void cancellationsAndReceptionsAreSpreadOverTheWholeWindowNotBunchedAtTheEnd() {
+    long months =
+        data.getOrders().stream()
+            .filter(o -> o.getStatus() == OrderStatus.CANCELLED)
+            .map(o -> java.time.YearMonth.from(o.getCreatedAt().atZone(ZoneId.of("UTC"))))
+            .distinct()
+            .count();
+    assertThat(months).isGreaterThanOrEqualTo(24);
+    long receptionMonths =
+        data.getReceptions().stream()
+            .map(r -> java.time.YearMonth.from(r.getCreatedAt().atZone(ZoneId.of("UTC"))))
+            .distinct()
+            .count();
+    assertThat(receptionMonths).isGreaterThanOrEqualTo(24);
+  }
+
   // ── Restock suggestions (RFC_Metricas_Calculadas.md §7) ─────────────────────
 
   @Test
@@ -466,11 +610,28 @@ class DemoDatasetTest {
             Instant.now(),
             DemoDataset.DEMO_RESTOCK_PARAMS.recentDays(),
             DemoDataset.DEMO_RESTOCK_PARAMS.longDays());
-    // Product 0 is the never-ordered low-stock item; every other one has a demand history.
-    for (Product p : data.getProducts().subList(1, data.getProducts().size())) {
+    // The first stocked product (PA1) is the never-ordered low-stock item; every other stocked one
+    // has a demand history.
+    for (Product p : stockedProducts().subList(1, 6)) {
       assertThat(demand.get(p.getId())).as("demand for %s", p.getSku()).isNotNull();
       assertThat(demand.get(p.getId()).longTerm()).isPositive();
     }
+  }
+
+  /** The products the six positions hold, in layout order (PA1 first). */
+  private static List<Product> stockedProducts() {
+    Map<String, Product> productById =
+        data.getProducts().stream().collect(Collectors.toMap(Product::getId, p -> p));
+    return data.getPositions().stream()
+        .sorted(
+            java.util.Comparator.comparing(
+                p ->
+                    WarehouseLayout.SLOTS.stream()
+                        .map(WarehouseLayout.Slot::name)
+                        .toList()
+                        .indexOf(p.getPositionName())))
+        .map(p -> productById.get(p.getProductId()))
+        .toList();
   }
 
   private static Map<String, RestockResult> restockResults() {
@@ -482,7 +643,7 @@ class DemoDatasetTest {
     Map<String, RestockInputs.Demand> demand =
         RestockInputs.demandByProduct(
             data.getOrders(), Instant.now(), params.recentDays(), params.longDays());
-    return data.getProducts().stream()
+    return stockedProducts().stream()
         .collect(
             Collectors.toMap(
                 Product::getId,
@@ -582,10 +743,89 @@ class DemoDatasetTest {
   }
 
   @Test
-  void everyPositionHasAUniqueQrCode() {
+  void everyPositionHasAUniqueNonBlankQrCode() {
     assertThat(data.getPositions())
         .allSatisfy(p -> assertThat(p.getQrCode()).isNotBlank())
         .extracting(Position::getQrCode)
         .doesNotHaveDuplicates();
+  }
+
+  @Test
+  void qrCodesArePrefixPlusPositionNameAsPrintedInTheWarehouse() {
+    assertThat(data.getPositions())
+        .allSatisfy(p -> assertThat(p.getQrCode()).isEqualTo("WH2|" + p.getPositionName()));
+    assertThat(data.getPositions())
+        .extracting(Position::getQrCode)
+        .containsExactlyInAnyOrder(
+            "WH2|PA1", "WH2|PA2", "WH2|PA3", "WH2|PM1", "WH2|PM2", "WH2|PM3");
+  }
+
+  @Test
+  void qrPrefixIsConfigurable() {
+    DemoData custom = new DemoDataset(p -> p, "ALM1|").build();
+    assertThat(custom.getPositions())
+        .extracting(Position::getQrCode)
+        .containsExactlyInAnyOrder(
+            "ALM1|PA1", "ALM1|PA2", "ALM1|PA3", "ALM1|PM1", "ALM1|PM2", "ALM1|PM3");
+  }
+
+  @Test
+  void blankQrPrefixMeansTheDefault() {
+    assertThat(DemoDataset.qrPrefixOrDefault("")).isEqualTo("WH2|");
+    assertThat(DemoDataset.qrPrefixOrDefault("  ")).isEqualTo("WH2|");
+    assertThat(DemoDataset.qrPrefixOrDefault(null)).isEqualTo("WH2|");
+    assertThat(DemoDataset.qrPrefixOrDefault("ALM1|")).isEqualTo("ALM1|");
+    assertThat(new DemoDataset(p -> p, "").build().getPositions().get(0).getQrCode())
+        .isEqualTo("WH2|PA1");
+  }
+
+  @Test
+  void everySeededPositionSatisfiesTheInvariantsTheApiEnforces() {
+    Map<String, Product> productById =
+        data.getProducts().stream().collect(Collectors.toMap(Product::getId, p -> p));
+    for (Position pos : data.getPositions()) {
+      assertThat(pos.getSizeStockToSave()).as("size of %s", pos.getId()).isNotNull();
+      assertThat(pos.getMaximumCapacity()).as("capacity of %s", pos.getId()).isPositive();
+      // PositionService.updatePosition: stock <= maximumCapacity ...
+      assertThat(pos.getCurrentStock())
+          .as("stock of %s", pos.getId())
+          .isBetween(0, pos.getMaximumCapacity());
+      if (pos.getProductId() == null) {
+        assertThat(pos.getCurrentStock()).as("empty %s holds nothing", pos.getId()).isZero();
+        continue;
+      }
+      Product product = productById.get(pos.getProductId());
+      // ... and stock x volume <= the container's volume, so PATCHing any field never fails.
+      assertThat(pos.getCurrentStock() * product.getVolume())
+          .as("volume held by %s", pos.getId())
+          .isLessThanOrEqualTo(pos.getSizeStockToSave().getVolumeCm3());
+      // The capacity itself was derived from the volume rule, not just the stock that happens to
+      // be there, so a restock up to maximumCapacity is also accepted.
+      assertThat(pos.getMaximumCapacity() * product.getVolume())
+          .as("full volume of %s", pos.getId())
+          .isLessThanOrEqualTo(pos.getSizeStockToSave().getVolumeCm3());
+      assertThat(pos.getMaximumCapacity())
+          .isLessThanOrEqualTo(
+              PositionService.maxUnitsByVolume(
+                  product.getVolume(), pos.getSizeStockToSave().getVolumeCm3()));
+    }
+  }
+
+  @Test
+  void productsAreStoredInTheContainerThatSuitsThem() {
+    // A container is only sensible if a decent number of units fit in it: at least a dozen.
+    Map<String, Product> productById =
+        data.getProducts().stream().collect(Collectors.toMap(Product::getId, p -> p));
+    for (Position pos : data.getPositions()) {
+      if (pos.getProductId() == null) {
+        continue;
+      }
+      Product product = productById.get(pos.getProductId());
+      assertThat(
+              PositionService.maxUnitsByVolume(
+                  product.getVolume(), pos.getSizeStockToSave().getVolumeCm3()))
+          .as("units of %s that fit %s", product.getSku(), pos.getId())
+          .isGreaterThanOrEqualTo(12);
+    }
   }
 }

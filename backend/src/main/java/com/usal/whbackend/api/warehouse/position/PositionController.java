@@ -5,6 +5,7 @@ import com.usal.whbackend.domain.Product;
 import com.usal.whbackend.domain.StockSize;
 import com.usal.whbackend.repository.ProductRepository;
 import com.usal.whbackend.service.PositionService;
+import com.usal.whbackend.service.StockChangeConflicts;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -69,9 +70,11 @@ public class PositionController {
   }
 
   @PatchMapping("/warehouse/positions/{id}")
-  public ResponseEntity<PositionResponse> updatePosition(
+  public ResponseEntity<UpdatePositionResponse> updatePosition(
       @PathVariable String id, @Valid @RequestBody UpdatePositionRequest request) {
-    return ResponseEntity.ok(PositionResponse.from(positionService.updatePosition(id, request)));
+    return ResponseEntity.ok(
+        UpdatePositionResponse.from(
+            StockChangeConflicts.translating(() -> positionService.updatePosition(id, request))));
   }
 
   @DeleteMapping("/warehouse/positions/{id}")

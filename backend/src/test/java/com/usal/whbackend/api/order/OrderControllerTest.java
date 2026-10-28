@@ -1,5 +1,7 @@
 package com.usal.whbackend.api.order;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -144,6 +146,30 @@ class OrderControllerTest {
 
   @Test
   @WithMockUser(roles = "ADMIN_SALES")
+  void createOrder_readsTheOptionalFromRecommendationFlagOfEachItem() throws Exception {
+    when(orderService.createOrder(any(), anyString())).thenReturn(sampleOrder);
+    mockMvc
+        .perform(
+            post("/orders")
+                .contentType("application/json")
+                .content(
+                    "{\"items\":[{\"product_id\":\"p1\",\"quantity\":1,"
+                        + "\"from_recommendation\":true},"
+                        + "{\"product_id\":\"p2\",\"quantity\":2},"
+                        + "{\"product_id\":\"p3\",\"quantity\":1,\"from_recommendation\":null}],"
+                        + "\"destination_area\":\"AREA-A\"}"))
+        .andExpect(status().isCreated());
+
+    org.mockito.ArgumentCaptor<CreateOrderRequest> captor =
+        org.mockito.ArgumentCaptor.forClass(CreateOrderRequest.class);
+    org.mockito.Mockito.verify(orderService).createOrder(captor.capture(), anyString());
+    assertThat(captor.getValue().items())
+        .extracting(CreateOrderRequest.OrderItemRequest::recommended)
+        .containsExactly(true, false, false);
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_SALES")
   void createOrder_withIdempotencyKey_passesHeaderToService() throws Exception {
     when(orderService.createOrder(any(), anyString(), eq("key-abc-123"))).thenReturn(sampleOrder);
     mockMvc
@@ -183,23 +209,21 @@ class OrderControllerTest {
 
   @Test
   @WithMockUser(username = "operator-1", roles = "OPERATOR")
-  void cancelOrder_asOperator_cancelsOnlyOwnOrdersAndShowsPendingCancellation() throws Exception {
+  void cancelOrder_asOperator_inProgressOrderComesBackCancelled() throws Exception {
     Order inProgress = new Order();
     inProgress.setId("test-id");
-    inProgress.setStatus(OrderStatus.IN_PROGRESS);
+    inProgress.setStatus(OrderStatus.CANCELLED);
     inProgress.setRequestedByUserId("operator-1");
     inProgress.setItems(List.of());
     inProgress.setCreatedAt(Instant.parse("2026-10-18T10:00:00Z"));
-    inProgress.setCancellationRequestedAt(Instant.parse("2026-10-18T10:05:00Z"));
     when(orderService.cancelOrder(eq("test-id"), isNull(), eq("operator-1"), eq(false)))
         .thenReturn(inProgress);
 
     mockMvc
         .perform(post("/orders/test-id/cancel"))
         .andExpect(status().isOk())
-        .andExpect(jsonPath("$.order.status").value("in_progress"))
-        .andExpect(
-            jsonPath("$.order.timestamps.cancellation_requested_at").value("2026-10-18T10:05:00Z"));
+        .andExpect(jsonPath("$.order.status").value("cancelled"))
+        .andExpect(jsonPath("$.order.timestamps.cancellation_requested_at").value(nullValue()));
   }
 
   @Test
