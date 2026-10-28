@@ -69,7 +69,7 @@ final class DemoHistory {
   record Result(List<Order> orders, List<RestockOrder> restockOrders, List<Reception> receptions) {}
 
   private static final long SEED = 20_261_004L;
-  private static final int BASE_ORDERS_PER_DAY = 22;
+  private static final int BASE_ORDERS_PER_DAY = 30;
   private static final double YEARLY_GROWTH = 0.15;
   private static final double CUSTOMER_CANCEL_RATE = 0.03;
   private static final double PARTIAL_DELIVERY_RATE = 0.12;

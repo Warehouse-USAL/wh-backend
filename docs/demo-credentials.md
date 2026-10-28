@@ -27,7 +27,7 @@ and boot again with the flag set.
 | Products | 20 | Technology catalogue (14 `TECNOLOGIA`, 6 `OTROS` accessories) with Commons photos ([licences](seed-images.md)); 6 are stocked in the warehouse (`PA1` Mi Band 6 (the intentionally low-stock one), `PA2` Logitech M185, `PA3` Logitech K120, `PM1` JBL Go 2, `PM2` Sony WH-CH510, `PM3` ASUS monitor on a pallet), 14 are registered with no position and zero stock |
 | Warehouse | 1 zone / 1 line / 6 positions | The real warehouse: zone `A`, line `1`, positions `PA1`-`PA3` and `PM1`-`PM3`, each holding one product (6 of the 20) with stock that fits its size and `maximum_capacity`; the other 14 products are registered without a position. Every position has the QR `WH2\|<name>` (`WH2\|PA1` ... `WH2\|PM3`; prefix via `WH_QR_PREFIX`). `DataInitializer` creates the empty structure, the demo seed fills it |
 | Vehicles | 6 | 2 IDLE, 2 BUSY (linked to the in-progress orders), 1 OFFLINE, 1 ERROR |
-| Orders | ~15,000 | Two years of simulated history over the 6 stocked products (COMPLETED, plus CANCELLED stockouts/customer cancellations), and a near-term batch: 7 PENDING, 2 IN_PROGRESS — stock reflects this history. The 14 unstocked products have no orders |
+| Orders | ~22,000 | Two years of simulated history over the 6 stocked products (COMPLETED, plus CANCELLED stockouts/customer cancellations), and a near-term batch: 7 PENDING, 2 IN_PROGRESS — stock reflects this history. The 14 unstocked products have no orders |
 
 Stock is causally consistent: completed orders have drawn position stock down (FIFO), and
 pending/in-progress orders are counted as *reserved*, so the product API's

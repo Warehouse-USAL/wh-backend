@@ -175,8 +175,8 @@ class DemoDataSeederTest {
     verify(lineRepository).saveAll(argThat((Iterable<Line> it) -> count(it) == 1));
     verify(positionRepository).saveAll(argThat((Iterable<Position> it) -> count(it) == 6));
     verify(vehicleRepository).saveAll(argThat((Iterable<Vehicle> it) -> count(it) == 6));
-    // Bulk inserts: two years of history is ~15k orders, too many for one upsert per document.
-    verify(orderMongoRepository).insert(argThat((Iterable<Order> it) -> count(it) > 10_000));
+    // Bulk inserts: two years of history is ~22k orders, too many for one upsert per document.
+    verify(orderMongoRepository).insert(argThat((Iterable<Order> it) -> count(it) > 12_000));
     verify(restockOrderRepository).insert(argThat((Iterable<RestockOrder> it) -> count(it) > 60));
     verify(receptionRepository).insert(argThat((Iterable<Reception> it) -> count(it) > 60));
     // Seeded inside the same fresh-database guard: the metrics store has no backfill, so the

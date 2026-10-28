@@ -31,7 +31,7 @@ import org.junit.jupiter.api.Test;
 
 class DemoDatasetTest {
 
-  // Built once: two years of history is ~15k orders, and every test only reads it.
+  // Built once: two years of history is ~22k orders, and every test only reads it.
   private static DemoData data;
 
   @BeforeAll
@@ -203,14 +203,14 @@ class DemoDatasetTest {
   @Test
   void buildsTwoYearsOfOrdersAcrossAllStatuses() {
     var orders = data.getOrders();
-    // ~12–35 a day over two years; the exact count depends on the calendar the seed lands on.
-    assertThat(orders).hasSizeBetween(10_000, 30_000);
+    // ~16–45 a day over two years; the exact count depends on the calendar the seed lands on.
+    assertThat(orders).hasSizeBetween(12_000, 40_000);
     Map<OrderStatus, Long> byStatus =
         orders.stream().collect(Collectors.groupingBy(Order::getStatus, Collectors.counting()));
     // The near-term batch (7 pending, 2 riding a rover) plus whatever arrived too recently to ship.
     assertThat(byStatus.get(OrderStatus.PENDING)).isGreaterThanOrEqualTo(7);
     assertThat(byStatus.get(OrderStatus.IN_PROGRESS)).isEqualTo(2);
-    assertThat(byStatus.get(OrderStatus.COMPLETED)).isGreaterThan(8_000);
+    assertThat(byStatus.get(OrderStatus.COMPLETED)).isGreaterThan(10_000);
     assertThat(byStatus.get(OrderStatus.CANCELLED)).isPositive();
   }
 
