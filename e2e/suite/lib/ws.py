@@ -47,8 +47,8 @@ class Feed:
 
 
 @contextmanager
-def feed(path: str, token: str | None):
-    url = f"{WS_BASE}{path}" + (f"?token={token}" if token is not None else "")
+def feed(path: str, token: str | None, base: str | None = None):
+    url = f"{base.replace('http', 'ws', 1) if base else WS_BASE}{path}" + (f"?token={token}" if token is not None else "")
     with connect(url, open_timeout=10, max_size=2 ** 22) as ws:
         yield Feed(ws)
 

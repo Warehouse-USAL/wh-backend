@@ -78,12 +78,15 @@ docker build -t wh-bridge .                         # el bridge
 docker build --target fakeinfra -t wh-fakeinfra .   # Infra simulada
 ```
 
-`cmd/fakeinfra` es un Infra de mentira que cumple el contrato (`AMQP_URL`,
-`FAKE_VEHICLE_ID` = `VHC-001`, `FAKE_STEP_DELAY` = `1s`): toma cada orden
-`pending`, publica `in_progress`, telemetría `busy` con `last_qr` en cada stop,
-`completed` y telemetría `idle`; a una orden `cancelled` le responde
-`cancelled` y libera al vehículo (el backend ya canceló la orden en el momento;
-ese aviso no cambia su estado). Sirve para pruebas E2E sin el rover
-real.
+`cmd/fakeinfra` es un Infra de mentira que sigue el comportamiento de la central real
+(`docs/INFRA_CONTRACT.md`): encola las órdenes `pending`, las asigna a un vehículo (`FAKE_VEHICLE_ID` =
+`VHC-001`), publica `in_progress`, telemetría `busy` con `last_qr` en cada stop, vuelve al inicio durante el
+mismo tiempo que avanzó, publica `completed` y telemetría `idle`. Una orden `cancelled` se atiende en el
+momento: si estaba en cola sale de ella; si el vehículo la lleva en curso, vuelve al inicio y queda `idle`
+**sin informar nada de la orden** (el backend ya la canceló). Variables: `FAKE_STEP_DELAY` (`1s`),
+`FAKE_RETURN_FACTOR` (`1`), `FAKE_TELEMETRY_INTERVAL` (`0`, solo ante cambios), `FAKE_DROP_CANCELS`,
+`FAKE_DUPLICATE_STATUSES`, `FAKE_STUCK_BUSY`; los modos de falla también se cambian en marcha publicando JSON
+en `amq.topic` con la clave `fakeinfra.control` (ver `docs/INFRA_CONTRACT.md`). Sirve para pruebas E2E sin el
+rover real.
 
 El healthcheck de la imagen es `/bridge healthcheck` (la imagen no tiene shell).

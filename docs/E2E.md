@@ -16,6 +16,8 @@ Requirements: Docker with compose v2 (about 8 GB RAM). Nothing else; no Java, no
 
 Outputs (git-ignored) in `e2e/results/`: `junit.xml`, `matrix.md` (human readable, per area and per test), `.env` (throwaway secrets generated for the run: JWT secret, Infra API key, admin password; never reuse real ones).
 
+`make e2e-multi` runs the two-instance group in its own project (`whmulti`); `make load` (docs/LOAD_TESTING.md) is the load harness (`whload`). Neither is part of the PR checks.
+
 Safety: the stack uses compose project `whsuite`, publishes no host ports, uses the fake Infra (`fakeinfra`) and its own RabbitMQ container, and never touches any external host. `e2e/docker-compose.infra-real.yml` is not used.
 
 ## Architecture
@@ -25,6 +27,25 @@ Safety: the stack uses compose project `whsuite`, publishes no host ports, uses 
 - `e2e/suite/` - the pytest project: `conftest.py` (health wait, role fixtures, Kafka tap, RabbitMQ API client, results-matrix plugin, group ordering), `lib/` (HTTP client with readable failures, factory for products/zones/positions/orders, an `InfraClient` that plays Infra with the API key, websocket and SSE readers, Docker control).
 - Test groups run in this order: default (Infra is played by the tests through `/infra/**`), `flow` (real chain: backend -> Kafka -> bridge -> RabbitMQ -> fakeinfra and back), `resilience` (stops/kills dependencies, always restores them).
 - Known product bugs are kept as tests that assert the CORRECT behaviour, marked `@pytest.mark.known_failure(bug=..., reason=...)`. They are strict xfail: they show as "known-failure" now and turn into a hard failure (XPASS) the day the bug is fixed, forcing the marker to be removed.
+
+## Infra failure modes (`test_infra_failures.py`, `flow` group)
+
+The fake Infra follows the real central ([INFRA_CONTRACT.md](INFRA_CONTRACT.md)): it queues orders, handles a cancel at once and, for an order on the road, drives the vehicle back and says nothing about the order. Its failure modes are flipped at run time through the RabbitMQ routing key `fakeinfra.control` (the `control` fixture does it; defaults are restored after each test). Covered: cancel of an in-progress order (immediate, stock released, vehicle frees itself from telemetry), a cancel that never reaches Infra (the late `completed` is refused with 409, stock stays, documented residual risk), duplicate order statuses (stock drained once), Infra restarting without its database (the order stays `in_progress` until an admin cancels it), and a vehicle that never reports `idle` (stays `busy` without an order, one `idle` reading frees it).
+
+## Multiple backend instances (`make e2e-multi`)
+
+`e2e/multi.sh` (project `whmulti`, so it can run next to `make e2e-suite`) starts the suite stack plus a second backend (`backend2`, `e2e/docker-compose.multi.yml`) on the same MongoDB replica set, Redpanda and MinIO, both booted at the same moment on an empty database, and runs only the tests marked `multi` (`test_multi_instance.py`; the default suite excludes them with `-m "not multi"`). It proves:
+
+| Concern | Result |
+|---|---|
+| Two instances seeding/initialising an empty database at once | both healthy, same data, one admin, no duplicated layout |
+| Order creation split across instances on scarce stock | exactly the stock sells, `INSUFFICIENT_STOCK` for the rest, never `reserved > physical` (stock guards are in MongoDB, not in memory) |
+| Same `Idempotency-Key` on both instances | one order, every request gets it back |
+| Concurrent stock adjustments across instances | one winner, the other 400/409 `STOCK_CHANGE_CONFLICT`, never 5xx |
+| JWT of a user deactivated on instance 1 | rejected at once there; on instance 2 within `jwt.user-status-cache-ttl-ms` (15 s default). Measured: 15.2 s (the TTL; the test prints the delay, `-rP` shows it) |
+| Scheduled jobs | the backend has **no** `@Scheduled` job and no ShedLock-style lock; the only periodic work is the external `restock-cron` container (one process) calling `POST /metrics/restock-suggestions/apply`, which recomputes and overwrites, so two overlapping runs agree (tested) |
+| WebSocket events | **FINDING (BUG-MULTI-1)**: sessions live in each instance's memory and a broadcast reaches only the clients connected to the instance that handled the request. An admin on instance 2 does not see an order created through instance 1. Strict xfail `test_websocket_events_published_by_one_instance_reach_clients_of_the_other` pins it. Proposed fix (not implemented here, it touches the four WS handlers and adds a consumer): publish every broadcast to a Kafka topic (for example `ws.events`, key = channel, with the origin instance id) and have every instance consume it with its own group id and deliver to its local sessions, skipping its own messages. With one instance (today's production) nothing changes. Until then run the backend as a single instance or use sticky routing for WebSocket clients plus a shared REST path |
+| Console SSE stream | per-instance too (the stream caps `max-streams` 50 and `max-streams-per-principal` 10 apply per instance) |
 
 ## Results of the reference run
 
@@ -401,6 +422,7 @@ Group `default` plays Infra by hand, `flow` uses the real chain, `resilience` st
 | BUG-VEHICLES-1 | LOW | vehicles | Battery outside 0..100 accepted via PATCH and telemetry | `VehicleService.updateVehicle`, `VehicleTelemetryService.apply` | deferred (contract / owner input) |
 | BUG-WAREHOUSE-1 | LOW | warehouse | `max_allowed_lines` / `max_allowed_positions` are never enforced (requirement implied by names only) | `LineService.createLine`, `PositionService.createPosition` | deferred (contract / owner input) |
 | BUG-SUGGEST-1 | LOW | suggestions | A redelivered `order.completed` event is counted twice (documented limitation) | `suggestions/internal/ingest/apply.go` | fixed in #148 |
+| BUG-MULTI-1 | MEDIUM | multi-instance | WebSocket events are delivered only to clients of the instance that handled the request | WebSocket handlers keep their sessions in memory (see "Multiple backend instances") | open: proposal in docs, only matters with more than one backend |
 
 Observations that are not asserted as bugs: no login lockout (a passing test documents it); deleting a missing file answers 204 (idempotent); a pending order can move straight to completed via `/infra`; a metrics query with `from > to` answers QUERY_TOO_BROAD; the first file upload right after a MinIO restart was observed once to stall (>30 s) in an exploratory run, not reproduced in the full run.
 
