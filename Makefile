@@ -1,4 +1,4 @@
-.PHONY: e2e bridge-test help up-dev run up-prod up-infra deploy infra-key down build test test-coverage lint format format-fix pr-checks logs clean
+.PHONY: e2e bridge-test suggestions-test help up-dev run up-prod up-infra deploy infra-key down build test test-coverage lint format format-fix pr-checks logs clean
 
 .DEFAULT_GOAL := help
 
@@ -37,7 +37,7 @@ up-prod: ## Start services in production mode (requires env vars set)
 
 PROD_COMPOSE = docker compose -f docker-compose.yml -f docker-compose.prod.yml
 
-deploy: ## Pull the pinned backend + console (+ bridge when Infra is configured) images and restart them, plus restock-cron (data untouched)
+deploy: ## Pull the pinned backend + console + suggestions (+ bridge when Infra is configured) images and restart them, plus restock-cron (data untouched)
 	@# Fails loudly, before touching anything, when .env lacks a required variable (docs/OPERATIONS.md).
 	@scripts/prod-env.sh check
 	@# The Infra bridge is the prod overlay's `infra` profile: started only when INFRA_AMQP_URL and
@@ -47,14 +47,15 @@ deploy: ## Pull the pinned backend + console (+ bridge when Infra is configured)
 	@# collector always, since its config is a bind mount compose cannot diff. Volumes persist.
 	@# MongoDB and Redpanda are never touched. WH_IMAGE_TAG in .env pins the app images.
 	@BRIDGE=$$(scripts/prod-env.sh bridge); \
-	  if [ "$$BRIDGE" = yes ]; then PROFILE="--profile infra"; SVC="backend bridge console"; \
-	  else PROFILE=""; SVC="backend console"; \
+	  if [ "$$BRIDGE" = yes ]; then PROFILE="--profile infra"; SVC="backend bridge console suggestions"; \
+	  else PROFILE=""; SVC="backend console suggestions"; \
 	    $(PROD_COMPOSE) --profile infra rm -sf bridge >/dev/null 2>&1 || true; fi; \
 	  set -e; \
 	  $(PROD_COMPOSE) $$PROFILE pull $$SVC; \
 	  $(PROD_COMPOSE) $$PROFILE up -d --no-deps victorialogs; \
 	  $(PROD_COMPOSE) $$PROFILE up -d --no-deps --force-recreate otel-collector; \
 	  $(PROD_COMPOSE) $$PROFILE up -d --no-deps minio victoriametrics; \
+	  $(PROD_COMPOSE) $$PROFILE up -d --no-deps suggestions-redis; \
 	  $(PROD_COMPOSE) $$PROFILE up -d --no-deps $$SVC restock-cron
 	@echo "Backend redeployed"
 
@@ -110,6 +111,9 @@ format-fix: ## Apply Google Java Format to all source files
 
 bridge-test: ## Run the Go bridge's vet + tests
 	cd bridge && go vet ./... && go test -race ./...
+
+suggestions-test: ## Run the Go suggestions service's vet + tests
+	cd suggestions && go vet ./... && go test -race ./...
 
 e2e: ## Full-stack dry run: backend <-> bridge <-> fake Infra (needs Docker; see e2e/run.sh)
 	./e2e/run.sh

@@ -11,6 +11,7 @@ import com.usal.whbackend.domain.Product;
 import com.usal.whbackend.domain.Reception;
 import com.usal.whbackend.domain.ReceptionStatus;
 import com.usal.whbackend.domain.RestockOrder;
+import com.usal.whbackend.domain.RestockOrderStatus;
 import com.usal.whbackend.domain.StockSize;
 import com.usal.whbackend.repository.ProductRepository;
 import com.usal.whbackend.repository.ReceptionRepository;
@@ -235,6 +236,24 @@ class ReceptionServiceTest {
             ResponseStatusException.class, () -> receptionService.createReception(req, "user-1"));
     assertEquals(HttpStatus.BAD_REQUEST, ex.getStatusCode());
     assertEquals("RESTOCK_ORDER_PRODUCT_MISMATCH", ex.getReason());
+    verifyNoInteractions(positionService);
+  }
+
+  @Test
+  void createReception_restockOrderCancelled_throwsConflict() {
+    when(productRepository.findById("p1")).thenReturn(Optional.of(activeProduct("p1")));
+    RestockOrder cancelled = new RestockOrder();
+    cancelled.setId("rso-1");
+    cancelled.setProductId("p1");
+    cancelled.setStatus(RestockOrderStatus.CANCELLED);
+    when(restockOrderRepository.findById("rso-1")).thenReturn(Optional.of(cancelled));
+    var req = request("rso-1", List.of(new AssignmentRequest("pos-1", 10)));
+
+    var ex =
+        assertThrows(
+            ResponseStatusException.class, () -> receptionService.createReception(req, "user-1"));
+    assertEquals(HttpStatus.CONFLICT, ex.getStatusCode());
+    assertEquals("RESTOCK_ORDER_CANCELLED", ex.getReason());
     verifyNoInteractions(positionService);
   }
 

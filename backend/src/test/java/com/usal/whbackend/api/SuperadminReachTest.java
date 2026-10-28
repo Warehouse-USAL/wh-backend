@@ -18,6 +18,7 @@ import com.usal.whbackend.service.PositionService;
 import com.usal.whbackend.service.ProductService;
 import com.usal.whbackend.service.ReceptionService;
 import com.usal.whbackend.service.RestockOrderService;
+import com.usal.whbackend.service.StockAdjustmentService;
 import com.usal.whbackend.service.UserService;
 import com.usal.whbackend.service.VehicleService;
 import com.usal.whbackend.service.VehicleTelemetryService;
@@ -159,6 +160,9 @@ class SuperadminReachTest {
     {"POST", "/warehouse/lines/l1/positions", POSITION},
     {"PATCH", "/warehouse/positions/pos1", JSON},
     {"DELETE", "/warehouse/positions/pos1", null},
+    {"GET", "/warehouse/positions/pos1/stock-adjustments", null},
+    {"POST", "/warehouse/positions/pos1/stock-adjustments", "{\"quantity\":1}"},
+    {"GET", "/products/p1/stock-adjustments", null},
     {
       "POST",
       "/warehouse/positions/validate-fit",
@@ -222,6 +226,7 @@ class SuperadminReachTest {
   @MockitoBean ZoneService zoneService;
   @MockitoBean LineService lineService;
   @MockitoBean PositionService positionService;
+  @MockitoBean StockAdjustmentService stockAdjustmentService;
   @MockitoBean RestockOrderService restockOrderService;
   @MockitoBean ReceptionService receptionService;
   @MockitoBean StorageService storageService;

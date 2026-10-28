@@ -64,6 +64,46 @@ services:
       - infra
     restart: unless-stopped
 
+  # Recommendations service (docs/SUGGESTIONS.md): consumes `order.completed` from Redpanda into its own
+  # Redis and serves JWT-protected HTTP on :8084. Opt-in: `docker compose --profile suggestions up`.
+  suggestions:
+    build: ./suggestions
+    environment:
+      HTTP_ADDR: ":8080"
+      KAFKA_BROKERS: redpanda:9092
+      REDIS_ADDR: suggestions-redis:6379
+      # Same secret the backend signs its JWTs with.
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-in-prod-min-32-chars}
+    ports:
+      - "8084:8080"
+    depends_on:
+      redpanda:
+        condition: service_healthy
+      suggestions-redis:
+        condition: service_healthy
+    networks:
+      - wh-network
+    profiles:
+      - suggestions
+    restart: unless-stopped
+
+  # The suggestions model lives only here, so it is persisted with AOF (appendonly yes).
+  suggestions-redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - ./data/suggestions-redis:/data
+    networks:
+      - wh-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    profiles:
+      - suggestions
+    restart: unless-stopped
+
   mongodb:
     # Pinned to 4.4 — the last MongoDB line that runs WITHOUT AVX. The prod box
     # (HP ProLiant, no AVX) crashes mongo:5.0+ with "Illegal instruction". 4.4 is

@@ -128,7 +128,28 @@ public class GlobalExceptionHandler {
               "UNBOUNDED_RANGE",
               "Una consulta agrupada debe acotarse con un filtro de fecha (ej: created_at >=)."),
           Map.entry("RESTOCK_ORDER_NOT_FOUND", "La orden de restock solicitada no existe."),
+          Map.entry(
+              "RESTOCK_ORDER_ALREADY_CANCELLED", "La orden de restock ya se encuentra cancelada."),
+          Map.entry(
+              "RESTOCK_ORDER_HAS_RECEPTIONS",
+              "No se puede cancelar: ya se registraron remitos contra esta orden de restock."),
+          Map.entry(
+              "RESTOCK_ORDER_CANCELLED",
+              "La orden de restock está cancelada y no admite nuevos remitos."),
+          Map.entry(
+              "INVALID_EXPECTED_DELIVERY_DATE",
+              "La fecha de entrega esperada debe ser posterior a la fecha de creación."),
           Map.entry("QR_CODE_ALREADY_EXISTS", "Otra posición ya tiene ese código QR."),
+          Map.entry(
+              "INVALID_ADJUSTMENT_TYPE",
+              "Tipo de ajuste inválido. Valores aceptados: MANUAL_DECREASE, DAMAGE."),
+          Map.entry(
+              "STOCK_CHANGE_CONFLICT",
+              "Otro cambio de stock del mismo producto se estaba aplicando. Reintentá la operación."),
+          Map.entry("POSITION_WITHOUT_PRODUCT", "La posición no tiene un producto asignado."),
+          Map.entry(
+              "QUANTITY_EXCEEDS_POSITION_STOCK",
+              "La cantidad a descontar supera el stock de la posición."),
           Map.entry("RECEPTION_NOT_FOUND", "El remito solicitado no existe."),
           Map.entry(
               "ASSIGNMENT_QUANTITY_MISMATCH",
