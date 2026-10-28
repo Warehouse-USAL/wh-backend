@@ -31,23 +31,23 @@ Safety: the stack uses compose project `whsuite`, publishes no host ports, uses 
 
 | Area | Total | Pass | Fail | Known failure | Skipped |
 |---|---|---|---|---|---|
-| auth | 56 | 54 | 0 | 2 | 0 |
+| auth | 56 | 56 | 0 | 0 | 0 |
 | bridge | 8 | 8 | 0 | 0 | 0 |
 | business_metrics | 13 | 13 | 0 | 0 | 0 |
-| catalog | 30 | 29 | 0 | 1 | 0 |
+| catalog | 30 | 30 | 0 | 0 | 0 |
 | console | 23 | 23 | 0 | 0 | 0 |
 | metrics_query | 30 | 30 | 0 | 0 | 0 |
-| orders | 41 | 40 | 0 | 1 | 0 |
-| platform | 15 | 14 | 0 | 1 | 0 |
-| restock | 12 | 11 | 0 | 1 | 0 |
+| orders | 41 | 41 | 0 | 0 | 0 |
+| platform | 15 | 15 | 0 | 0 | 0 |
+| restock | 12 | 12 | 0 | 0 | 0 |
 | stock_adjustments | 23 | 23 | 0 | 0 | 0 |
 | suggestions | 11 | 11 | 0 | 0 | 0 |
-| vehicles | 9 | 8 | 0 | 1 | 0 |
-| warehouse | 17 | 16 | 0 | 1 | 0 |
+| vehicles | 9 | 9 | 0 | 0 | 0 |
+| warehouse | 16 | 16 | 0 | 0 | 0 |
 | websockets | 16 | 16 | 0 | 0 | 0 |
 | flow | 7 | 7 | 0 | 0 | 0 |
 | resilience | 9 | 9 | 0 | 0 | 0 |
-| **all** | 320 | 312 | 0 | 8 | 0 |
+| **all** | 319 | 319 | 0 | 0 | 0 |
 
 ### Coverage matrix: capability -> test id -> status
 
