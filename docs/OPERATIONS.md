@@ -64,7 +64,7 @@ holds stock but has no `qr_code` is left out of `stops` (the backend logs
 
 The warehouse has ONE zone (`A`) with ONE line (`1`) and SIX positions: `PA1`, `PA2`, `PA3`, `PM1`,
 `PM2`, `PM3` (the zone is created with `max_allowed_lines` = 1 and the line with
-`max_allowed_positions` = 6; creating a line or position beyond them answers `409 ZONE_LINE_LIMIT_REACHED` / `LINE_POSITION_LIMIT_REACHED`). Their names are the QR codes the Infra vehicle recognises, and the printed texts are
+`max_allowed_positions` = 6; these limits describe the seed and are informational: the backend does not enforce them). Their names are the QR codes the Infra vehicle recognises, and the printed texts are
 `WH2|PA1` ... `WH2|PA3` and `WH2|PM1` ... `WH2|PM3`: the prefix `WH_QR_PREFIX` (default `WH2|`)
 followed by the position name. The backend creates exactly this on the first boot of an empty
 database (`DataInitializer`, six empty positions), with or without `SEED_DEMO`; the demo seed then

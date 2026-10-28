@@ -59,7 +59,6 @@ class PositionServiceTest {
     l.setId(id);
     l.setIdZone(zoneId);
     l.setActive(true);
-    l.setMaxAllowedPositions(6);
     return l;
   }
 
@@ -212,34 +211,6 @@ class PositionServiceTest {
   void getPosition_found_returnsPosition() {
     when(positionRepository.findById("p1")).thenReturn(Optional.of(position("p1", "l1", "z1")));
     assertEquals("p1", positionService.getPosition("p1").getId());
-  }
-
-  @Test
-  void createPosition_lineAtItsLimit_isRefusedWithConflict() {
-    when(lineRepository.findById("l1")).thenReturn(Optional.of(line("l1", "z1")));
-    when(positionRepository.countByIdLine("l1")).thenReturn(6L);
-    CreatePositionRequest req = new CreatePositionRequest("P07", 10, StockSize.CAJA, null);
-    var ex =
-        assertThrows(
-            org.springframework.web.server.ResponseStatusException.class,
-            () -> positionService.createPosition("l1", req));
-    assertEquals(org.springframework.http.HttpStatus.CONFLICT, ex.getStatusCode());
-    assertEquals("LINE_POSITION_LIMIT_REACHED", ex.getReason());
-    verify(positionRepository, never()).save(any());
-  }
-
-  @Test
-  void createPosition_losingARaceForTheLastSlot_undoesItself() {
-    when(lineRepository.findById("l1")).thenReturn(Optional.of(line("l1", "z1")));
-    when(positionRepository.countByIdLine("l1")).thenReturn(5L, 7L);
-    when(positionRepository.save(any())).thenReturn(position("p7", "l1", "z1"));
-    CreatePositionRequest req = new CreatePositionRequest("P07", 10, StockSize.CAJA, null);
-    var ex =
-        assertThrows(
-            org.springframework.web.server.ResponseStatusException.class,
-            () -> positionService.createPosition("l1", req));
-    assertEquals("LINE_POSITION_LIMIT_REACHED", ex.getReason());
-    verify(positionRepository).deleteById("p7");
   }
 
   @Test

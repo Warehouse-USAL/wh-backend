@@ -59,35 +59,6 @@ def test_line_lifecycle_and_rules(warehouse, factory):
     warehouse.get("/warehouse/zones/nope/lines").expect(404)
 
 
-def test_zone_and_line_structural_limits_are_enforced(warehouse, factory):
-    """A zone refuses lines beyond max_allowed_lines and a line refuses positions beyond max_allowed_positions"""
-    z = factory.zone(lines=1)
-    ln = factory.line(z["id_zone"], number=1, positions=1)
-    r = warehouse.post(f"/warehouse/zones/{z['id_zone']}/lines", json={"number_line": 2, "max_allowed_positions": 1})
-    r.expect(409, code="ZONE_LINE_LIMIT_REACHED")
-    factory.position(ln["id_line"], active=False)
-    r = warehouse.post(f"/warehouse/lines/{ln['id_line']}/positions", json={"position_name": "P2", "maximum_capacity": 5, "size_stock_to_save": "CAJA"})
-    r.expect(409, code="LINE_POSITION_LIMIT_REACHED")
-    assert len(warehouse.get(f"/warehouse/zones/{z['id_zone']}/lines").json_("lines")) == 1, "the refused line was not left behind"
-    assert len(warehouse.get(f"/warehouse/lines/{ln['id_line']}/positions").json_("positions")) == 1, "the refused position was not left behind"
-
-
-def test_data_above_the_limits_still_reads_and_updates(warehouse, factory):
-    """Lowering the limits below what already exists is allowed and nothing breaks: reads, updates and soft-deletes keep working, only new creations are refused"""
-    z = factory.zone(lines=3)
-    l1, l2 = factory.line(z["id_zone"], number=1, positions=3), factory.line(z["id_zone"], number=2, positions=3)
-    p1, p2 = factory.position(l1["id_line"]), factory.position(l1["id_line"])
-    warehouse.patch(f"/warehouse/zones/{z['id_zone']}", json={"max_allowed_lines": 1}).expect(200)
-    warehouse.patch(f"/warehouse/lines/{l1['id_line']}", json={"max_allowed_positions": 1}).expect(200)
-    assert len(warehouse.get(f"/warehouse/zones/{z['id_zone']}/lines").json_("lines")) == 2
-    assert len(warehouse.get(f"/warehouse/lines/{l1['id_line']}/positions").json_("positions")) == 2
-    warehouse.patch(f"/warehouse/lines/{l2['id_line']}", json={"is_active": False}).expect(200)
-    warehouse.patch(f"/warehouse/positions/{p2['id_position']}", json={"maximum_capacity": 9}).expect(200)
-    warehouse.post(f"/warehouse/zones/{z['id_zone']}/lines", json={"number_line": 3, "max_allowed_positions": 1}).expect(409, code="ZONE_LINE_LIMIT_REACHED")
-    warehouse.post(f"/warehouse/lines/{l1['id_line']}/positions", json={"position_name": "P9", "maximum_capacity": 5, "size_stock_to_save": "CAJA"}).expect(409, code="LINE_POSITION_LIMIT_REACHED")
-    assert p1["id_position"]
-
-
 # ───────────────────────────── positions ─────────────────────────────
 def test_position_create_defaults_and_listing(warehouse, factory):
     """Positions are created inactive and empty; listed by line and in the flat listing; detail shows the assigned product"""

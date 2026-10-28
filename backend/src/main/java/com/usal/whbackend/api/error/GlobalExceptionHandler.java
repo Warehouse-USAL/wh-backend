@@ -71,12 +71,6 @@ public class GlobalExceptionHandler {
           Map.entry("SKU_ALREADY_EXISTS", "Ya existe un producto con ese SKU."),
           Map.entry("INVALID_ROLE", "Rol inválido."),
           Map.entry("INVALID_BATTERY", "La batería debe ser un porcentaje entre 0 y 100."),
-          Map.entry(
-              "ZONE_LINE_LIMIT_REACHED",
-              "La zona ya tiene el máximo de líneas permitido (max_allowed_lines)."),
-          Map.entry(
-              "LINE_POSITION_LIMIT_REACHED",
-              "La línea ya tiene el máximo de posiciones permitido (max_allowed_positions)."),
           Map.entry("ZONE_INACTIVE", "La zona no está activa y no puede recibir nuevas líneas."),
           Map.entry(
               "LINE_INACTIVE", "La línea no está activa y no puede recibir nuevas posiciones."),
