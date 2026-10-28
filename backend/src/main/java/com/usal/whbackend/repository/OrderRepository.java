@@ -222,7 +222,10 @@ public class OrderRepository {
                 .map(
                     i ->
                         new OrderCompletedMessage.Item(
-                            i.getSku(), i.getProductId(), i.getQuantity()))
+                            i.getSku(),
+                            i.getProductId(),
+                            i.getQuantity(),
+                            i.isFromRecommendation()))
                 .toList();
     OrderCompletedMessage msg =
         new OrderCompletedMessage(

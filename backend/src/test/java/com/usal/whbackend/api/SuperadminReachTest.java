@@ -28,6 +28,7 @@ import com.usal.whbackend.service.console.ServiceStatusService;
 import com.usal.whbackend.service.console.WsEventBuffer;
 import com.usal.whbackend.service.console.stream.ConsoleStreamService;
 import com.usal.whbackend.service.metrics.MetricsQueryService;
+import com.usal.whbackend.service.metrics.conversion.SuggestionConversionService;
 import com.usal.whbackend.service.metrics.restock.RestockSuggestionService;
 import com.usal.whbackend.service.query.EntityQueryService;
 import com.usal.whbackend.service.storage.StorageService;
@@ -102,6 +103,8 @@ class SuperadminReachTest {
    */
   private static final String RESTOCK =
       "{\"params\":{\"alpha\":0.5,\"recent_days\":7,\"long_days\":28,\"safety_days\":1,\"lead_time_days\":1,\"coverage_days\":1},\"filters\":{}}";
+  private static final String CONVERSION =
+      "{\"params\":{\"from\":\"2026-03-02T00:00:00Z\",\"to\":\"2026-03-04T00:00:00Z\",\"granularity\":\"day\"}}";
   private static final String USER =
       "{\"email\":\"a@b.co\",\"name\":\"n\",\"role\":\"ADMIN_SALES\",\"initial_password\":\"x\"}";
   private static final String PRODUCT =
@@ -193,6 +196,7 @@ class SuperadminReachTest {
     {"POST", "/metrics/query", METRICS},
     {"GET", "/metrics/catalog", null},
     {"POST", "/metrics/restock-suggestions", RESTOCK},
+    {"POST", "/metrics/suggestion-conversion", CONVERSION},
     {"POST", "/metrics/restock-suggestions/apply", RESTOCK},
     // Public download (permitAll in SecurityConfig): product images are shown before login, so
     // it must stay reachable for every caller, SUPERADMIN included.
@@ -236,6 +240,7 @@ class SuperadminReachTest {
   @MockitoBean ConsoleStreamService consoleStreamService;
   @MockitoBean MetricsQueryService metricsQueryService;
   @MockitoBean RestockSuggestionService restockSuggestionService;
+  @MockitoBean SuggestionConversionService suggestionConversionService;
   @MockitoBean EntityQueryService entityQueryService;
 
   @BeforeEach

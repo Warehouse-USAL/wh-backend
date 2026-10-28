@@ -9,6 +9,7 @@ import com.usal.whbackend.config.JwtService;
 import com.usal.whbackend.domain.UserRole;
 import com.usal.whbackend.service.metrics.MetricRegistry;
 import com.usal.whbackend.service.metrics.MetricsQueryService;
+import com.usal.whbackend.service.metrics.conversion.SuggestionConversionService;
 import com.usal.whbackend.service.metrics.restock.RestockSuggestionService;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -42,6 +43,7 @@ class MetricsCatalogFixtureTest {
   @MockitoBean MetricsQueryService metricsQueryService;
   @MockitoBean JwtService jwtService;
   @MockitoBean RestockSuggestionService restockSuggestionService;
+  @MockitoBean SuggestionConversionService suggestionConversionService;
 
   @Test
   @WithMockUser(roles = "SUPERADMIN")

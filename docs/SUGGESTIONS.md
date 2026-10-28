@@ -11,7 +11,7 @@ wh-backend ──Kafka `order.completed`──► suggestions ──► Redis (i
               web / apps ──HTTP + JWT────────┘   /v1/recommendations/*, /healthz
 ```
 
-The backend is untouched: it already publishes `order.completed` (`OrderCompletedMessage`,
+The backend publishes `order.completed` (`OrderCompletedMessage`,
 camelCase) when an order completes, seeded or real. The service never calls the backend; JWTs are
 verified locally.
 
@@ -72,6 +72,35 @@ retention, so a replay can not be older), which bounds memory to about one small
 the last week. A redelivery later than the window would be counted again. Events without an
 `orderId` cannot be recognised and are applied every time. The id is only ever used behind the
 fixed `processed:` prefix, like the other key builders in `store/keys.go`.
+
+## Did the buyer use a recommendation? (`from_recommendation`)
+
+The RFC says what to recommend; it cannot say whether anyone listened. `POST /orders` therefore
+takes an optional boolean **per item**:
+
+```json
+{"destination_area": "AREA-A",
+ "items": [{"product_id": "p-TEC-002", "quantity": 2, "from_recommendation": true},
+           {"product_id": "p-TEC-004", "quantity": 1}]}
+```
+
+- A client sets it to `true` on the lines it added because one of this service's responses
+  (cart, user or hot) suggested that product. Absent, `null` or `false` mean "not from a
+  suggestion", so every existing client keeps working unchanged and no existing field, status or
+  error code changes.
+- Why per item and not an order-level list of SKUs: the flag lives next to the thing it describes,
+  so lines, units and orders can all be counted exactly; and it cannot reference a product that is
+  not in the order (a SKU list could, which would need a validation rule). A product appears once
+  per order (`DUPLICATE_PRODUCT_IN_ORDER`), so a line is unambiguous. It is a client claim, not
+  proof that the SKU was ever suggested: the backend does not call this service, by design.
+- It is stored on the order item, returned as `items[].from_recommendation` by every order response
+  and WebSocket `order.updated` event, and published on `order.completed` as `items[].fromRecommendation` (camelCase, like the rest of that
+  payload) only on the lines where it is `true`: the payload of an order without suggestions is
+  unchanged. The Go `ingest.Item` decodes it and does not use it
+  yet; events without the field decode to `false`, and unknown fields are ignored, so the
+  consumer keeps working across both versions.
+- The business metric on top of it is `POST /metrics/suggestion-conversion` (see
+  `DASHBOARD_INTEGRATION.md`).
 
 ## Decisions on the RFC comment
 

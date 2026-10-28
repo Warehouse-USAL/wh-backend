@@ -44,6 +44,23 @@ func TestDecodeBackendContract(t *testing.T) {
 	}
 }
 
+// The backend adds fields to the payload without a version bump; old events lack the new one and
+// future ones may carry more. Both must decode, applying exactly as before.
+func TestDecodeToleratesNewAndMissingFields(t *testing.T) {
+	ev, err := Decode([]byte(`{"orderId":"o","items":[
+		{"sku":"A","productId":"p-A","quantity":1,"fromRecommendation":true},
+		{"sku":"B","productId":"p-B","quantity":2},
+		{"sku":"C","productId":"p-C","quantity":3,"fromRecommendation":false,"someFutureField":{"x":1}}],
+		"someFutureField":[1,2]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := []bool{ev.Items[0].FromRecommendation, ev.Items[1].FromRecommendation, ev.Items[2].FromRecommendation}
+	if !got[0] || got[1] || got[2] {
+		t.Fatalf("fromRecommendation = %v, want [true false false]", got)
+	}
+}
+
 func TestDecodeNullCompletedAtAndBadJSON(t *testing.T) {
 	if _, err := Decode([]byte(`{"orderId":"o","items":[],"completedAt":null}`)); err != nil {
 		t.Fatal(err)

@@ -1,6 +1,7 @@
 package com.usal.whbackend.repository;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -111,6 +112,26 @@ class OrderRepositoryTest {
     assertEquals("TEC-002", node.get("items").get(0).get("sku").asString());
     assertEquals("p-TEC-002", node.get("items").get(0).get("productId").asString());
     assertEquals(2, node.get("items").get(0).get("quantity").asInt());
+  }
+
+  @Test
+  void publishCompleted_flagsTheItemsTakenFromARecommendation() throws Exception {
+    Order order = new Order();
+    order.setId("o-1");
+    order.setItems(
+        List.of(
+            new OrderItem("p-1", "TEC-001", 1, null, true),
+            new OrderItem("p-2", "TEC-002", 1, null, false),
+            new OrderItem("p-3", "TEC-003", 1)));
+
+    orderRepository.publishCompleted(order);
+
+    Thread.sleep(100);
+    JsonNode items = new ObjectMapper().readTree(sentValue("order.completed", null)).get("items");
+    assertTrue(items.get(0).get("fromRecommendation").asBoolean());
+    // Omitted (not false) for the other lines: their payload is what it was before the field.
+    assertFalse(items.get(1).has("fromRecommendation"));
+    assertFalse(items.get(2).has("fromRecommendation"));
   }
 
   @Test
