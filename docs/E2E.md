@@ -41,12 +41,13 @@ Safety: the stack uses compose project `whsuite`, publishes no host ports, uses 
 | restock | 12 | 11 | 0 | 1 | 0 |
 | stock_adjustments | 23 | 23 | 0 | 0 | 0 |
 | suggestions | 11 | 11 | 0 | 0 | 0 |
+| suggestions_seed | 6 | 6 | 0 | 0 | 0 |
 | vehicles | 9 | 8 | 0 | 1 | 0 |
 | warehouse | 17 | 16 | 0 | 1 | 0 |
 | websockets | 16 | 16 | 0 | 0 | 0 |
 | flow | 7 | 7 | 0 | 0 | 0 |
 | resilience | 9 | 9 | 0 | 0 | 0 |
-| **all** | 320 | 312 | 0 | 8 | 0 |
+| **all** | 326 | 318 | 0 | 8 | 0 |
 
 ### Coverage matrix: capability -> test id -> status
 
@@ -316,6 +317,12 @@ Group `default` plays Infra by hand, `flow` uses the real chain, `resilience` st
 | `test_suggestions.py::test_hot_ranks_by_popularity_and_honours_limit` | /hot returns SKUs by descending score; limit default 10, max 50 | default | passed |  |
 | `test_suggestions.py::test_unknown_routes_return_json_not_found` | Unknown paths answer 404 | default | passed |  |
 | `test_suggestions.py::test_replayed_event_is_ignored` | Kafka redelivery (at-least-once) must not double count an order: re-publishing the same order.completed leaves scores unchanged | default | passed |  |
+| `test_suggestions_seed.py::test_the_topic_holds_one_event_per_completed_order_and_the_consumer_applied_them_all` | order.completed holds at least one event per COMPLETED order in MongoDB (the seeded ones plus those of earlier tests) and the group committed all of them | default | passed |  |
+| `test_suggestions_seed.py::test_order_counts_per_sku_equal_the_orders_in_mongo` | sku:count (orders containing each SKU) equals the number of completed orders containing it, for every SKU | default | passed |  |
+| `test_suggestions_seed.py::test_user_histories_equal_what_mongo_says_they_ordered` | user:{id}:skus holds the quantities each user ordered, checked for the 5 busiest buyers | default | passed |  |
+| `test_suggestions_seed.py::test_user_recommendations_never_repeat_the_history_and_answer_when_there_is_room` | /user/:id for the seeded buyers with the smallest history: never a SKU they already bought, and non-empty whenever the catalogue has something they have not bought (the seeded buyers order from the whole 15-SKU catalogue, so most own everything and legitimately get nothing new) | default | passed |  |
+| `test_suggestions_seed.py::test_cart_recommendations_match_the_copurchases_in_mongo` | For 3 seeded SKUs the service's 'also add' answer equals the popularity-normalised co-purchase ranking computed from MongoDB's orders | default | passed |  |
+| `test_suggestions_seed.py::test_hot_favours_recently_ordered_skus` | /hot is the age-weighted demand: its top 10 equal quantity * 0.97^(age/15min) summed over MongoDB's orders (up to the decay rounds run since), far below the raw two-year totals | default | passed |  |
 | `test_vehicles.py::test_register_list_and_get_vehicle` | POST /vehicles registers an OFFLINE vehicle; it is listed (paginated) and readable by id; WAREHOUSE can read but not register | default | passed |  |
 | `test_vehicles.py::test_patch_vehicle_state` | PATCH /internal/vehicles/{id}: partial update of status/position/battery; unknown id 404; bad status 400; WAREHOUSE 403 | default | passed |  |
 | `test_vehicles.py::test_battery_must_be_a_percentage` | A battery level outside 0..100 is refused or clamped, never stored as is | default | known-failure | BUG-VEHICLES-1: battery is a percentage but is stored unvalidated: PATCH /internal/vehicles/{id} and /infra telemetry accept 250 or -40 (no 0..100 check in VehicleService.updateVehicle / VehicleTelemetryService.apply) |
