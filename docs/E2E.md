@@ -20,7 +20,7 @@ Safety: the stack uses compose project `whsuite`, publishes no host ports, uses 
 
 ## Architecture
 
-- `e2e/suite.sh` - orchestrator: generates secrets, builds images (backend, bridge, fakeinfra, console, suggestions, runner), starts the stack with `SEED_DEMO=true`, creates (but does not start) `fakeinfra`, runs the `runner` container, writes results and runs `down -v` on exit.
+- `e2e/suite.sh` - orchestrator: generates secrets, builds images (backend, bridge, fakeinfra, console, suggestions, runner), starts the stack with `SEED_DEMO=true` (the real warehouse: one zone `A`, one line, six positions `PA1`-`PA3`/`PM1`-`PM3` with QR `WH2|<name>`; tests that need more zones, lines or positions create their own through the factory), creates (but does not start) `fakeinfra`, runs the `runner` container, writes results and runs `down -v` on exit.
 - `e2e/docker-compose.suite.yml` - overlay on the root compose: no host ports, isolated volumes, a local RabbitMQ (`suite/suite`), short bridge retry back-off, the `runner` service (mounts the Docker socket so resilience tests can stop/start containers).
 - `e2e/suite/` - the pytest project: `conftest.py` (health wait, role fixtures, Kafka tap, RabbitMQ API client, results-matrix plugin, group ordering), `lib/` (HTTP client with readable failures, factory for products/zones/positions/orders, an `InfraClient` that plays Infra with the API key, websocket and SSE readers, Docker control).
 - Test groups run in this order: default (Infra is played by the tests through `/infra/**`), `flow` (real chain: backend -> Kafka -> bridge -> RabbitMQ -> fakeinfra and back), `resilience` (stops/kills dependencies, always restores them).
@@ -36,7 +36,7 @@ Safety: the stack uses compose project `whsuite`, publishes no host ports, uses 
 | console | 23 | 23 | 0 | 0 | 0 |
 | metrics_query | 30 | 30 | 0 | 0 | 0 |
 | orders | 39 | 38 | 0 | 1 | 0 |
-| platform | 12 | 11 | 0 | 1 | 0 |
+| platform | 15 | 14 | 0 | 1 | 0 |
 | restock | 12 | 11 | 0 | 1 | 0 |
 | stock_adjustments | 23 | 22 | 0 | 1 | 0 |
 | suggestions | 11 | 10 | 0 | 1 | 0 |
@@ -45,7 +45,7 @@ Safety: the stack uses compose project `whsuite`, publishes no host ports, uses 
 | websockets | 16 | 16 | 0 | 0 | 0 |
 | flow | 7 | 7 | 0 | 0 | 0 |
 | resilience | 9 | 9 | 0 | 0 | 0 |
-| **all** | 302 | 292 | 0 | 10 | 0 |
+| **all** | 305 | 295 | 0 | 10 | 0 |
 
 ### Coverage matrix: capability -> test id -> status
 
@@ -242,8 +242,11 @@ Group `default` plays Infra by hand, `flow` uses the real chain, `resilience` st
 | `test_platform.py::test_actuator_health_public_everything_else_protected` | /actuator/health is public and UP; info/env/metrics/prometheus are not exposed to anonymous callers | default | passed |  |
 | `test_platform.py::test_openapi_documentation_is_served` | /v3/api-docs is valid OpenAPI 3 describing the API; Swagger UI is reachable | default | passed |  |
 | `test_platform.py::test_every_documented_protected_operation_rejects_anonymous_calls` | Walk every GET path of the OpenAPI document: anonymous access is never 200 except for the public ones | default | passed |  |
-| `test_platform.py::test_seed_demo_data_is_present` | SEED_DEMO: the 8 roles' demo accounts log in, catalogue/warehouse/orders/vehicles are populated | default | passed |  |
-| `test_platform.py::test_seed_positions_have_unique_scannable_qr_codes` | Every position QR code is unique and carries the configured prefix (WH2/) | default | passed |  |
+| `test_platform.py::test_seed_demo_data_is_present` | SEED_DEMO: the 8 roles' demo accounts log in, catalogue/orders/vehicles are populated and the warehouse exists | default | passed |  |
+| `test_platform.py::test_seeded_warehouse_is_one_zone_one_line_six_positions` | The seeded warehouse mirrors the real one: zone A, line 1, positions PA1-PA3 and PM1-PM3, active, one distinct product each | default | passed |  |
+| `test_platform.py::test_seed_positions_have_the_qr_codes_infra_recognises` | Each seeded position's QR text is the configured prefix (WH2\|) plus its name: WH2\|PA1..PA3 and WH2\|PM1..PM3, all unique | default | passed |  |
+| `test_platform.py::test_every_seeded_position_can_be_patched` | Re-sending a seeded position's own QR passes the capacity/volume guards (a past incident: a seeded position answered 409 to any edit) | default | passed |  |
+| `test_platform.py::test_an_order_across_seeded_positions_publishes_their_qr_codes_as_stops` | An order for products held in PA3 and PM1 publishes stops [WH2\|PA3, WH2\|PM1] (position-name order) on topic `orders` | default | passed |  |
 | `test_platform.py::test_error_contract_is_uniform` | Errors are always {"error":{"code","message"}} JSON: 404 on unknown route, 405 on wrong method, 401 anon, validation, malformed body | default | passed |  |
 | `test_platform.py::test_unknown_route_uses_the_error_contract` | 404 for an unknown path uses the same {"error":{"code","message"}} envelope as every other error | default | known-failure | BUG-PLATFORM-1: unknown routes (404) and wrong methods (405) answer with Spring's default error body {timestamp,status,error,path} instead of the API's {error:{code,message}} contract (no NoHandlerFound/NoResourceFound mapping in the global exception handler) |
 | `test_platform.py::test_responses_carry_request_id_and_security_headers` | Every response has X-Request-Id (echoed when supplied) and hardening headers | default | passed |  |

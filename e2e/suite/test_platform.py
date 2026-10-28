@@ -37,7 +37,7 @@ def test_every_documented_protected_operation_rejects_anonymous_calls(anon):
 
 
 def test_seed_demo_data_is_present(admin, warehouse):
-    """SEED_DEMO: the 8 roles' demo accounts log in, catalogue/warehouse/orders/vehicles are populated"""
+    """SEED_DEMO: the 8 roles' demo accounts log in, catalogue/orders/vehicles are populated and the warehouse exists"""
     for role, (email, pw) in config.ACCOUNTS.items():
         assert login(email, pw).user["role"] == role
     prods = warehouse.get("/products?size=100").expect(200)
@@ -45,16 +45,59 @@ def test_seed_demo_data_is_present(admin, warehouse):
     skus = [p["sku"] for p in prods.json_("products")]
     assert len(set(skus)) == len(skus)
     assert admin.get("/orders?size=1").json_("pagination", "total_elements") > 1000
-    assert len(warehouse.get("/warehouse/zones").expect(200).body) > 0 if isinstance(warehouse.get("/warehouse/zones").body, list) else True
+    assert any(z["zone_code"] == "A" for z in warehouse.get("/warehouse/zones").expect(200).json_("zones"))
     assert admin.get("/users?size=50").json_("pagination", "total_elements") >= 9
 
 
-def test_seed_positions_have_unique_scannable_qr_codes(warehouse):
-    """Every position QR code is unique and carries the configured prefix (WH2|)"""
-    items = warehouse.get("/warehouse/positions?size=200").expect(200).json_("positions")
-    qrs = [warehouse.get(f"/warehouse/positions/{p['id_position']}").expect(200).json_("qr_code") for p in items if p["id_position"].startswith("pos-")]
-    assert len(qrs) >= 30
-    assert qrs and len(set(qrs)) == len(qrs) and all(q.startswith("WH2|") for q in qrs)
+SEEDED_POSITIONS = ["PA1", "PA2", "PA3", "PM1", "PM2", "PM3"]
+
+
+def _seeded_line(warehouse) -> tuple[dict, list[dict]]:
+    """The real warehouse as seeded: zone A with its single line 1 and that line's positions.
+    Other tests create their own zones, so only zone A is looked at, never global counts."""
+    zone = next(z for z in warehouse.get("/warehouse/zones").expect(200).json_("zones") if z["zone_code"] == "A")
+    lines = warehouse.get(f"/warehouse/zones/{zone['id_zone']}/lines").expect(200).json_("lines")
+    assert [ln["number_line"] for ln in lines] == [1], lines
+    positions = warehouse.get(f"/warehouse/lines/{lines[0]['id_line']}/positions").expect(200).json_("positions")
+    return zone, positions
+
+
+def test_seeded_warehouse_is_one_zone_one_line_six_positions(warehouse):
+    """The seeded warehouse mirrors the real one: zone A, line 1, positions PA1-PA3 and PM1-PM3, active, one distinct product each"""
+    zone, positions = _seeded_line(warehouse)
+    assert zone["is_active"] is True
+    assert sorted(p["position_name"] for p in positions) == SEEDED_POSITIONS
+    assert all(p["is_active"] and p["id_zone"] == zone["id_zone"] for p in positions)
+    products = [p["product_id"] for p in positions]
+    assert all(products) and len(set(products)) == 6, products
+    assert all(0 < p["current_stock"] <= p["maximum_capacity"] for p in positions)
+
+
+def test_seed_positions_have_the_qr_codes_infra_recognises(warehouse):
+    """Each seeded position's QR text is the configured prefix (WH2|) plus its name: WH2|PA1..PA3 and WH2|PM1..PM3, all unique"""
+    _, positions = _seeded_line(warehouse)
+    qrs = {p["position_name"]: p["qr_code"] for p in positions}
+    assert qrs == {n: f"WH2|{n}" for n in SEEDED_POSITIONS}
+
+
+def test_every_seeded_position_can_be_patched(warehouse):
+    """Re-sending a seeded position's own QR passes the capacity/volume guards (a past incident: a seeded position answered 409 to any edit)"""
+    _, positions = _seeded_line(warehouse)
+    for p in positions:
+        r = warehouse.patch(f"/warehouse/positions/{p['id_position']}", json={"qr_code": p["qr_code"]})
+        assert r.status == 200, (p["position_name"], r.describe())
+        assert r.body["qr_code"] == p["qr_code"] and r.body["current_stock"] == p["current_stock"]
+
+
+def test_an_order_across_seeded_positions_publishes_their_qr_codes_as_stops(operator, warehouse, factory, kafka):
+    """An order for products held in PA3 and PM1 publishes stops [WH2|PA3, WH2|PM1] (position-name order) on topic `orders`"""
+    _, positions = _seeded_line(warehouse)
+    by_name = {p["position_name"]: p for p in positions}
+    o = factory.order(operator, [(by_name["PM1"]["product_id"], 1), (by_name["PA3"]["product_id"], 1)])
+    try:
+        assert kafka.wait_order(o["id"], "pending")["value"]["stops"] == ["WH2|PA3", "WH2|PM1"]
+    finally:
+        operator.post(f"/orders/{o['id']}/cancel", json={"reason": "e2e cleanup"})
 
 
 def test_error_contract_is_uniform(admin, anon):
