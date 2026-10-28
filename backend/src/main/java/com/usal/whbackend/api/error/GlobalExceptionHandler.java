@@ -1,6 +1,5 @@
 package com.usal.whbackend.api.error;
 
-import com.fasterxml.jackson.databind.exc.InvalidFormatException;
 import com.mongodb.MongoSocketException;
 import com.mongodb.MongoTimeoutException;
 import com.usal.whbackend.domain.StockSize;
@@ -24,18 +23,22 @@ import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.transaction.CannotCreateTransactionException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.servlet.NoHandlerFoundException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -66,6 +69,14 @@ public class GlobalExceptionHandler {
               "No se puede incluir el mismo producto más de una vez en la orden."),
           Map.entry("MISSING_REQUIRED_FIELDS", "Los campos sku, name y category son obligatorios."),
           Map.entry("SKU_ALREADY_EXISTS", "Ya existe un producto con ese SKU."),
+          Map.entry("INVALID_ROLE", "Rol inválido."),
+          Map.entry("INVALID_BATTERY", "La batería debe ser un porcentaje entre 0 y 100."),
+          Map.entry(
+              "ZONE_LINE_LIMIT_REACHED",
+              "La zona ya tiene el máximo de líneas permitido (max_allowed_lines)."),
+          Map.entry(
+              "LINE_POSITION_LIMIT_REACHED",
+              "La línea ya tiene el máximo de posiciones permitido (max_allowed_positions)."),
           Map.entry("ZONE_INACTIVE", "La zona no está activa y no puede recibir nuevas líneas."),
           Map.entry(
               "LINE_INACTIVE", "La línea no está activa y no puede recibir nuevas posiciones."),
@@ -259,7 +270,7 @@ public class GlobalExceptionHandler {
     // type.
     log.warn("Malformed request body: {}", ex.getClass().getSimpleName());
     for (Throwable cause = ex.getCause(); cause != null; cause = cause.getCause()) {
-      if (cause instanceof InvalidFormatException ife && ife.getTargetType() == StockSize.class) {
+      if (isInvalidDeliveryUnit(cause)) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
             .contentType(MediaType.APPLICATION_JSON)
             .body(ErrorResponse.of("INVALID_DELIVERY_UNIT", MESSAGES.get("INVALID_DELIVERY_UNIT")));
@@ -269,6 +280,40 @@ public class GlobalExceptionHandler {
         .contentType(MediaType.APPLICATION_JSON)
         .body(
             ErrorResponse.of("MALFORMED_REQUEST", "El cuerpo de la solicitud no es JSON válido."));
+  }
+
+  /**
+   * An unknown {@code delivery_unit} surfaces as a Jackson mapping exception (an invalid format
+   * from the enum deserializer, or an instantiation failure because {@code StockSize.fromValue} is
+   * a {@code @JsonCreator} that throws) whose message names {@code StockSize}. Matched by package
+   * and message so it does not depend on the Jackson major version in use.
+   */
+  private static boolean isInvalidDeliveryUnit(Throwable cause) {
+    return cause.getClass().getName().contains(".databind.exc.")
+        && cause.getMessage() != null
+        && cause.getMessage().contains(StockSize.class.getName());
+  }
+
+  /** Unknown routes answer with the API's error envelope, not Spring's default body. */
+  @ExceptionHandler({NoResourceFoundException.class, NoHandlerFoundException.class})
+  public ResponseEntity<ErrorResponse> handleUnknownRoute(Exception ex) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .contentType(MediaType.APPLICATION_JSON)
+        .body(ErrorResponse.of("NOT_FOUND", "El recurso solicitado no existe."));
+  }
+
+  @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+  public ResponseEntity<ErrorResponse> handleMethodNotAllowed(
+      HttpRequestMethodNotSupportedException ex) {
+    ResponseEntity.BodyBuilder response =
+        ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED)
+            .contentType(MediaType.APPLICATION_JSON);
+    if (ex.getSupportedHttpMethods() != null) {
+      response.allow(ex.getSupportedHttpMethods().toArray(HttpMethod[]::new));
+    }
+    return response.body(
+        ErrorResponse.of(
+            "METHOD_NOT_ALLOWED", "El método HTTP no está permitido en este recurso."));
   }
 
   @ExceptionHandler(MethodArgumentTypeMismatchException.class)

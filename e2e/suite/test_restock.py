@@ -147,7 +147,6 @@ def test_reception_validation(warehouse, factory):
     warehouse.get("/restock/receptions/nope").expect(404, code="RECEPTION_NOT_FOUND")
 
 
-@pytest.mark.known_failure(bug="BUG-RECEPTION-1", reason="an unknown delivery_unit in a JSON body answers MALFORMED_REQUEST ('not valid JSON') instead of INVALID_DELIVERY_UNIT: StockSize.fromValue throws IllegalArgumentException from the @JsonCreator, which Jackson wraps in ValueInstantiationException, while GlobalExceptionHandler.handleMalformedRequest only maps InvalidFormatException (the query-param path does return INVALID_DELIVERY_UNIT)")
 def test_reception_unknown_delivery_unit_error_code(warehouse, factory):
     """POST /restock/receptions with an unknown delivery_unit explains it (INVALID_DELIVERY_UNIT)"""
     p = factory.product()
