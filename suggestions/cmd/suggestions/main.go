@@ -65,6 +65,9 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		MinBytes:    1,
 		MaxBytes:    10 << 20,
 		MaxWait:     time.Second,
+		// Batched offset commits: a crash re-reads at most this interval of events, which the
+		// processed:{orderId} markers make harmless.
+		CommitInterval: cfg.CommitInterval,
 	})
 	aging := ingest.Aging{Factor: cfg.DecayFactor, Interval: cfg.DecayInterval}
 	cons := consumer.New(reader, func(ctx context.Context, ev ingest.OrderCompleted) error {

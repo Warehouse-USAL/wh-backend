@@ -79,7 +79,11 @@ def test_user_histories_equal_what_mongo_says_they_ordered(completed, redis_c):
 def test_user_recommendations_are_non_empty_and_exclude_the_users_history(sg, completed):
     """/user/:id for seeded buyers answers recommendations, none of them a SKU the user already bought"""
     by_user = _users(completed)
-    for u in sorted(by_user, key=lambda u: -sum(by_user[u].values()))[:3]:
+    catalogue = set().union(*by_user.values())
+    # Users who already bought (nearly) everything are legitimately told nothing new: pick buyers with room to recommend.
+    open_ended = [u for u in by_user if len(by_user[u]) <= len(catalogue) - 3]
+    assert len(open_ended) >= 3
+    for u in sorted(open_ended, key=lambda u: -sum(by_user[u].values()))[:3]:
         recs = _skus(sg.get(f"/v1/recommendations/user/{u}", token=_token(u)).expect(200))
         assert recs, u
         assert not set(recs) & set(by_user[u]), (u, recs)
@@ -128,7 +132,8 @@ def test_hot_favours_recently_ordered_skus(sg, completed):
             if w >= 0.01:
                 weighted[sku] += q * w
     got = sg.get("/v1/recommendations/hot?limit=10", token=_token("e2e-seed")).expect(200).json_("recommendations")
-    assert len(got) == 10
+    # Only SKUs ordered within the last ~38 h are above the 0.01 floor, so the list may be shorter than the limit.
+    assert len(got) == min(10, len(weighted)) and len(got) >= 3, (len(weighted), got)
     # The service decays in 15 min rounds and the test measures age continuously, so a uniform factor (and a
     # few percent between events) separates the two; the shape must match.
     scale = got[0]["score"] / weighted[got[0]["sku"]]
@@ -136,5 +141,5 @@ def test_hot_favours_recently_ordered_skus(sg, completed):
     for r in got:
         assert r["score"] == pytest.approx(weighted[r["sku"]] * scale, rel=0.1), (r, weighted[r["sku"]])
     top_weighted = {s for s, _ in weighted.most_common(10)}
-    assert len({r["sku"] for r in got} & top_weighted) >= 8, (_skus_of(got), sorted(top_weighted))
+    assert {r["sku"] for r in got} <= set(weighted) and len({r["sku"] for r in got} & top_weighted) >= min(8, len(got)), (_skus_of(got), sorted(top_weighted))
     assert all(r["score"] < 0.2 * raw[r["sku"]] for r in got), "hot must be a recency-weighted number, not the two-year total"

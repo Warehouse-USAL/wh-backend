@@ -11,9 +11,10 @@ wh-backend ──Kafka `order.completed`──► suggestions ──► Redis (i
               web / apps ──HTTP + JWT────────┘   /v1/recommendations/*, /healthz
 ```
 
-The backend publishes `order.completed` (`OrderCompletedMessage`,
-camelCase) when an order completes, seeded or real. The service never calls the backend; JWTs are
-verified locally.
+The backend publishes `order.completed` (`OrderCompletedMessage`, camelCase) when an order
+completes. With `SEED_DEMO=true` it also publishes one for every COMPLETED order it seeds (see
+"Preload from the demo seed"), so the model starts out holding exactly the orders MongoDB holds.
+The service never calls the backend; JWTs are verified locally.
 
 ## API
 
@@ -55,8 +56,8 @@ service accepts those three HMAC algorithms (and nothing else) with the same sec
 | `user:{userId}:skus` | zset | sku -> total quantity the user ordered | `ZINCRBY qty` per distinct SKU |
 | `sku:{sku}:buyers` | zset | userId -> total quantity (inverted index of the above; **added** to answer the RFC comment) | `ZINCRBY qty` per distinct SKU |
 | `cooccur:{sku}` | zset | other sku -> number of orders containing both | `ZINCRBY 1` for each ordered pair, both directions |
-| `hot:global` | zset | sku -> decayed quantity | `ZINCRBY qty` per distinct SKU |
-
+| `hot:global` | zset | sku -> decayed quantity | `ZINCRBY qty * w` per distinct SKU, `w` = age weight (see "Hot items and decay"); skipped when `w < 0.01` |
+| `sku:count` | hash | sku -> number of applied orders containing it (the popularity the cart score divides by) | `HINCRBY 1` per distinct SKU, in the same atomic step |
 | `processed:{orderId}` | string | marker `1` of an order already applied, with a TTL (`ORDER_DEDUPE_TTL`) | `SET ... EX`, in the same atomic step as the counts |
 
 One event is applied atomically (a single Lua `EVAL`, or `MULTI/EXEC` for events without an order id). Lines repeating a SKU are summed; lines without a SKU
@@ -121,9 +122,11 @@ gets `hot:global` minus what they own. Without the inverted index, finding neigh
 scan of every `user:*:skus` key; with it the cost is independent of the number of users.
 
 **2. The cart endpoint exists as GET and POST.** GET is the idempotent, cacheable form for the web;
-POST (the RFC's form) stays for long lists. Both call the same function. Logic: sum `cooccur:{sku}`
-(top 100 per SKU) over the cart, drop the cart's own SKUs, return the top `limit`; with no
-co-occurrence it falls back to `hot:global` minus the cart.
+POST (the RFC's form) stays for long lists. Both call the same function. Logic: for every SKU `b`
+in the top 100 of `cooccur:{a}` of a cart SKU `a`, add `cooccur(a,b) / sqrt(count(a) * count(b))`
+(`count` = `sku:count`), summed over the cart; drop the cart's own SKUs, return the top `limit`;
+with no co-occurrence it falls back to `hot:global` minus the cart. See "Cart score: popularity
+normalisation" below.
 
 ## Hot items and decay
 
@@ -132,6 +135,45 @@ A goroutine runs every `HOT_DECAY_INTERVAL` (15 min) a Lua script (`EVAL`) that 
 stays bounded. That is exponential decay with a half-life of about 5.7 hours. `user:*`, `buyers` and
 `cooccur` do not decay on purpose: they describe taste, not trend. The factor is an untested guess
 (RFC section 10); revisit with real traffic.
+
+**Age weighting of replayed events.** The decay job only ages what is already in `hot:global`, so an
+event that completed two years ago and is ingested today would enter at full weight and top the
+list. Ingestion therefore weights each event's contribution to `hot:global` by its age, computed
+from `completedAt`:
+
+```
+contribution = quantity * HOT_DECAY_FACTOR ^ (age / HOT_DECAY_INTERVAL)      age = max(now - completedAt, 0)
+```
+
+which is exactly what the decay job would have done to it had it been ingested on time. Hand-checked
+values with the defaults (0.97 per 15 min): 1 hour old = 0.97^4 = 0.885, 1 day = 0.97^96 = 0.0537,
+a week = 0.97^672 = 1.3e-9. An event whose weight is under 0.01 (older than ~151 intervals, about
+38 hours) adds nothing to `hot:global` (the next decay round would delete it anyway) but still feeds
+`user:*`, `buyers`, `cooccur` and `sku:count`. A missing or unparsable `completedAt`, or one in the
+future (clock skew), weighs 1, so a fresh real event (age about 0) behaves exactly as before. The
+weighting happens inside the same atomic script as the counts and the `processed:{orderId}` marker.
+It is independent of event order and of the number of partitions.
+
+## Cart score: popularity normalisation
+
+The first version summed the raw `cooccur:{sku}` counts, so best-sellers (in nearly every order,
+hence co-occurring with everything) were recommended for every cart. The score is now the cosine
+`cooccur(a,b) / sqrt(count(a) * count(b))` summed over the cart SKUs, `count` being the number of
+orders containing the SKU (`sku:count`, written atomically with `cooccur`). A pair that is ordered
+together out of proportion to how often either sells now beats a pair that merely involves a
+best-seller. Example (hand-computed in `TestCartNormalisesByPopularity`): A is in 5 orders, with
+best-seller P (10 orders) 3 times and niche N (2 orders) twice. Raw: P 3 > N 2. Cosine: N
+2/sqrt(5*2) = 0.632 > P 3/sqrt(5*10) = 0.424.
+
+The HTTP contract is unchanged (same routes and JSON; `score` was already a float, its scale is now
+roughly 0..1 per cart SKU). No backfill is needed: the model is rebuilt from the topic. A SKU with
+no count (a model built before `sku:count` existed) is treated as having as many orders as it
+co-occurred, so the answer degrades to a per-pair 1 instead of failing.
+The backtest below measured it before keeping it.
+
+Not done: filtering out-of-stock SKUs from "also add". The service never calls the backend and has
+no stock data (by design); doing it needs either the backend to publish stock changes or a filter
+in the client. Future work.
 
 ## Durability
 
