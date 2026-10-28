@@ -61,6 +61,10 @@
    "description": "Internal simulation endpoints — not for production use"
   },
   {
+   "name": "Stock adjustments",
+   "description": "Manual stock changes and their history"
+  },
+  {
    "name": "Metrics",
    "description": "Time-series metrics for dashboards"
   },
@@ -196,6 +200,156 @@
        "*/*": {
         "schema": {
          "$ref": "#/components/schemas/LineResponse"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/warehouse/positions/{id}/stock-adjustments": {
+   "get": {
+    "tags": [
+     "Stock adjustments"
+    ],
+    "summary": "List a position's stock adjustments",
+    "description": "Newest first. Requires ADMIN_WAREHOUSE.",
+    "operationId": "getPositionAdjustments",
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "page",
+      "in": "query",
+      "description": "Zero-indexed page number",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "format": "int32",
+       "default": 0
+      }
+     },
+     {
+      "name": "size",
+      "in": "query",
+      "description": "Page size (max 50)",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "format": "int32",
+       "default": 10
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Paginated adjustment history",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {}
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "Position not found",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {}
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   },
+   "post": {
+    "tags": [
+     "Stock adjustments"
+    ],
+    "summary": "Reduce a position's stock",
+    "description": "Lowers the stock by quantity (a whole number above zero, not above the position's stock; minimum and reserved stock are ignored), records it in the history and, in the same transaction, re-checks the product's orders. In-progress orders are respected; pending ones are walked oldest to newest, keeping each that fits entirely and cancelling the rest with reason 'INSUFFICIENT_STOCK: ...'. Requires ADMIN_WAREHOUSE.",
+    "operationId": "adjustStock",
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CreateStockAdjustmentRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "description": "Adjustment recorded; cancelled_orders lists the orders it cancelled",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {}
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "INVALID_QUANTITY, INVALID_ADJUSTMENT_TYPE, POSITION_WITHOUT_PRODUCT or QUANTITY_EXCEEDS_POSITION_STOCK",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {}
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "Insufficient role",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {}
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "Position not found",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {}
         }
        }
       }
@@ -788,7 +942,7 @@
      "Receptions"
     ],
     "summary": "Register reception",
-    "description": "Registers the remito and its position assignments atomically, incrementing stock (RN-04/05/06/07).",
+    "description": "Registers the remito and its position assignments atomically, incrementing stock (RN-04/05/06/07). A PROVIDER registers its own delivery: restock_order_id (one of its supplier's orders) is required, assignments are not allowed and supplier is its own, so the reception is created PENDING_LOCATION and adds no stock until an administrator assigns positions with PATCH.",
     "operationId": "createReception",
     "requestBody": {
      "content": {
@@ -815,7 +969,20 @@
       }
      },
      "400": {
-      "description": "PRODUCT_NOT_FOUND, ASSIGNMENT_QUANTITY_MISMATCH, RESTOCK_ORDER_PRODUCT_MISMATCH",
+      "description": "PRODUCT_NOT_FOUND, ASSIGNMENT_QUANTITY_MISMATCH, RESTOCK_ORDER_PRODUCT_MISMATCH, SUPPLIER_REQUIRED, RESTOCK_ORDER_REQUIRED, ASSIGNMENTS_NOT_ALLOWED",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/ReceptionResponse"
+         }
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "PROVIDER_WITHOUT_SUPPLIER — provider not linked to a supplier",
       "content": {
        "*/*": {
         "schema": {
@@ -867,7 +1034,7 @@
      "Restock Orders"
     ],
     "summary": "List restock orders",
-    "description": "Paginated, filterable listing.",
+    "description": "Paginated, filterable listing. Cancelled orders are hidden by default; pass includeCancelled=true to include them. A PROVIDER only sees its own supplier's orders: the supplier filter is forced to it.",
     "operationId": "getRestockOrders",
     "parameters": [
      {
@@ -905,6 +1072,16 @@
       }
      },
      {
+      "name": "includeCancelled",
+      "in": "query",
+      "description": "Include cancelled orders in the result (default false)",
+      "required": false,
+      "schema": {
+       "type": "boolean",
+       "default": false
+      }
+     },
+     {
       "name": "page",
       "in": "query",
       "required": false,
@@ -936,6 +1113,17 @@
         }
        }
       }
+     },
+     "403": {
+      "description": "PROVIDER_WITHOUT_SUPPLIER — provider not linked to a supplier",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {}
+        }
+       }
+      }
      }
     },
     "security": [
@@ -949,7 +1137,7 @@
      "Restock Orders"
     ],
     "summary": "Create restock order",
-    "description": "Registers a request to a supplier. Never affects stock (RN-03).",
+    "description": "Registers a request to a supplier. Never affects stock (RN-03). Accepts an optional expected_delivery_date (#134) that is informational only — it is not used in any stock computation.",
     "operationId": "createRestockOrder",
     "requestBody": {
      "content": {
@@ -975,6 +1163,19 @@
        }
       }
      },
+     "400": {
+      "description": "INVALID_EXPECTED_DELIVERY_DATE — expected_delivery_date must be after now",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/RestockOrderResponse"
+         }
+        }
+       }
+      }
+     },
      "404": {
       "description": "PRODUCT_NOT_FOUND",
       "content": {
@@ -983,6 +1184,81 @@
          "type": "object",
          "additionalProperties": {
           "$ref": "#/components/schemas/RestockOrderResponse"
+         }
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/restock/orders/{id}/cancel": {
+   "post": {
+    "tags": [
+     "Restock Orders"
+    ],
+    "summary": "Cancel restock order",
+    "description": "Marks a pending restock order as cancelled. The order is kept as a historical record (soft delete). An order that already has receptions against it cannot be cancelled.",
+    "operationId": "cancelRestockOrder",
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/CancelRestockOrderRequest"
+       }
+      }
+     }
+    },
+    "responses": {
+     "200": {
+      "description": "Restock order cancelled",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/RestockOrderDetailResponse"
+         }
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "RESTOCK_ORDER_NOT_FOUND",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/RestockOrderDetailResponse"
+         }
+        }
+       }
+      }
+     },
+     "409": {
+      "description": "RESTOCK_ORDER_ALREADY_CANCELLED — the order was already cancelled; RESTOCK_ORDER_HAS_RECEPTIONS — receptions were registered against this order",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/RestockOrderDetailResponse"
          }
         }
        }
@@ -1314,8 +1590,19 @@
      "Orders"
     ],
     "summary": "Create order",
-    "description": "Creates a new order and reserves stock. Requires ADMIN_SALES or ADMIN_WAREHOUSE role.",
+    "description": "Creates a new order and reserves stock. Supports Idempotency-Key header to prevent duplicate orders on network retries. Requires ADMIN_SALES, ADMIN_WAREHOUSE or OPERATOR role.",
     "operationId": "createOrder",
+    "parameters": [
+     {
+      "name": "Idempotency-Key",
+      "in": "header",
+      "description": "Optional idempotency key (UUID) to prevent duplicate order creation on network retries",
+      "required": false,
+      "schema": {
+       "type": "string"
+      }
+     }
+    ],
     "requestBody": {
      "content": {
       "application/json": {
@@ -1342,6 +1629,19 @@
      },
      "400": {
       "description": "DESTINATION_AREA_REQUIRED, ITEMS_REQUIRED, PRODUCT_NOT_FOUND, INSUFFICIENT_STOCK, QUANTITY_EXCEEDS_LIMIT, etc.",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/OrderResponse"
+         }
+        }
+       }
+      }
+     },
+     "409": {
+      "description": "IDEMPOTENCY_KEY_USER_MISMATCH, or IDEMPOTENCY_REQUEST_IN_PROGRESS for a concurrent request",
       "content": {
        "*/*": {
         "schema": {
@@ -1380,7 +1680,7 @@
      "Orders"
     ],
     "summary": "Cancel order",
-    "description": "Cancels an order and restores reserved stock. Requires ADMIN_WAREHOUSE or ADMIN_SALES role.",
+    "description": "Cancels a pending order at once and restores reserved stock. An in_progress order stays in_progress with timestamps.cancellation_requested_at set until Infra reports it cancelled, once the vehicle has put the goods back; the change arrives over the WebSocket. ADMIN_WAREHOUSE and ADMIN_SALES may cancel any order, OPERATOR only the orders they requested.",
     "operationId": "cancelOrder",
     "parameters": [
      {
@@ -1403,7 +1703,7 @@
     },
     "responses": {
      "200": {
-      "description": "Order cancelled",
+      "description": "Order cancelled, or its cancellation requested from Infra",
       "content": {
        "*/*": {
         "schema": {
@@ -1416,7 +1716,7 @@
       }
      },
      "403": {
-      "description": "Insufficient role",
+      "description": "Insufficient role, or ORDER_NOT_OWNED — an operator's order of someone else",
       "content": {
        "*/*": {
         "schema": {
@@ -1450,6 +1750,53 @@
          "additionalProperties": {
           "$ref": "#/components/schemas/OrderResponse"
          }
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/metrics/suggestion-conversion": {
+   "post": {
+    "tags": [
+     "Metrics"
+    ],
+    "summary": "Suggestion conversion",
+    "description": "Per calendar bucket (day, week or month), how many non-cancelled orders, order lines and units came from a recommendation (the optional from_recommendation flag of each item in POST /orders). Every bucket of the range is returned, empty ones with zeros. Filters restrict the lines considered.",
+    "operationId": "suggestionConversion",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SuggestionConversionRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "One row per bucket, oldest first",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/ComputedMetricResponseConversionBucket"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "INVALID_METRIC_PARAMS",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/ComputedMetricResponseConversionBucket"
         }
        }
       }
@@ -1778,6 +2125,63 @@
     ]
    }
   },
+  "/console/stream": {
+   "post": {
+    "tags": [
+     "Console"
+    ],
+    "summary": "Push stream",
+    "description": "Opens a text/event-stream. Body: subscriptions[] of {id, kind, ...params}; id matches [A-Za-z0-9_.-]{1,64} and is unique; at most 200. Kinds: metric {metric, range, step, filters?, group_by?, agg} (as POST /metrics/query with range 5m|15m|1h|6h|24h instead of from/to), logs {service?, level?, request_id?, text?, range, limit?} (as POST /console/logs/query), ws-events {feed: orders|user-orders|vehicles|stock-alerts}, status {}. Events: snapshot (first frame of a subscription), update (mode replace for metric/status, append for logs/ws-events), error {id, code, message}, end {reason: token-expired | server-shutdown | limit}; data is {id, mode, data} with the REST payload. Heartbeat ': ping' every 15 s. At most 10 streams per user (the user's oldest is ended with limit when a new one exceeds that) and 50 in total.",
+    "operationId": "stream",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/StreamRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "The stream",
+      "content": {
+       "text/event-stream": {
+        "schema": {
+         "type": "string"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "INVALID_SUBSCRIPTION, INVALID_FILTER_VALUE, MALFORMED_REQUEST",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/ResponseBodyEmitter"
+        }
+       }
+      }
+     },
+     "429": {
+      "description": "STREAM_LIMIT: the global cap of open streams is reached",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/ResponseBodyEmitter"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
   "/console/logs/query": {
    "post": {
     "tags": [
@@ -1874,8 +2278,21 @@
      "Files"
     ],
     "summary": "Upload an image",
-    "description": "Returns the URL and key. Requires ADMIN_WAREHOUSE, ADMIN_SALES or SUPERADMIN role.",
+    "description": "Stores the file as <path>/<uuid>.<ext> and returns the URL and key. The optional `path` part is one segment of 1 to 64 letters, digits, '_' or '-' (default `images`); anything else is a 400 BAD_REQUEST. Requires ADMIN_WAREHOUSE, ADMIN_SALES or SUPERADMIN role.",
     "operationId": "upload",
+    "parameters": [
+     {
+      "name": "path",
+      "in": "query",
+      "description": "Folder for the file: 1 to 64 of [A-Za-z0-9_-]; defaults to images",
+      "required": false,
+      "schema": {
+       "type": "string",
+       "maxLength": 64,
+       "pattern": "^[A-Za-z0-9_-]{1,64}$"
+      }
+     }
+    ],
     "requestBody": {
      "content": {
       "application/json": {
@@ -2075,7 +2492,7 @@
       "content": {
        "*/*": {
         "schema": {
-         "$ref": "#/components/schemas/PositionResponse"
+         "$ref": "#/components/schemas/UpdatePositionResponse"
         }
        }
       }
@@ -3035,7 +3452,7 @@
      "Restock Orders"
     ],
     "summary": "Get restock order by ID",
-    "description": "Includes quantity_received_so_far, computed from linked receptions.",
+    "description": "Includes quantity_received_so_far, computed from linked receptions. A PROVIDER only finds its own supplier's orders.",
     "operationId": "getRestockOrder",
     "parameters": [
      {
@@ -3050,6 +3467,19 @@
     "responses": {
      "200": {
       "description": "Restock order found",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {
+          "$ref": "#/components/schemas/RestockOrderDetailResponse"
+         }
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "PROVIDER_WITHOUT_SUPPLIER — provider not linked to a supplier",
       "content": {
        "*/*": {
         "schema": {
@@ -3093,6 +3523,88 @@
     "responses": {
      "200": {
       "description": "Entities visible to the caller",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {}
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
+  },
+  "/products/{id}/stock-adjustments": {
+   "get": {
+    "tags": [
+     "Stock adjustments"
+    ],
+    "summary": "List a product's stock adjustments",
+    "description": "Adjustments across all the product's positions, newest first. Requires ADMIN_WAREHOUSE or ADMIN_SALES.",
+    "operationId": "getProductAdjustments",
+    "parameters": [
+     {
+      "name": "id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string"
+      }
+     },
+     {
+      "name": "page",
+      "in": "query",
+      "description": "Zero-indexed page number",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "format": "int32",
+       "default": 0
+      }
+     },
+     {
+      "name": "size",
+      "in": "query",
+      "description": "Page size (max 50)",
+      "required": false,
+      "schema": {
+       "type": "integer",
+       "format": "int32",
+       "default": 10
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Paginated adjustment history",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {}
+        }
+       }
+      }
+     },
+     "403": {
+      "description": "Insufficient role",
+      "content": {
+       "*/*": {
+        "schema": {
+         "type": "object",
+         "additionalProperties": {}
+        }
+       }
+      }
+     },
+     "404": {
+      "description": "PRODUCT_NOT_FOUND",
       "content": {
        "*/*": {
         "schema": {
@@ -3339,7 +3851,7 @@
      "Files"
     ],
     "summary": "List stored files",
-    "description": "SUPERADMIN only. Sorted by path then filename; capped at the first 1000 objects.",
+    "description": "SUPERADMIN only. Sorted by path then filename; capped at the first 1000 objects, with `truncated: true` when the bucket holds more.",
     "operationId": "list",
     "responses": {
      "200": {
@@ -3348,12 +3860,7 @@
        "*/*": {
         "schema": {
          "type": "object",
-         "additionalProperties": {
-          "type": "array",
-          "items": {
-           "$ref": "#/components/schemas/StoredFileResponse"
-          }
-         }
+         "additionalProperties": {}
         }
        }
       }
@@ -3447,53 +3954,6 @@
      }
     ]
    }
-  },
-  "/metrics/suggestion-conversion": {
-   "post": {
-    "tags": [
-     "Metrics"
-    ],
-    "summary": "Suggestion conversion",
-    "description": "Per calendar bucket (day, week or month), how many non-cancelled orders, order lines and units came from a recommendation (the optional from_recommendation flag of each item in POST /orders). Every bucket of the range is returned, empty ones with zeros. Filters restrict the lines considered.",
-    "operationId": "suggestionConversion",
-    "requestBody": {
-     "content": {
-      "application/json": {
-       "schema": {
-        "$ref": "#/components/schemas/SuggestionConversionRequest"
-       }
-      }
-     },
-     "required": true
-    },
-    "responses": {
-     "200": {
-      "description": "One row per bucket, oldest first",
-      "content": {
-       "*/*": {
-        "schema": {
-         "$ref": "#/components/schemas/ComputedMetricResponseConversionBucket"
-        }
-       }
-      }
-     },
-     "400": {
-      "description": "INVALID_METRIC_PARAMS",
-      "content": {
-       "*/*": {
-        "schema": {
-         "$ref": "#/components/schemas/ComputedMetricResponseConversionBucket"
-        }
-       }
-      }
-     }
-    },
-    "security": [
-     {
-      "bearer-jwt": []
-     }
-    ]
-   }
   }
  },
  "components": {
@@ -3573,6 +4033,32 @@
       "format": "date-time"
      }
     }
+   },
+   "CreateStockAdjustmentRequest": {
+    "properties": {
+     "quantity": {
+      "type": "number",
+      "minimum": 1
+     },
+     "type": {
+      "type": "string",
+      "enum": [
+       "MANUAL_INCREASE",
+       "MANUAL_DECREASE",
+       "DAMAGE",
+       "UNASSIGNED",
+       "DEACTIVATED"
+      ]
+     },
+     "reason": {
+      "type": "string",
+      "maxLength": 500,
+      "minLength": 0
+     }
+    },
+    "required": [
+     "quantity"
+    ]
    },
    "ValidateFitRequest": {
     "properties": {
@@ -3762,6 +4248,9 @@
      "initial_password": {
       "type": "string",
       "minLength": 1
+     },
+     "supplier": {
+      "type": "string"
      }
     },
     "required": [
@@ -3810,6 +4299,9 @@
      },
      "address": {
       "$ref": "#/components/schemas/AddressResponse"
+     },
+     "supplier": {
+      "type": "string"
      }
     }
    },
@@ -3879,8 +4371,7 @@
       ]
      },
      "supplier": {
-      "type": "string",
-      "minLength": 1
+      "type": "string"
      },
      "assignments": {
       "type": "array",
@@ -3891,8 +4382,7 @@
     },
     "required": [
      "delivery_unit",
-     "product_id",
-     "supplier"
+     "product_id"
     ]
    },
    "AssignmentResponse": {
@@ -3968,6 +4458,10 @@
      "supplier": {
       "type": "string",
       "minLength": 1
+     },
+     "expected_delivery_date": {
+      "type": "string",
+      "format": "date-time"
      }
     },
     "required": [
@@ -3991,6 +4485,77 @@
       "type": "string"
      },
      "requested_by_user_id": {
+      "type": "string"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "PENDING",
+       "CANCELLED"
+      ]
+     },
+     "expected_delivery_date": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time"
+     }
+    }
+   },
+   "CancelRestockOrderRequest": {
+    "properties": {
+     "reason": {
+      "type": "string"
+     }
+    }
+   },
+   "RestockOrderDetailResponse": {
+    "properties": {
+     "id": {
+      "type": "string"
+     },
+     "product_id": {
+      "type": "string"
+     },
+     "quantity_requested": {
+      "type": "integer",
+      "format": "int32"
+     },
+     "quantity_received_so_far": {
+      "type": "integer",
+      "format": "int32"
+     },
+     "supplier": {
+      "type": "string"
+     },
+     "requested_by_user_id": {
+      "type": "string"
+     },
+     "status": {
+      "type": "string",
+      "enum": [
+       "PENDING",
+       "CANCELLED"
+      ]
+     },
+     "expected_delivery_date": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "delivery_lead_time_days": {
+      "type": "integer",
+      "format": "int64"
+     },
+     "cancelled_at": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "cancelled_by_user_id": {
+      "type": "string"
+     },
+     "cancellation_reason": {
       "type": "string"
      },
      "created_at": {
@@ -4441,8 +5006,7 @@
       "format": "int32"
      },
      "from_recommendation": {
-      "type": "boolean",
-      "description": "Optional. True when the client picked this product from a suggestion of the suggestions service; absent means false."
+      "type": "boolean"
      }
     }
    },
@@ -4531,6 +5095,10 @@
      "completed_at": {
       "type": "string",
       "format": "date-time"
+     },
+     "cancellation_requested_at": {
+      "type": "string",
+      "format": "date-time"
      }
     }
    },
@@ -4538,6 +5106,110 @@
     "properties": {
      "reason": {
       "type": "string"
+     }
+    }
+   },
+   "ConversionFilters": {
+    "properties": {
+     "product_ids": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "category": {
+      "type": "string"
+     }
+    }
+   },
+   "ConversionRange": {
+    "properties": {
+     "from": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "to": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "granularity": {
+      "type": "string"
+     },
+     "time_zone": {
+      "type": "string"
+     }
+    }
+   },
+   "SuggestionConversionRequest": {
+    "properties": {
+     "params": {
+      "$ref": "#/components/schemas/ConversionRange"
+     },
+     "filters": {
+      "$ref": "#/components/schemas/ConversionFilters"
+     }
+    }
+   },
+   "ComputedMetricResponseConversionBucket": {
+    "properties": {
+     "metric": {
+      "type": "string"
+     },
+     "params_used": {
+      "type": "object"
+     },
+     "generated_at": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "data": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/ConversionBucket"
+      }
+     }
+    }
+   },
+   "ConversionBucket": {
+    "properties": {
+     "bucket": {
+      "type": "string"
+     },
+     "orders": {
+      "type": "integer",
+      "format": "int32"
+     },
+     "orders_with_recommendation": {
+      "type": "integer",
+      "format": "int32"
+     },
+     "order_conversion_rate": {
+      "type": "number",
+      "format": "double"
+     },
+     "lines": {
+      "type": "integer",
+      "format": "int32"
+     },
+     "lines_from_recommendation": {
+      "type": "integer",
+      "format": "int32"
+     },
+     "line_conversion_rate": {
+      "type": "number",
+      "format": "double"
+     },
+     "units": {
+      "type": "integer",
+      "format": "int64"
+     },
+     "units_from_recommendation": {
+      "type": "integer",
+      "format": "int64"
+     },
+     "unit_conversion_rate": {
+      "type": "number",
+      "format": "double"
      }
     }
    },
@@ -4789,6 +5461,77 @@
      }
     }
    },
+   "StreamRequest": {
+    "properties": {
+     "subscriptions": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/Subscription"
+      }
+     }
+    }
+   },
+   "Subscription": {
+    "properties": {
+     "id": {
+      "type": "string"
+     },
+     "kind": {
+      "type": "string"
+     },
+     "metric": {
+      "type": "string"
+     },
+     "range": {
+      "type": "string"
+     },
+     "step": {
+      "type": "string"
+     },
+     "filters": {
+      "type": "object",
+      "additionalProperties": {
+       "type": "string"
+      }
+     },
+     "group_by": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "agg": {
+      "type": "string"
+     },
+     "service": {
+      "type": "string"
+     },
+     "level": {
+      "type": "string"
+     },
+     "request_id": {
+      "type": "string"
+     },
+     "text": {
+      "type": "string"
+     },
+     "limit": {
+      "type": "integer",
+      "format": "int32"
+     },
+     "feed": {
+      "type": "string"
+     }
+    }
+   },
+   "ResponseBodyEmitter": {
+    "properties": {
+     "timeout": {
+      "type": "integer",
+      "format": "int64"
+     }
+    }
+   },
    "LogsQuery": {
     "properties": {
      "service": {
@@ -4907,6 +5650,76 @@
      },
      "qr_code": {
       "type": "string"
+     },
+     "reason": {
+      "type": "string",
+      "maxLength": 500,
+      "minLength": 0
+     }
+    }
+   },
+   "CancelledOrderResponse": {
+    "properties": {
+     "id": {
+      "type": "string"
+     },
+     "cancel_reason": {
+      "type": "string"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time"
+     }
+    }
+   },
+   "UpdatePositionResponse": {
+    "properties": {
+     "id_position": {
+      "type": "string"
+     },
+     "id_line": {
+      "type": "string"
+     },
+     "id_zone": {
+      "type": "string"
+     },
+     "position_name": {
+      "type": "string"
+     },
+     "is_active": {
+      "type": "boolean"
+     },
+     "maximum_capacity": {
+      "type": "integer",
+      "format": "int32"
+     },
+     "size_stock_to_save": {
+      "type": "string",
+      "enum": [
+       "CAJA",
+       "MEDIO_PALLET",
+       "PALLET"
+      ]
+     },
+     "product_id": {
+      "type": "string"
+     },
+     "qr_code": {
+      "type": "string"
+     },
+     "current_stock": {
+      "type": "integer",
+      "format": "int32"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "cancelled_orders": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/CancelledOrderResponse"
+      }
      }
     }
    },
@@ -4937,6 +5750,9 @@
      },
      "active": {
       "type": "boolean"
+     },
+     "supplier": {
+      "type": "string"
      }
     }
    },
@@ -5127,152 +5943,6 @@
      },
      "assigned_product": {
       "$ref": "#/components/schemas/AssignedProduct"
-     }
-    }
-   },
-   "RestockOrderDetailResponse": {
-    "properties": {
-     "id": {
-      "type": "string"
-     },
-     "product_id": {
-      "type": "string"
-     },
-     "quantity_requested": {
-      "type": "integer",
-      "format": "int32"
-     },
-     "quantity_received_so_far": {
-      "type": "integer",
-      "format": "int32"
-     },
-     "supplier": {
-      "type": "string"
-     },
-     "requested_by_user_id": {
-      "type": "string"
-     },
-     "created_at": {
-      "type": "string",
-      "format": "date-time"
-     }
-    }
-   },
-   "StoredFileResponse": {
-    "properties": {
-     "path": {
-      "type": "string"
-     },
-     "filename": {
-      "type": "string"
-     },
-     "size": {
-      "type": "integer",
-      "format": "int64"
-     }
-    }
-   },
-   "SuggestionConversionRequest": {
-    "properties": {
-     "params": {
-      "$ref": "#/components/schemas/ConversionRange"
-     },
-     "filters": {
-      "$ref": "#/components/schemas/ConversionFilters"
-     }
-    }
-   },
-   "ConversionRange": {
-    "properties": {
-     "from": {
-      "type": "string",
-      "format": "date-time"
-     },
-     "to": {
-      "type": "string",
-      "format": "date-time"
-     },
-     "granularity": {
-      "type": "string"
-     },
-     "time_zone": {
-      "type": "string"
-     }
-    }
-   },
-   "ConversionFilters": {
-    "properties": {
-     "product_ids": {
-      "type": "array",
-      "items": {
-       "type": "string"
-      }
-     },
-     "category": {
-      "type": "string"
-     }
-    }
-   },
-   "ConversionBucket": {
-    "properties": {
-     "bucket": {
-      "type": "string"
-     },
-     "orders": {
-      "type": "integer",
-      "format": "int32"
-     },
-     "orders_with_recommendation": {
-      "type": "integer",
-      "format": "int32"
-     },
-     "order_conversion_rate": {
-      "type": "number",
-      "format": "double"
-     },
-     "lines": {
-      "type": "integer",
-      "format": "int32"
-     },
-     "lines_from_recommendation": {
-      "type": "integer",
-      "format": "int32"
-     },
-     "line_conversion_rate": {
-      "type": "number",
-      "format": "double"
-     },
-     "units": {
-      "type": "integer",
-      "format": "int64"
-     },
-     "units_from_recommendation": {
-      "type": "integer",
-      "format": "int64"
-     },
-     "unit_conversion_rate": {
-      "type": "number",
-      "format": "double"
-     }
-    }
-   },
-   "ComputedMetricResponseConversionBucket": {
-    "properties": {
-     "metric": {
-      "type": "string"
-     },
-     "params_used": {
-      "type": "object"
-     },
-     "generated_at": {
-      "type": "string",
-      "format": "date-time"
-     },
-     "data": {
-      "type": "array",
-      "items": {
-       "$ref": "#/components/schemas/ConversionBucket"
-      }
      }
     }
    }

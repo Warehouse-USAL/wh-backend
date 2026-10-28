@@ -10,6 +10,8 @@ from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
+from lib.api import wait_until
+
 DAYS = 730
 DAY_S = 86400
 
@@ -28,14 +30,33 @@ def _window() -> tuple[date, date]:
     return end - timedelta(days=DAYS), end
 
 
-def _paged(api, entity: str, body: dict) -> list[dict]:
-    rows, page = [], 0
-    while True:
-        r = api.post(f"/query/{entity}", json={**body, "page": page, "size": 100}).expect(200)
-        rows += r.json_("items")
-        if page + 1 >= r.json_("pagination", "total_pages"):
-            return rows
-        page += 1
+def _grouped(api, entity: str, body: dict, start: date, end: date, chunk_days: int) -> list[dict]:
+    """Aggregate-mode /query returns at most `size` (<= 100) group rows and has no paging (docs/DASHBOARD_INTEGRATION.md),
+    so a two-year breakdown is asked in date windows small enough to stay under that cap; a full page means truncation."""
+    rows, lo = [], start
+    while lo < end:
+        hi = min(lo + timedelta(days=chunk_days), end)
+        window = [{"field": "created_at", "op": "gte", "value": _iso(lo)}, {"field": "created_at", "op": "lt", "value": _iso(hi)}]
+        r = api.post(f"/query/{entity}", json={**body, "filters": window + body.get("filters", []), "size": 100}).expect(200)
+        got = r.json_("items")
+        assert len(got) < 100, f"{entity}: {lo}..{hi} filled the 100-row cap, shrink the window ({r.json_('pagination')})"
+        rows += got
+        lo = hi
+    return rows
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _telemetry_is_searchable(warehouse):
+    """VictoriaMetrics makes freshly imported samples searchable a few seconds after the import (the backend seeds them
+    at boot), so a query right after the stack is healthy sees a gappy series: wait until the seeded window is complete."""
+    start, end = _window()
+    body = {"metric": "wh.vehicle.state", "from": _iso(start), "to": _iso(end), "step": "1d", "agg": "avg", "filters": {}, "group_by": []}
+
+    def complete():
+        series = warehouse.post("/metrics/query", json=body).expect(200).json_("series")
+        return bool(series) and len(series[0]["points"]) >= DAYS - 1
+
+    wait_until(complete, timeout=60, desc="the seeded telemetry to become searchable in VictoriaMetrics")
 
 
 def _business_catalog(warehouse) -> list[dict]:
@@ -136,11 +157,6 @@ def test_suggestion_conversion_validation_and_filters(warehouse):
 
 
 # ───────────────────────────── orders-derived KPIs via /query ─────────────────────────────
-def _day_filters():
-    start, end = _window()
-    return [{"field": "created_at", "op": "gte", "value": _iso(start)}, {"field": "created_at", "op": "lt", "value": _iso(end)}]
-
-
 def _expected_days() -> set[str]:
     start, _ = _window()
     # The newest day or two can hold only in-flight orders; the 728 before are settled.
@@ -149,9 +165,9 @@ def _expected_days() -> set[str]:
 
 def test_orders_per_day_by_status_cover_every_day(warehouse):
     """KPIs 7-10 (orders, completion and cancellation rate per day): /query/orders grouped by day has completed orders on every day of the window and cancellations on most"""
-    rows = _paged(warehouse, "orders", {"filters": _day_filters(), "timezone": "UTC",
-                                        "group_by": [{"field": "created_at", "bucket": "day", "as": "day"}, {"field": "status", "as": "status"}],
-                                        "aggregates": [{"op": "count", "as": "n"}]})
+    rows = _grouped(warehouse, "orders", {"timezone": "UTC",
+                                          "group_by": [{"field": "created_at", "bucket": "day", "as": "day"}, {"field": "status", "as": "status"}],
+                                          "aggregates": [{"op": "count", "as": "n"}]}, *_window(), chunk_days=40)
     completed = {r["day"][:10] for r in rows if r["status"] == "COMPLETED"}
     cancelled = {r["day"][:10] for r in rows if r["status"] == "CANCELLED"}
     assert _expected_days() <= completed, sorted(_expected_days() - completed)[:5]
@@ -161,27 +177,27 @@ def test_orders_per_day_by_status_cover_every_day(warehouse):
 def test_cycle_time_and_assignment_latency_exist_every_day(warehouse):
     """KPIs 12-14 (cycle time, time to vehicle assignment, SLA): completed orders carry a positive average cycle_time_ms and assignment_latency_ms on every day"""
     for field in ("cycle_time_ms", "assignment_latency_ms"):
-        rows = _paged(warehouse, "orders", {"filters": _day_filters() + [{"field": "status", "op": "eq", "value": "COMPLETED"}], "timezone": "UTC",
-                                            "group_by": [{"field": "created_at", "bucket": "day", "as": "day"}],
-                                            "aggregates": [{"op": "avg", "field": field, "as": "v"}]})
+        rows = _grouped(warehouse, "orders", {"filters": [{"field": "status", "op": "eq", "value": "COMPLETED"}], "timezone": "UTC",
+                                              "group_by": [{"field": "created_at", "bucket": "day", "as": "day"}],
+                                              "aggregates": [{"op": "avg", "field": field, "as": "v"}]}, *_window(), chunk_days=90)
         days = {r["day"][:10] for r in rows if r["v"] and r["v"] > 0}
         assert _expected_days() <= days, (field, sorted(_expected_days() - days)[:5])
 
 
 def test_picking_lines_and_units_exist_every_day(warehouse):
     """KPI 15 (picking efficiency) and the demand behind KPIs 16-20: order lines and units per day, unwinding items, on every day"""
-    rows = _paged(warehouse, "orders", {"filters": _day_filters(), "unwind": "items", "timezone": "UTC",
-                                        "group_by": [{"field": "created_at", "bucket": "day", "as": "day"}],
-                                        "aggregates": [{"op": "count", "as": "lines"}, {"op": "sum", "field": "items.quantity", "as": "units"}]})
+    rows = _grouped(warehouse, "orders", {"unwind": "items", "timezone": "UTC",
+                                          "group_by": [{"field": "created_at", "bucket": "day", "as": "day"}],
+                                          "aggregates": [{"op": "count", "as": "lines"}, {"op": "sum", "field": "items.quantity", "as": "units"}]}, *_window(), chunk_days=90)
     days = {r["day"][:10] for r in rows if r["lines"] > 0 and r["units"] > 0}
     assert _expected_days() <= days, sorted(_expected_days() - days)[:5]
 
 
 def test_every_rover_has_completed_orders_in_every_month(warehouse):
     """KPI 11 (productivity per rover): each seeded vehicle has completed orders in every month of the window"""
-    rows = _paged(warehouse, "orders", {"filters": _day_filters() + [{"field": "assigned_vehicle_id", "op": "exists", "value": True}], "timezone": "UTC",
-                                        "group_by": [{"field": "created_at", "bucket": "month", "as": "month"}, {"field": "assigned_vehicle_id", "as": "vehicle"}],
-                                        "aggregates": [{"op": "count", "as": "n"}]})
+    rows = _grouped(warehouse, "orders", {"filters": [{"field": "assigned_vehicle_id", "op": "exists", "value": True}], "timezone": "UTC",
+                                          "group_by": [{"field": "created_at", "bucket": "month", "as": "month"}, {"field": "assigned_vehicle_id", "as": "vehicle"}],
+                                          "aggregates": [{"op": "count", "as": "n"}]}, *_window(), chunk_days=180)
     vehicles = {r["vehicle"] for r in rows}
     assert len(vehicles) >= 5, vehicles
     months = {r["month"][:7] for r in rows}
@@ -193,7 +209,6 @@ def test_every_rover_has_completed_orders_in_every_month(warehouse):
 
 def test_receptions_and_restock_orders_are_spread_over_the_two_years(warehouse):
     """Stock inflow (receptions) is not daily by nature (deliveries arrive on some days) but must appear in every month of the window"""
-    rows = _paged(warehouse, "receptions", {"filters": [{"field": "created_at", "op": "gte", "value": _iso(_window()[0])}], "timezone": "UTC",
-                                            "group_by": [{"field": "created_at", "bucket": "month", "as": "month"}],
-                                            "aggregates": [{"op": "sum", "field": "quantity_received", "as": "units"}]})
+    rows = _grouped(warehouse, "receptions", {"timezone": "UTC", "group_by": [{"field": "created_at", "bucket": "month", "as": "month"}],
+                                              "aggregates": [{"op": "sum", "field": "quantity_received", "as": "units"}]}, *_window(), chunk_days=366)
     assert len({r["month"][:7] for r in rows}) >= 24, rows
