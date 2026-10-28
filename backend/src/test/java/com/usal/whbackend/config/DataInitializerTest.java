@@ -6,7 +6,6 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.usal.whbackend.domain.Line;
 import com.usal.whbackend.domain.Position;
 import com.usal.whbackend.domain.UserRole;
 import com.usal.whbackend.domain.Zone;
@@ -89,61 +88,87 @@ class DataInitializerTest {
   }
 
   @Test
-  void run_whenNoZonesExist_seedsWarehouseStructure() throws Exception {
+  void run_whenNoZonesExist_seedsTheRealWarehouseStructure() throws Exception {
     DataInitializer di = initializer("admin@test.com", "pass");
     when(userRepository.existsByRole(UserRole.SUPERADMIN)).thenReturn(true);
     when(zoneRepository.findAll()).thenReturn(List.of());
 
-    Zone savedZone = new Zone();
-    savedZone.setId("zone-a-id");
-    when(zoneRepository.save(any(Zone.class))).thenReturn(savedZone);
-
-    Line savedLine = new Line();
-    savedLine.setId("line-1-id");
-    when(lineRepository.save(any(Line.class))).thenReturn(savedLine);
-
     di.run(null);
 
-    verify(zoneRepository).save(argThat(z -> "A".equals(z.getZoneCode()) && z.isActive()));
-    verify(lineRepository).save(argThat(l -> l.getNumberLine() == 1 && l.isActive()));
-    verify(positionRepository, org.mockito.Mockito.times(2)).save(any());
+    // One zone, one line, six positions; ids are deterministic so SEED_DEMO fills the same docs.
+    verify(zoneRepository)
+        .save(
+            argThat(
+                z ->
+                    "A".equals(z.getZoneCode())
+                        && "z-A".equals(z.getId())
+                        && z.isActive()
+                        && z.getMaxAllowedLines() == 1));
+    verify(lineRepository)
+        .save(
+            argThat(
+                l ->
+                    l.getNumberLine() == 1
+                        && "z-A".equals(l.getIdZone())
+                        && "l-A-1".equals(l.getId())
+                        && l.getMaxAllowedPositions() == 6
+                        && l.isActive()));
+    verify(positionRepository, org.mockito.Mockito.times(6)).save(any());
   }
 
-  private List<String> seededZoneAQrCodes(String qrPrefix) throws Exception {
+  private List<Position> seededPositions(String qrPrefix) throws Exception {
     DataInitializer di = initializer("admin@test.com", "pass", qrPrefix);
     when(userRepository.existsByRole(UserRole.SUPERADMIN)).thenReturn(true);
     when(zoneRepository.findAll()).thenReturn(List.of());
-    Zone savedZone = new Zone();
-    savedZone.setId("zone-a-id");
-    when(zoneRepository.save(any(Zone.class))).thenReturn(savedZone);
-    Line savedLine = new Line();
-    savedLine.setId("line-1-id");
-    when(lineRepository.save(any(Line.class))).thenReturn(savedLine);
 
     di.run(null);
 
     ArgumentCaptor<Position> saved = ArgumentCaptor.forClass(Position.class);
-    verify(positionRepository, org.mockito.Mockito.times(2)).save(saved.capture());
-    return saved.getAllValues().stream().map(Position::getQrCode).toList();
+    verify(positionRepository, org.mockito.Mockito.times(6)).save(saved.capture());
+    return saved.getAllValues();
+  }
+
+  private List<String> seededQrCodes(String qrPrefix) throws Exception {
+    return seededPositions(qrPrefix).stream().map(Position::getQrCode).toList();
   }
 
   @Test
-  void run_whenNoZonesExist_givesZoneAPositionsTheWh2QrCodes() throws Exception {
-    // Same scheme as the demo seed (WH2|P<zone><n>), so zone A never collides with zones B and C.
-    org.assertj.core.api.Assertions.assertThat(seededZoneAQrCodes("WH2|"))
-        .containsExactly("WH2|PA1", "WH2|PA2");
+  void run_whenNoZonesExist_givesThePositionsTheWh2QrCodesInfraRecognises() throws Exception {
+    org.assertj.core.api.Assertions.assertThat(seededQrCodes("WH2|"))
+        .containsExactlyInAnyOrder(
+            "WH2|PA1", "WH2|PA2", "WH2|PA3", "WH2|PM1", "WH2|PM2", "WH2|PM3");
+  }
+
+  @Test
+  void run_whenNoZonesExist_seedsSixEmptyActivePositionsNamedLikeTheirQr() throws Exception {
+    List<Position> positions = seededPositions("WH2|");
+    org.assertj.core.api.Assertions.assertThat(positions)
+        .extracting(Position::getPositionName)
+        .containsExactlyInAnyOrder("PA1", "PA2", "PA3", "PM1", "PM2", "PM3");
+    org.assertj.core.api.Assertions.assertThat(positions)
+        .allSatisfy(
+            p -> {
+              org.assertj.core.api.Assertions.assertThat(p.getProductId()).isNull();
+              org.assertj.core.api.Assertions.assertThat(p.getCurrentStock()).isZero();
+              org.assertj.core.api.Assertions.assertThat(p.isActive()).isTrue();
+              org.assertj.core.api.Assertions.assertThat(p.getMaximumCapacity()).isPositive();
+              org.assertj.core.api.Assertions.assertThat(p.getSizeStockToSave()).isNotNull();
+              org.assertj.core.api.Assertions.assertThat(p.getIdLine()).isEqualTo("l-A-1");
+              org.assertj.core.api.Assertions.assertThat(p.getIdZone()).isEqualTo("z-A");
+            });
   }
 
   @Test
   void run_withCustomQrPrefix_usesIt() throws Exception {
-    org.assertj.core.api.Assertions.assertThat(seededZoneAQrCodes("ALM1|"))
-        .containsExactly("ALM1|PA1", "ALM1|PA2");
+    org.assertj.core.api.Assertions.assertThat(seededQrCodes("ALM1|"))
+        .containsExactlyInAnyOrder(
+            "ALM1|PA1", "ALM1|PA2", "ALM1|PA3", "ALM1|PM1", "ALM1|PM2", "ALM1|PM3");
   }
 
   @Test
   void run_withBlankQrPrefix_fallsBackToTheDefault() throws Exception {
-    org.assertj.core.api.Assertions.assertThat(seededZoneAQrCodes(""))
-        .containsExactly("WH2|PA1", "WH2|PA2");
+    org.assertj.core.api.Assertions.assertThat(seededQrCodes(""))
+        .allMatch(qr -> qr.startsWith("WH2|"));
   }
 
   @Test

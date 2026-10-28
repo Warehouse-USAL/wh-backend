@@ -69,7 +69,7 @@ final class DemoHistory {
   record Result(List<Order> orders, List<RestockOrder> restockOrders, List<Reception> receptions) {}
 
   private static final long SEED = 20_261_004L;
-  private static final int BASE_ORDERS_PER_DAY = 68;
+  private static final int BASE_ORDERS_PER_DAY = 30;
   private static final double YEARLY_GROWTH = 0.15;
   private static final double CUSTOMER_CANCEL_RATE = 0.03;
   private static final double PARTIAL_DELIVERY_RATE = 0.12;
@@ -603,15 +603,22 @@ final class DemoHistory {
       RestockResult r = endFormula(i, after, 0);
       int target = (int) Math.ceil(r.targetStock());
       if (group == 1) {
-        // Covered: the suggested purchase was placed a day or three ago and is on its way.
-        int qty = Math.min(target - available(i), capacity[i] - stock[i]);
+        // Covered: the suggested purchase was placed a day or three ago and is on its way. It is
+        // not capped by the position: a single position can hold less than the policy's target
+        // stock, and what is in transit is not on the shelf yet.
+        int qty = target - available(i);
         if (qty <= 0) {
           continue;
         }
         OpenOrder order =
             purchase(i, qty, now.minus(1 + i % 3, ChronoUnit.DAYS), 0 /* arrives later */);
-        if (!partialSeeded && qty >= 2) {
-          receive(i, order, qty / 2, now.minus(12, ChronoUnit.HOURS));
+        // A first delivery already arrived, but small enough to leave the product under its
+        // reorder point: that is what makes it "covered" rather than healthy.
+        int room =
+            Math.min((int) Math.floor(r.reorderPoint()) - available(i), capacity[i] - stock[i]);
+        int arrived = Math.min(qty / 2, room);
+        if (!partialSeeded && arrived >= 1) {
+          receive(i, order, arrived, now.minus(12, ChronoUnit.HOURS));
           partialSeeded = true;
         }
       } else if (group == 2 && available(i) <= Math.max(r.reorderPoint(), target - 1)) {

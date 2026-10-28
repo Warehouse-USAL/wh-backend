@@ -23,9 +23,10 @@ import org.springframework.stereotype.Component;
 /**
  * Seeds a complete, interconnected "production-looking" demo dataset on startup.
  *
- * <p>Runs after {@link DataInitializer} (the SUPERADMIN + Zone A baseline) and only when {@code
- * SEED_DEMO=true}. Off by default, so it can never fire on a real deployment unless explicitly
- * enabled. Idempotent: if any products already exist it no-ops, so restarts are safe.
+ * <p>Runs after {@link DataInitializer} (the SUPERADMIN plus the warehouse structure: one zone, one
+ * line, six empty positions) and only when {@code SEED_DEMO=true}. Off by default, so it can never
+ * fire on a real deployment unless explicitly enabled. Idempotent: if any products already exist it
+ * no-ops, so restarts are safe.
  *
  * <p>The dataset is built in memory by the pure {@link DemoDataset} and persisted via the plain
  * Mongo repositories (not the Kafka-publishing {@code OrderRepository}), so seeding fires no
@@ -96,9 +97,20 @@ public class DemoDataSeeder implements ApplicationRunner {
       return;
     }
 
+    // The bootstrap (DataInitializer) already created the warehouse structure; the demo fills those
+    // same documents. Any other structure (an older deployment's zones) cannot be merged with it.
+    if (zoneRepository.count() > 0 && !zoneRepository.existsById(WarehouseLayout.ZONE_ID)) {
+      log.warn(
+          "Demo seed skipped: the warehouse already has zones other than {}. Drop the database to"
+              + " re-seed.",
+          WarehouseLayout.ZONE_ID);
+      return;
+    }
+
     DemoData data = new DemoDataset(passwordEncoder::encode, qrPrefix).build();
 
-    // Persist in dependency order. Ids are already wired in the dataset, so no back-patching.
+    // Persist in dependency order. Ids are already wired in the dataset, so no back-patching; the
+    // zone, line and positions replace the bootstrap's (same ids) rather than adding to them.
     userRepository.saveAll(data.getUsers());
     productRepository.saveAll(data.getProducts());
     zoneRepository.saveAll(data.getZones());
