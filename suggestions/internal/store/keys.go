@@ -4,6 +4,10 @@ package store
 // HotGlobal is the sorted set of globally trending SKUs (sku -> decayed quantity).
 const HotGlobal = "hot:global"
 
+// SKUCount is the hash of how many applied orders contain each SKU (sku -> orders). It is the
+// popularity the cart score divides by, written in the same atomic step as cooccur.
+const SKUCount = "sku:count"
+
 // UserSKUs is the sorted set of SKUs a user has ordered (sku -> total quantity).
 func UserSKUs(userID string) string { return "user:" + userID + ":skus" }
 

@@ -8,6 +8,7 @@ import (
 	"context"
 	"math"
 	"sort"
+	"strconv"
 
 	"github.com/redis/go-redis/v9"
 
@@ -94,9 +95,15 @@ func (s *Service) hot(ctx context.Context, limit int, exclude map[string]bool) (
 	return out, nil
 }
 
-// Cart answers "also add": it sums, over the cart SKUs, the co-occurrence score of every other
-// SKU, skips the cart's own SKUs and returns the top limit. When nothing co-occurs (new SKUs, no
-// history) it falls back to the hot items not already in the cart.
+// Cart answers "also add": for every SKU b that co-occurs with a cart SKU a it sums the cosine
+// score cooccur(a,b) / sqrt(count(a) * count(b)) over the cart, where count is the number of
+// orders containing a SKU (sku:count). Dividing by the popularity of both sides keeps a best-seller
+// from topping every cart just because it is in every order: raw counts rank it first, the cosine
+// ranks the SKU that is bought with the cart SKU out of proportion to how often either sells. The
+// cart's own SKUs are skipped and the top limit returned. A SKU without a count (the model was
+// built before counts existed) counts as many orders as it co-occurred, which scores the pair 1
+// at best instead of failing. When nothing co-occurs (new SKUs, no history) it falls back to the
+// hot items not already in the cart. Scores are floats in (0, 1] per cart SKU.
 func (s *Service) Cart(ctx context.Context, skus []string, limit int) ([]Recommendation, error) {
 	inCart := toSet(skus)
 	cmds := make([]*redis.ZSliceCmd, len(skus))
@@ -109,12 +116,50 @@ func (s *Service) Cart(ctx context.Context, skus []string, limit int) ([]Recomme
 	if err != nil {
 		return nil, err
 	}
-	scores := map[string]float64{}
-	for _, c := range cmds {
+	// The SKUs whose popularity is needed: the cart's and every candidate (one HMGET).
+	wanted := map[string]bool{}
+	for i, c := range cmds {
+		if len(c.Val()) == 0 {
+			continue
+		}
+		wanted[skus[i]] = true
 		for _, z := range c.Val() {
 			if sku := z.Member.(string); !inCart[sku] {
-				scores[sku] += z.Score
+				wanted[sku] = true
 			}
+		}
+	}
+	if len(wanted) == 0 {
+		return s.hot(ctx, limit, inCart)
+	}
+	fields := make([]string, 0, len(wanted))
+	for sku := range wanted {
+		fields = append(fields, sku)
+	}
+	raw, err := s.rdb.HMGet(ctx, store.SKUCount, fields...).Result()
+	if err != nil {
+		return nil, err
+	}
+	counts := make(map[string]float64, len(fields))
+	for i, v := range raw {
+		if str, ok := v.(string); ok {
+			if n, perr := strconv.ParseFloat(str, 64); perr == nil && n > 0 {
+				counts[fields[i]] = n
+			}
+		}
+	}
+	scores := map[string]float64{}
+	for i, c := range cmds {
+		for _, z := range c.Val() {
+			sku := z.Member.(string)
+			if inCart[sku] {
+				continue
+			}
+			// count(x) >= cooccur(a,b) always holds in a consistent model; the max also covers the
+			// missing count (0) and keeps the score at most 1.
+			ca := math.Max(counts[skus[i]], z.Score)
+			cb := math.Max(counts[sku], z.Score)
+			scores[sku] += z.Score / math.Sqrt(ca*cb)
 		}
 	}
 	if len(scores) == 0 {

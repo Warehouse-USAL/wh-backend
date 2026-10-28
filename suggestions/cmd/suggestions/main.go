@@ -66,8 +66,9 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 		MaxBytes:    10 << 20,
 		MaxWait:     time.Second,
 	})
+	aging := ingest.Aging{Factor: cfg.DecayFactor, Interval: cfg.DecayInterval}
 	cons := consumer.New(reader, func(ctx context.Context, ev ingest.OrderCompleted) error {
-		return ingest.Apply(ctx, rdb, ev, cfg.DedupeTTL)
+		return ingest.ApplyAged(ctx, rdb, ev, cfg.DedupeTTL, aging)
 	}, logger)
 
 	srv := &http.Server{
