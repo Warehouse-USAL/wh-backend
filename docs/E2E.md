@@ -386,3 +386,17 @@ Observations that are not asserted as bugs: no login lockout (a passing test doc
 - Real Infra and real RabbitMQ (out of scope by design; `fakeinfra` plays Infra). Orders with an empty stop list (fakeinfra cancels them) were not exercised because the API offers no way to create one.
 - Browser rendering of the console UI: only the static delivery, security headers, SPA fallback, `/api` proxy and the SSE stream through the proxy are checked, not React behaviour.
 - Load/performance, TLS, and the restock-cron schedule (the container is started, and the restock suggestion/apply API is tested, but the cron timing is not).
+
+## Added after the reference run (written, not yet executed)
+
+These tests were added with the suggestion-conversion work and have not been run against the stack
+yet (Docker was unavailable when they were written); run `make e2e-suite` and fold them into the
+tables above.
+
+| Test | Capability |
+|---|---|
+| `test_orders.py::test_from_recommendation_is_optional_stored_and_published_per_item` | Optional per-item `from_recommendation`: absent/false = false, stored, returned, published as `fromRecommendation` on `order.completed` for flagged lines only |
+| `test_orders.py::test_from_recommendation_must_be_a_boolean_and_a_product_cannot_repeat_to_game_it` | Non-boolean flag is 400; a repeated product is still `DUPLICATE_PRODUCT_IN_ORDER` |
+| `test_business_metrics.py` (all) | Every business metric answers with data on every day of the seeded 730 days: catalogue series, fleet KPI inputs, `suggestion_conversion` (day/week/month, validation, filters), orders-derived KPIs, receptions. See `SEEDED_METRICS.md` |
+| `test_platform.py::test_seeded_warehouse_is_one_zone_one_line_six_positions` | Now also asserts `max_allowed_lines` = 1 and `max_allowed_positions` = 6 |
+
