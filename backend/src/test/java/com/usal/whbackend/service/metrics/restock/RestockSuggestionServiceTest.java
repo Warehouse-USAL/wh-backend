@@ -19,6 +19,7 @@ import com.usal.whbackend.domain.Product;
 import com.usal.whbackend.domain.ProductRestock;
 import com.usal.whbackend.domain.Reception;
 import com.usal.whbackend.domain.RestockOrder;
+import com.usal.whbackend.domain.RestockOrderStatus;
 import com.usal.whbackend.service.ProductService;
 import com.usal.whbackend.service.exception.InvalidMetricParamsException;
 import java.time.Clock;
@@ -105,6 +106,47 @@ class RestockSuggestionServiceTest {
   }
 
   @Test
+  void suggest_doesNotCountCancelledRestockOrdersAsStockOnOrder() {
+    when(mongoTemplate.find(any(Query.class), eq(Product.class)))
+        .thenReturn(List.of(product("p1", "SKU-1")));
+    when(mongoTemplate.find(any(Query.class), eq(Order.class))).thenReturn(List.of());
+    RestockOrder open = new RestockOrder();
+    open.setId("ro-open");
+    open.setProductId("p1");
+    open.setQuantityRequested(20);
+    RestockOrder cancelled = new RestockOrder();
+    cancelled.setId("ro-cancelled");
+    cancelled.setProductId("p1");
+    cancelled.setQuantityRequested(50);
+    cancelled.setStatus(RestockOrderStatus.CANCELLED);
+    when(mongoTemplate.find(any(Query.class), eq(RestockOrder.class)))
+        .thenReturn(List.of(open, cancelled));
+    when(mongoTemplate.find(any(Query.class), eq(Reception.class))).thenReturn(List.of());
+    when(productService.netAvailableStock(anyList())).thenReturn(Map.of("p1", 10));
+
+    RestockResult r = service.suggest(EXAMPLE, List.of(), null).get(0).result();
+
+    assertThat(r.onOrderStock()).isEqualTo(20);
+    assertThat(r.inventoryPosition()).isEqualTo(30);
+  }
+
+  @Test
+  void suggest_asksTheStoreOnlyForNonCancelledRestockOrders() {
+    when(mongoTemplate.find(any(Query.class), eq(Product.class)))
+        .thenReturn(List.of(product("p1", "SKU-1")));
+    when(mongoTemplate.find(any(Query.class), eq(Order.class))).thenReturn(List.of());
+    when(mongoTemplate.find(any(Query.class), eq(RestockOrder.class))).thenReturn(List.of());
+    when(productService.netAvailableStock(anyList())).thenReturn(Map.of("p1", 0));
+
+    service.suggest(EXAMPLE, List.of(), null);
+
+    ArgumentCaptor<Query> restock = ArgumentCaptor.forClass(Query.class);
+    verify(mongoTemplate).find(restock.capture(), eq(RestockOrder.class));
+    assertThat(restock.getValue().getQueryObject().get("status"))
+        .hasToString("Document{{$ne=CANCELLED}}");
+  }
+
+  @Test
   void suggest_readsOnlyTheFieldsOnOrderNeeds() {
     // Restock orders and receptions accumulate forever; read just what the sum uses.
     when(mongoTemplate.find(any(Query.class), eq(Product.class)))
@@ -123,7 +165,7 @@ class RestockSuggestionServiceTest {
     ArgumentCaptor<Query> restock = ArgumentCaptor.forClass(Query.class);
     verify(mongoTemplate).find(restock.capture(), eq(RestockOrder.class));
     assertThat(restock.getValue().getFieldsObject().keySet())
-        .containsExactlyInAnyOrder("productId", "quantityRequested");
+        .containsExactlyInAnyOrder("productId", "quantityRequested", "status");
     ArgumentCaptor<Query> receptions = ArgumentCaptor.forClass(Query.class);
     verify(mongoTemplate).find(receptions.capture(), eq(Reception.class));
     assertThat(receptions.getValue().getFieldsObject().keySet())

@@ -3,7 +3,6 @@ package com.usal.whbackend.service;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -11,6 +10,7 @@ import com.usal.whbackend.api.user.ChangePasswordRequest;
 import com.usal.whbackend.api.user.CreateUserRequest;
 import com.usal.whbackend.api.user.UpdateMeRequest;
 import com.usal.whbackend.api.user.UpdateUserRequest;
+import com.usal.whbackend.config.UserActivityCache;
 import com.usal.whbackend.domain.Address;
 import com.usal.whbackend.domain.User;
 import com.usal.whbackend.domain.UserRole;
@@ -175,12 +175,24 @@ class UserServiceTest {
   }
 
   @Test
+  void updateUser_evictsTheUsersCachedActivity() {
+    UserActivityCache activity = org.mockito.Mockito.mock(UserActivityCache.class);
+    userService.setUserActivityCache(activity);
+    User existing = sample("USR-001");
+    when(userRepository.findById("USR-001")).thenReturn(Optional.of(existing));
+    when(userRepository.save(existing)).thenReturn(existing);
+
+    userService.updateUser("USR-001", new UpdateUserRequest(null, null, false));
+
+    org.mockito.Mockito.verify(activity).evict("USR-001");
+  }
+
+  @Test
   void updateUser_toProviderWithoutSupplier_savesUnlinkedProvider() {
     when(userRepository.findById("USR-001")).thenReturn(Optional.of(sample("USR-001")));
     when(userRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-    User result =
-        userService.updateUser("USR-001", new UpdateUserRequest(null, "PROVIDER", null));
+    User result = userService.updateUser("USR-001", new UpdateUserRequest(null, "PROVIDER", null));
 
     assertThat(result.getRole()).isEqualTo(UserRole.PROVIDER);
     assertThat(result.getSupplier()).isNull();

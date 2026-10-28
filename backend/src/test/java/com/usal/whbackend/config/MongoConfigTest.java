@@ -34,4 +34,17 @@ class MongoConfigTest {
     assertThat(settings.getConnectionPoolSettings().getConnectionPoolListeners())
         .containsExactly(listener);
   }
+
+  @Test
+  void timeoutsCustomizerBoundsServerSelectionConnectAndRead() {
+    var builder = com.mongodb.MongoClientSettings.builder();
+
+    new MongoConfig().mongoTimeoutsCustomizer(2500, 1500, 20000).customize(builder);
+
+    var settings = builder.build();
+    var ms = java.util.concurrent.TimeUnit.MILLISECONDS;
+    assertThat(settings.getClusterSettings().getServerSelectionTimeout(ms)).isEqualTo(2500);
+    assertThat(settings.getSocketSettings().getConnectTimeout(ms)).isEqualTo(1500);
+    assertThat(settings.getSocketSettings().getReadTimeout(ms)).isEqualTo(20000);
+  }
 }

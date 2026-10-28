@@ -1,4 +1,4 @@
-.PHONY: e2e bridge-test suggestions-test help up-dev run up-prod up-infra deploy infra-key down build test test-coverage lint format format-fix pr-checks logs clean
+.PHONY: e2e e2e-suite bridge-test suggestions-test help up-dev run up-prod up-infra deploy infra-key down build test test-coverage lint format format-fix pr-checks logs clean
 
 .DEFAULT_GOAL := help
 
@@ -114,6 +114,9 @@ bridge-test: ## Run the Go bridge's vet + tests
 
 suggestions-test: ## Run the Go suggestions service's vet + tests
 	cd suggestions && go vet ./... && go test -race ./...
+
+e2e-suite: ## Full-system E2E suite: whole stack + pytest, JUnit + matrix in e2e/results (needs Docker; see docs/E2E.md)
+	e2e/suite.sh
 
 e2e: ## Full-stack dry run: backend <-> bridge <-> fake Infra (needs Docker; see e2e/run.sh)
 	./e2e/run.sh
