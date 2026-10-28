@@ -146,7 +146,10 @@ class DemoDataSeederTest {
 
     // Same ids as the bootstrap's documents, so saveAll replaces them instead of adding to them.
     verify(zoneRepository)
-        .saveAll(argThat((Iterable<Zone> it) -> count(it) == 1 && it.iterator().next().getId().equals("z-A")));
+        .saveAll(
+            argThat(
+                (Iterable<Zone> it) ->
+                    count(it) == 1 && it.iterator().next().getId().equals("z-A")));
     verify(positionRepository).saveAll(argThat((Iterable<Position> it) -> count(it) == 6));
   }
 

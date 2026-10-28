@@ -63,7 +63,8 @@ holds stock but has no `qr_code` is left out of `stops` (the backend logs
 `Position ... has no QR code`), so if every position involved lacks one, `stops` is `[]`.
 
 The warehouse has ONE zone (`A`) with ONE line (`1`) and SIX positions: `PA1`, `PA2`, `PA3`, `PM1`,
-`PM2`, `PM3`. Their names are the QR codes the Infra vehicle recognises, and the printed texts are
+`PM2`, `PM3` (the zone is created with `max_allowed_lines` = 1 and the line with
+`max_allowed_positions` = 6; these limits are stored but not enforced, see BUG-WAREHOUSE-1). Their names are the QR codes the Infra vehicle recognises, and the printed texts are
 `WH2|PA1` ... `WH2|PA3` and `WH2|PM1` ... `WH2|PM3`: the prefix `WH_QR_PREFIX` (default `WH2|`)
 followed by the position name. The backend creates exactly this on the first boot of an empty
 database (`DataInitializer`, six empty positions), with or without `SEED_DEMO`; the demo seed then

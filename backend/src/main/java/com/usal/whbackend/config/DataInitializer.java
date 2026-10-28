@@ -88,9 +88,9 @@ public class DataInitializer implements ApplicationRunner {
   }
 
   /**
-   * The real warehouse (see {@link WarehouseLayout}): one zone, one line, six empty positions
-   * whose QR texts are the codes Infra recognises. {@code SEED_DEMO} later fills these same
-   * documents with products and stock.
+   * The real warehouse (see {@link WarehouseLayout}): one zone, one line, six empty positions whose
+   * QR texts are the codes Infra recognises. {@code SEED_DEMO} later fills these same documents
+   * with products and stock.
    */
   private void doSeedWarehouse() {
     Instant now = Instant.now();

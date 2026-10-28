@@ -97,7 +97,13 @@ class DataInitializerTest {
 
     // One zone, one line, six positions; ids are deterministic so SEED_DEMO fills the same docs.
     verify(zoneRepository)
-        .save(argThat(z -> "A".equals(z.getZoneCode()) && "z-A".equals(z.getId()) && z.isActive()));
+        .save(
+            argThat(
+                z ->
+                    "A".equals(z.getZoneCode())
+                        && "z-A".equals(z.getId())
+                        && z.isActive()
+                        && z.getMaxAllowedLines() == 1));
     verify(lineRepository)
         .save(
             argThat(
@@ -105,6 +111,7 @@ class DataInitializerTest {
                     l.getNumberLine() == 1
                         && "z-A".equals(l.getIdZone())
                         && "l-A-1".equals(l.getId())
+                        && l.getMaxAllowedPositions() == 6
                         && l.isActive()));
     verify(positionRepository, org.mockito.Mockito.times(6)).save(any());
   }

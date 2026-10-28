@@ -527,8 +527,11 @@ class DemoDatasetTest {
     return data.getPositions().stream()
         .sorted(
             java.util.Comparator.comparing(
-                p -> WarehouseLayout.SLOTS.stream().map(WarehouseLayout.Slot::name).toList()
-                    .indexOf(p.getPositionName())))
+                p ->
+                    WarehouseLayout.SLOTS.stream()
+                        .map(WarehouseLayout.Slot::name)
+                        .toList()
+                        .indexOf(p.getPositionName())))
         .map(p -> productById.get(p.getProductId()))
         .toList();
   }

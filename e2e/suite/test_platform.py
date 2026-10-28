@@ -65,7 +65,9 @@ def _seeded_line(warehouse) -> tuple[dict, list[dict]]:
 def test_seeded_warehouse_is_one_zone_one_line_six_positions(warehouse):
     """The seeded warehouse mirrors the real one: zone A, line 1, positions PA1-PA3 and PM1-PM3, active, one distinct product each"""
     zone, positions = _seeded_line(warehouse)
-    assert zone["is_active"] is True
+    assert zone["is_active"] is True and zone["max_allowed_lines"] == 1
+    ln = warehouse.get(f"/warehouse/zones/{zone['id_zone']}/lines").expect(200).json_("lines")[0]
+    assert ln["max_allowed_positions"] == 6
     assert sorted(p["position_name"] for p in positions) == SEEDED_POSITIONS
     assert all(p["is_active"] and p["id_zone"] == zone["id_zone"] for p in positions)
     products = [p["product_id"] for p in positions]

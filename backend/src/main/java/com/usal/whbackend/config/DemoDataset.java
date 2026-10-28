@@ -32,8 +32,8 @@ import java.util.function.UnaryOperator;
  * cross-references (orders → users/products/vehicles, positions → products, vehicle ↔ order) are
  * wired in memory and the seeder only has to persist the lists.
  *
- * <p>The warehouse is the real one (see {@link WarehouseLayout}): one zone, one line, six positions,
- * each holding one product; the other catalogue products are registered without stock.
+ * <p>The warehouse is the real one (see {@link WarehouseLayout}): one zone, one line, six
+ * positions, each holding one product; the other catalogue products are registered without stock.
  *
  * <p>Stock is produced causally: initial inbound stock is placed into positions, then COMPLETED
  * orders draw it down FIFO (oldest position first, mirroring {@code StockDrainService}) — without

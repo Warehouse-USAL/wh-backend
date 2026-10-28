@@ -33,8 +33,8 @@ final class WarehouseLayout {
       Map.of(StockSize.CAJA, 100, StockSize.MEDIO_PALLET, 300, StockSize.PALLET, 500);
 
   /**
-   * A position and what the demo stocks in it: {@code sku} is the product the demo puts there
-   * (null = left empty) and {@code size} the container the position is sized for.
+   * A position and what the demo stocks in it: {@code sku} is the product the demo puts there (null
+   * = left empty) and {@code size} the container the position is sized for.
    */
   record Slot(String name, String sku, StockSize size) {}
 
@@ -45,11 +45,11 @@ final class WarehouseLayout {
   static final List<Slot> SLOTS =
       List.of(
           new Slot("PA1", "TEC-001", StockSize.CAJA),
+          new Slot("PM3", "TEC-005", StockSize.PALLET),
           new Slot("PA2", "TEC-002", StockSize.MEDIO_PALLET),
-          new Slot("PA3", "TEC-004", StockSize.MEDIO_PALLET),
           new Slot("PM1", "TEC-009", StockSize.MEDIO_PALLET),
-          new Slot("PM2", "TEC-007", StockSize.MEDIO_PALLET),
-          new Slot("PM3", "TEC-005", StockSize.PALLET));
+          new Slot("PA3", "TEC-004", StockSize.MEDIO_PALLET),
+          new Slot("PM2", "TEC-007", StockSize.MEDIO_PALLET));
 
   private WarehouseLayout() {}
 
@@ -61,7 +61,7 @@ final class WarehouseLayout {
     Zone z = new Zone();
     z.setId(ZONE_ID);
     z.setZoneCode(ZONE_CODE);
-    z.setMaxAllowedLines(10);
+    z.setMaxAllowedLines(1);
     z.setActive(true);
     z.setCreatedAt(createdAt);
     return z;
@@ -72,15 +72,14 @@ final class WarehouseLayout {
     l.setId(LINE_ID);
     l.setIdZone(ZONE_ID);
     l.setNumberLine(LINE_NUMBER);
-    l.setMaxAllowedPositions(20);
+    l.setMaxAllowedPositions(6);
     l.setActive(true);
     l.setCreatedAt(createdAt);
     return l;
   }
 
   /** A position of the layout, holding {@code product} (null = empty) with no stock yet. */
-  static Position position(
-      Slot slot, Product product, String qrPrefix, Instant createdAt) {
+  static Position position(Slot slot, Product product, String qrPrefix, Instant createdAt) {
     Position p = new Position();
     p.setId(positionId(slot.name()));
     p.setIdLine(LINE_ID);
