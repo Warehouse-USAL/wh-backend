@@ -22,6 +22,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
 @ExtendWith(MockitoExtension.class)
@@ -151,6 +152,20 @@ class VehicleServiceTest {
     assertEquals(80, result.getBattery());
     assertEquals("ORDER-99", result.getCurrentOrderId());
     assertEquals(now, result.getLastSeenAt());
+  }
+
+  @Test
+  void updateVehicle_batteryOutsideAPercentage_isRefused() {
+    for (int bad : new int[] {-1, 101, 250}) {
+      PatchVehicleRequest request = new PatchVehicleRequest(null, null, null, bad, null, null);
+      var ex =
+          assertThrows(
+              ResponseStatusException.class,
+              () -> vehicleService.updateVehicle("VHC-001", request));
+      assertEquals(HttpStatus.BAD_REQUEST, ex.getStatusCode());
+      assertEquals("INVALID_BATTERY", ex.getReason());
+    }
+    verifyNoInteractions(vehicleUpdateExecutor);
   }
 
   @Test
