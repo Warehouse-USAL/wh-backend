@@ -264,7 +264,6 @@ def test_role_matrix(role_apis, anon, name):
     assert not wrong, f"{name} [{method} {path}]:\n  " + "\n  ".join(wrong)
 
 
-@pytest.mark.known_failure(bug="BUG-AUTHZ-1", reason="@Valid/body parsing runs before @PreAuthorize on controller methods, so an unauthorized role gets 400 VALIDATION_ERROR/MALFORMED_REQUEST (and learns the schema) instead of 403")
 def test_authorization_is_decided_before_validation(operator):
     """An unauthorized role is told 403 even when its body is invalid (not 400)"""
     operator.post("/products", json={}).expect(403)
