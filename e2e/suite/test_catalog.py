@@ -212,7 +212,6 @@ def test_file_permissions(operator, dispatcher, sales, anon, warehouse):
     warehouse.delete(f"/api/v1/files/{key}").expect(204)  # S3 delete is idempotent
 
 
-@pytest.mark.known_failure(bug="BUG-FILES-1", reason="/api/v1/files/** is permitAll in SecurityConfig (downloads are public), so an anonymous upload/delete reaches @PreAuthorize and gets 403 ACCESS_DENIED instead of 401 UNAUTHORIZED; only GET /api/v1/files was special-cased")
 def test_file_write_without_token_is_401(anon, warehouse):
     """Anonymous upload/delete is 401 (unauthenticated), not 403 (authenticated but forbidden)"""
     _upload(anon).expect(401)

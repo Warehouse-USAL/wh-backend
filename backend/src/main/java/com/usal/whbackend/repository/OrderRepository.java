@@ -21,7 +21,9 @@ import org.slf4j.MDC;
 import org.springframework.dao.DataAccessException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.mongodb.core.MongoTemplate;
 import org.springframework.data.mongodb.core.query.Criteria;
 import org.springframework.data.mongodb.core.query.Query;
@@ -181,7 +183,15 @@ public class OrderRepository {
       query.addCriteria(createdAtCriteria);
     }
     long total = mongoTemplate.count(query, Order.class);
-    List<Order> items = mongoTemplate.find(query.with(pageable), Order.class);
+    // Newest first unless the caller sorts: without a sort the pages were insertion order.
+    Pageable sorted =
+        pageable.getSort().isSorted()
+            ? pageable
+            : PageRequest.of(
+                pageable.getPageNumber(),
+                pageable.getPageSize(),
+                Sort.by(Sort.Direction.DESC, "createdAt"));
+    List<Order> items = mongoTemplate.find(query.with(sorted), Order.class);
     return new PageImpl<>(items, pageable, total);
   }
 

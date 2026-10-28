@@ -183,6 +183,38 @@ class OrderRepositoryTest {
   }
 
   @Test
+  void findByFilters_withoutASort_listsNewestFirst() {
+    when(mongoTemplate.count(any(Query.class), eq(Order.class))).thenReturn(0L);
+    when(mongoTemplate.find(any(Query.class), eq(Order.class))).thenReturn(List.of());
+
+    orderRepository.findByFilters(null, null, null, null, PageRequest.of(2, 10));
+
+    org.mockito.ArgumentCaptor<Query> query = org.mockito.ArgumentCaptor.forClass(Query.class);
+    verify(mongoTemplate).find(query.capture(), eq(Order.class));
+    assertEquals(-1, query.getValue().getSortObject().get("createdAt"));
+    assertEquals(20, query.getValue().getSkip());
+    assertEquals(10, query.getValue().getLimit());
+  }
+
+  @Test
+  void findByFilters_withACallerSort_keepsIt() {
+    when(mongoTemplate.count(any(Query.class), eq(Order.class))).thenReturn(0L);
+    when(mongoTemplate.find(any(Query.class), eq(Order.class))).thenReturn(List.of());
+
+    orderRepository.findByFilters(
+        null,
+        null,
+        null,
+        null,
+        PageRequest.of(0, 10, org.springframework.data.domain.Sort.by("status")));
+
+    org.mockito.ArgumentCaptor<Query> query = org.mockito.ArgumentCaptor.forClass(Query.class);
+    verify(mongoTemplate).find(query.capture(), eq(Order.class));
+    assertEquals(1, query.getValue().getSortObject().get("status"));
+    assertFalse(query.getValue().getSortObject().containsKey("createdAt"));
+  }
+
+  @Test
   void findByFilters_withStatusAndVehicle_queriesMongoTemplate() {
     Pageable pageable = PageRequest.of(0, 10);
     Order o = new Order();

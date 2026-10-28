@@ -19,6 +19,7 @@ import com.usal.whbackend.service.storage.StorageException;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -70,6 +71,70 @@ class GlobalExceptionHandlerTest {
     assertThat(r.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
     assertThat(r.getBody()).isNotNull();
     assertThat(r.getBody().error().code()).isEqualTo("MALFORMED_REQUEST");
+  }
+
+  private record UnitBody(com.usal.whbackend.domain.StockSize deliveryUnit) {}
+
+  private record CountBody(int count) {}
+
+  private static HttpMessageNotReadableException unreadable(String json, Class<?> type) {
+    try {
+      tools.jackson.databind.json.JsonMapper.builder().build().readValue(json, type);
+      throw new AssertionError("expected the body to be rejected");
+    } catch (tools.jackson.core.JacksonException e) {
+      return new HttpMessageNotReadableException("x", e, new MockHttpInputMessage(new byte[0]));
+    }
+  }
+
+  @Test
+  void malformedRequest_unknownDeliveryUnitThrownByTheJsonCreator_isInvalidDeliveryUnit() {
+    ResponseEntity<ErrorResponse> r =
+        handler.handleMalformedRequest(unreadable("{\"deliveryUnit\":\"TRUCK\"}", UnitBody.class));
+
+    assertThat(r.getStatusCode()).isEqualTo(HttpStatus.BAD_REQUEST);
+    assertThat(r.getBody().error().code()).isEqualTo("INVALID_DELIVERY_UNIT");
+  }
+
+  @Test
+  void malformedRequest_otherMappingFailure_staysMalformed() {
+    assertThat(
+            handler
+                .handleMalformedRequest(unreadable("{\"count\":\"abc\"}", CountBody.class))
+                .getBody()
+                .error()
+                .code())
+        .isEqualTo("MALFORMED_REQUEST");
+  }
+
+  @Test
+  void unknownRoute_returns404InTheApiEnvelope() {
+    ResponseEntity<ErrorResponse> r =
+        handler.handleUnknownRoute(
+            new org.springframework.web.servlet.resource.NoResourceFoundException(
+                HttpMethod.GET, "/nope", "nope"));
+    assertThat(r.getStatusCode()).isEqualTo(HttpStatus.NOT_FOUND);
+    assertThat(r.getBody().error().code()).isEqualTo("NOT_FOUND");
+  }
+
+  @Test
+  void wrongMethod_returns405WithTheAllowedMethods() {
+    ResponseEntity<ErrorResponse> r =
+        handler.handleMethodNotAllowed(
+            new org.springframework.web.HttpRequestMethodNotSupportedException(
+                "PUT", List.of("GET", "POST")));
+    assertThat(r.getStatusCode()).isEqualTo(HttpStatus.METHOD_NOT_ALLOWED);
+    assertThat(r.getBody().error().code()).isEqualTo("METHOD_NOT_ALLOWED");
+    assertThat(r.getHeaders().getAllow())
+        .containsExactlyInAnyOrder(HttpMethod.GET, HttpMethod.POST);
+  }
+
+  @Test
+  void wrongMethod_withoutAKnownSet_omitsAllow() {
+    ResponseEntity<ErrorResponse> r =
+        handler.handleMethodNotAllowed(
+            new org.springframework.web.HttpRequestMethodNotSupportedException("PUT"));
+    assertThat(r.getStatusCode()).isEqualTo(HttpStatus.METHOD_NOT_ALLOWED);
+    assertThat(r.getHeaders().getAllow()).isEmpty();
   }
 
   @Test

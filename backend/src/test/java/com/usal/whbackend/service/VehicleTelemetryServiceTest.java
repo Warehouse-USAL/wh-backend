@@ -126,6 +126,24 @@ class VehicleTelemetryServiceTest {
   }
 
   @Test
+  void apply_clampsABatteryOutsideAPercentage() {
+    Vehicle vehicle = vehicle(VehicleStatus.IDLE);
+    stubExecutor(ID, vehicle);
+
+    service.apply("vhc-1", "busy", 250, null, TS);
+    assertEquals(100, appliedUpdate(vehicle).getBattery());
+  }
+
+  @Test
+  void apply_clampsANegativeBatteryToZero() {
+    Vehicle vehicle = vehicle(VehicleStatus.IDLE);
+    stubExecutor(ID, vehicle);
+
+    service.apply("vhc-1", "busy", -40, null, TS);
+    assertEquals(0, appliedUpdate(vehicle).getBattery());
+  }
+
+  @Test
   void apply_neverTouchesThePosition() {
     Vehicle vehicle = vehicle(VehicleStatus.IDLE);
     vehicle.setPositionX(3.5);

@@ -54,7 +54,10 @@ public class SecurityConfig {
                     // anonymous caller 401 (the advice would otherwise turn it into 403).
                     .requestMatchers(HttpMethod.GET, "/api/v1/files")
                     .authenticated()
-                    .requestMatchers("/api/v1/files/**")
+                    // Downloads are public; uploads and deletes need a token (anonymous: 401).
+                    .requestMatchers(HttpMethod.GET, "/api/v1/files/**")
+                    .permitAll()
+                    .requestMatchers(HttpMethod.HEAD, "/api/v1/files/**")
                     .permitAll()
                     // Called by the bridge, not by a user: InfraApiKeyFilter does the
                     // authenticating.

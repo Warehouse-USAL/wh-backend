@@ -26,6 +26,7 @@ Safety: the stack uses compose project `whsuite`, publishes no host ports, uses 
 - `e2e/docker-compose.suite.yml` - overlay on the root compose: no host ports, isolated volumes, a local RabbitMQ (`suite/suite`), short bridge retry back-off, the `runner` service (mounts the Docker socket so resilience tests can stop/start containers).
 - `e2e/suite/` - the pytest project: `conftest.py` (health wait, role fixtures, Kafka tap, RabbitMQ API client, results-matrix plugin, group ordering), `lib/` (HTTP client with readable failures, factory for products/zones/positions/orders, an `InfraClient` that plays Infra with the API key, websocket and SSE readers, Docker control).
 - Test groups run in this order: default (Infra is played by the tests through `/infra/**`), `flow` (real chain: backend -> Kafka -> bridge -> RabbitMQ -> fakeinfra and back), `resilience` (stops/kills dependencies, always restores them).
+- `max_allowed_lines` and `max_allowed_positions` are informational fields: the seed sets them to 1 line per zone and 6 positions per line to describe the real warehouse, and the backend deliberately does NOT enforce them (owner decision; formerly tracked as BUG-WAREHOUSE-1, which is therefore not a bug). No test asserts enforcement.
 - Known product bugs are kept as tests that assert the CORRECT behaviour, marked `@pytest.mark.known_failure(bug=..., reason=...)`. They are strict xfail: they show as "known-failure" now and turn into a hard failure (XPASS) the day the bug is fixed, forcing the marker to be removed.
 
 ## Infra failure modes (`test_infra_failures.py`, `flow` group)
@@ -51,24 +52,24 @@ The fake Infra follows the real central ([INFRA_CONTRACT.md](INFRA_CONTRACT.md))
 
 | Area | Total | Pass | Fail | Known failure | Skipped |
 |---|---|---|---|---|---|
-| auth | 56 | 54 | 0 | 2 | 0 |
+| auth | 56 | 56 | 0 | 0 | 0 |
 | bridge | 8 | 8 | 0 | 0 | 0 |
 | business_metrics | 13 | 13 | 0 | 0 | 0 |
-| catalog | 30 | 29 | 0 | 1 | 0 |
+| catalog | 30 | 30 | 0 | 0 | 0 |
 | console | 23 | 23 | 0 | 0 | 0 |
 | metrics_query | 30 | 30 | 0 | 0 | 0 |
-| orders | 41 | 40 | 0 | 1 | 0 |
-| platform | 15 | 14 | 0 | 1 | 0 |
-| restock | 12 | 11 | 0 | 1 | 0 |
+| orders | 41 | 41 | 0 | 0 | 0 |
+| platform | 15 | 15 | 0 | 0 | 0 |
+| restock | 12 | 12 | 0 | 0 | 0 |
 | stock_adjustments | 23 | 23 | 0 | 0 | 0 |
 | suggestions | 11 | 11 | 0 | 0 | 0 |
 | suggestions_seed | 6 | 6 | 0 | 0 | 0 |
-| vehicles | 9 | 8 | 0 | 1 | 0 |
-| warehouse | 17 | 16 | 0 | 1 | 0 |
+| vehicles | 9 | 9 | 0 | 0 | 0 |
+| warehouse | 16 | 16 | 0 | 0 | 0 |
 | websockets | 16 | 16 | 0 | 0 | 0 |
 | flow | 7 | 7 | 0 | 0 | 0 |
 | resilience | 9 | 9 | 0 | 0 | 0 |
-| **all** | 326 | 318 | 0 | 8 | 0 |
+| **all** | 330 | 330 | 0 | 0 | 0 |
 
 ### Coverage matrix: capability -> test id -> status
 
@@ -356,7 +357,6 @@ Group `default` plays Infra by hand, `flow` uses the real chain, `resilience` st
 | `test_warehouse.py::test_zone_crud_and_soft_delete` | Zones are created inactive, activated/renamed with PATCH, listed, and DELETE is a soft delete | default | passed |  |
 | `test_warehouse.py::test_zone_validation_and_conflicts` | Duplicate code 409, blank code / zero lines 400, unknown id 404, renaming onto an existing code 409 | default | passed |  |
 | `test_warehouse.py::test_line_lifecycle_and_rules` | Lines: inactive zone refuses lines, duplicate number 409, listing, PATCH, soft delete, 404s | default | passed |  |
-| `test_warehouse.py::test_zone_and_line_structural_limits_are_enforced` | A zone refuses lines beyond max_allowed_lines and a line refuses positions beyond max_allowed_positions | default | known-failure | BUG-WAREHOUSE-1: max_allowed_lines / max_allowed_positions are stored but never enforced: a zone with max_allowed_lines=1 accepts a second line (LineService.createLine / PositionService.createPosition never count siblings). Requirement is implied by the field names only - confirm with the owners |
 | `test_warehouse.py::test_position_create_defaults_and_listing` | Positions are created inactive and empty; listed by line and in the flat listing; detail shows the assigned product | default | passed |  |
 | `test_warehouse.py::test_position_in_inactive_line_and_validation` | Inactive line refuses positions (LINE_INACTIVE); blank name / capacity < 1 / bad size are 400 | default | passed |  |
 | `test_warehouse.py::test_position_size_accepts_legacy_vocabulary[PEQUENO-CAJA]` | Legacy size names (PEQUENO/MEDIANO/GRANDE...) are accepted and stored under the canonical name | default | passed |  |
@@ -413,14 +413,13 @@ Group `default` plays Infra by hand, `flow` uses the real chain, `resilience` st
 | BUG-AUTH-1 | MEDIUM | auth | JWT of a deactivated user keeps working until it expires | `JwtAuthFilter` never consults the user store | fixed (this branch) |
 | BUG-RESTOCK-1 | MEDIUM | metrics | Cancelled restock orders still count as stock on order in `/metrics/restock-suggestions` | `RestockSuggestionService.findOnOrder` ignores status | fixed (this branch) |
 | BUG-RESIL-1 | MEDIUM | resilience | MongoDB down: requests hang about 30 s then 500 with Spring default body; `/actuator/health` hangs instead of reporting DOWN | Mongo client `serverSelectionTimeout`, missing 503 mapping, health indicator | fixed (this branch) |
-| BUG-ORDERS-3 | LOW/MEDIUM | orders | `GET /orders` has no sort; page 0 is the oldest rows | `OrderRepository.findByFilters` | deferred (contract / owner input) |
-| BUG-RECEPTION-1 | LOW | restock | Unknown `delivery_unit` in JSON body gives MALFORMED_REQUEST instead of INVALID_DELIVERY_UNIT | `StockSize.fromValue` + `GlobalExceptionHandler.handleMalformedRequest` | deferred (contract / owner input) |
-| BUG-USERS-1 | LOW | users | Unknown role on `POST /users` leaks Java enum message instead of INVALID_ROLE | `UserService.createUser/updateUser` | deferred (contract / owner input) |
-| BUG-AUTHZ-1 | LOW | auth | Body validation runs before `@PreAuthorize`: unauthorized roles get 400 instead of 403 | controller method security ordering | deferred (contract / owner input) |
-| BUG-FILES-1 | LOW | files | Anonymous file upload/delete answers 403 instead of 401 | `SecurityConfig` (`/api/v1/files/**` permitAll) | deferred (contract / owner input) |
-| BUG-PLATFORM-1 | LOW | platform | Unknown route (404) and wrong method (405) use Spring's default body, not `{error:{code,message}}` | `GlobalExceptionHandler` lacks NoResourceFound / HttpRequestMethodNotSupported mapping | deferred (contract / owner input) |
-| BUG-VEHICLES-1 | LOW | vehicles | Battery outside 0..100 accepted via PATCH and telemetry | `VehicleService.updateVehicle`, `VehicleTelemetryService.apply` | deferred (contract / owner input) |
-| BUG-WAREHOUSE-1 | LOW | warehouse | `max_allowed_lines` / `max_allowed_positions` are never enforced (requirement implied by names only) | `LineService.createLine`, `PositionService.createPosition` | deferred (contract / owner input) |
+| BUG-ORDERS-3 | LOW/MEDIUM | orders | `GET /orders` has no sort; page 0 is the oldest rows | `OrderRepository.findByFilters` | fixed (PR deferred-contract-fixes, owner decision pending) |
+| BUG-RECEPTION-1 | LOW | restock | Unknown `delivery_unit` in JSON body gives MALFORMED_REQUEST instead of INVALID_DELIVERY_UNIT | `StockSize.fromValue` + `GlobalExceptionHandler.handleMalformedRequest` | fixed (PR deferred-contract-fixes, owner decision pending) |
+| BUG-USERS-1 | LOW | users | Unknown role on `POST /users` leaks Java enum message instead of INVALID_ROLE | `UserService.createUser/updateUser` | fixed (PR deferred-contract-fixes, owner decision pending) |
+| BUG-AUTHZ-1 | LOW | auth | Body validation runs before `@PreAuthorize`: unauthorized roles get 400 instead of 403 | controller method security ordering | fixed (PR deferred-contract-fixes, owner decision pending) |
+| BUG-FILES-1 | LOW | files | Anonymous file upload/delete answers 403 instead of 401 | `SecurityConfig` (`/api/v1/files/**` permitAll) | fixed (PR deferred-contract-fixes, owner decision pending) |
+| BUG-PLATFORM-1 | LOW | platform | Unknown route (404) and wrong method (405) use Spring's default body, not `{error:{code,message}}` | `GlobalExceptionHandler` lacks NoResourceFound / HttpRequestMethodNotSupported mapping | fixed (PR deferred-contract-fixes, owner decision pending) |
+| BUG-VEHICLES-1 | LOW | vehicles | Battery outside 0..100 accepted via PATCH and telemetry | `VehicleService.updateVehicle`, `VehicleTelemetryService.apply` | fixed (PR deferred-contract-fixes, owner decision pending) |
 | BUG-SUGGEST-1 | LOW | suggestions | A redelivered `order.completed` event is counted twice (documented limitation) | `suggestions/internal/ingest/apply.go` | fixed in #148 |
 | BUG-MULTI-1 | MEDIUM | multi-instance | WebSocket events are delivered only to clients of the instance that handled the request | WebSocket handlers keep their sessions in memory (see "Multiple backend instances") | open: proposal in docs, only matters with more than one backend |
 

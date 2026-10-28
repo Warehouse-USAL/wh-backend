@@ -113,7 +113,6 @@ def test_error_contract_is_uniform(admin, anon):
     assert r.status in (415, 400) and "error" in r.body
 
 
-@pytest.mark.known_failure(bug="BUG-PLATFORM-1", reason="unknown routes (404) and wrong methods (405) answer with Spring's default error body {timestamp,status,error,path} instead of the API's {error:{code,message}} contract (no NoHandlerFound/NoResourceFound mapping in the global exception handler)")
 def test_unknown_route_uses_the_error_contract(admin):
     """404 for an unknown path uses the same {"error":{"code","message"}} envelope as every other error"""
     for r, st in ((admin.get("/definitely/not/here"), 404), (admin.request("PUT", "/orders"), 405)):

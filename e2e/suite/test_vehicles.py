@@ -33,7 +33,6 @@ def test_patch_vehicle_state(system, warehouse):
     warehouse.patch(f"/internal/vehicles/{v['id']}", json={"battery": 1}).expect(403)
 
 
-@pytest.mark.known_failure(bug="BUG-VEHICLES-1", reason="battery is a percentage but is stored unvalidated: PATCH /internal/vehicles/{id} and /infra telemetry accept 250 or -40 (no 0..100 check in VehicleService.updateVehicle / VehicleTelemetryService.apply)")
 def test_battery_must_be_a_percentage(system, infra, vehicle_id):
     """A battery level outside 0..100 is refused or clamped, never stored as is"""
     v = system.post("/vehicles", json={"name": f"Rover-{uid(6)}"}).expect(201).body

@@ -162,7 +162,6 @@ def test_user_validation_and_conflicts(system, factory):
     system.patch("/users/does-not-exist", json={"name": "x"}).expect(404, code="USER_NOT_FOUND")
 
 
-@pytest.mark.known_failure(bug="BUG-USERS-1", reason="POST /users with an unknown role answers BAD_REQUEST with the raw Java message 'No enum constant com.usal.whbackend.domain.UserRole.WIZARD' instead of INVALID_ROLE (UserService.createUser/updateUser call UserRole.valueOf unguarded; getUsers does map it)")
 def test_unknown_role_has_stable_error_code(system):
     """Creating a user with an unknown role answers INVALID_ROLE without leaking class names"""
     r = system.post("/users", json={"email": f"{uid()}@x.test", "name": "n", "role": "WIZARD", "initial_password": "x"}).expect(400)
@@ -265,7 +264,6 @@ def test_role_matrix(role_apis, anon, name):
     assert not wrong, f"{name} [{method} {path}]:\n  " + "\n  ".join(wrong)
 
 
-@pytest.mark.known_failure(bug="BUG-AUTHZ-1", reason="@Valid/body parsing runs before @PreAuthorize on controller methods, so an unauthorized role gets 400 VALIDATION_ERROR/MALFORMED_REQUEST (and learns the schema) instead of 403")
 def test_authorization_is_decided_before_validation(operator):
     """An unauthorized role is told 403 even when its body is invalid (not 400)"""
     operator.post("/products", json={}).expect(403)

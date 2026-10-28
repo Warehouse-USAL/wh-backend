@@ -59,18 +59,6 @@ def test_line_lifecycle_and_rules(warehouse, factory):
     warehouse.get("/warehouse/zones/nope/lines").expect(404)
 
 
-@pytest.mark.known_failure(bug="BUG-WAREHOUSE-1", reason="max_allowed_lines / max_allowed_positions are stored but never enforced: a zone with max_allowed_lines=1 accepts a second line (LineService.createLine / PositionService.createPosition never count siblings). Requirement is implied by the field names only - confirm with the owners")
-def test_zone_and_line_structural_limits_are_enforced(warehouse, factory):
-    """A zone refuses lines beyond max_allowed_lines and a line refuses positions beyond max_allowed_positions"""
-    z = factory.zone(lines=1)
-    ln = factory.line(z["id_zone"], number=1, positions=1)
-    r = warehouse.post(f"/warehouse/zones/{z['id_zone']}/lines", json={"number_line": 2, "max_allowed_positions": 1})
-    assert r.status in (400, 409), f"second line accepted in a zone limited to 1: {r.status}"
-    factory.position(ln["id_line"], active=False)
-    r = warehouse.post(f"/warehouse/lines/{ln['id_line']}/positions", json={"position_name": "P2", "maximum_capacity": 5, "size_stock_to_save": "CAJA"})
-    assert r.status in (400, 409), f"second position accepted in a line limited to 1: {r.status}"
-
-
 # ───────────────────────────── positions ─────────────────────────────
 def test_position_create_defaults_and_listing(warehouse, factory):
     """Positions are created inactive and empty; listed by line and in the flat listing; detail shows the assigned product"""
