@@ -121,6 +121,36 @@ class DemoDataSeederTest {
   }
 
   @Test
+  void run_whenTheWarehouseHasOtherZones_skipsInsteadOfDuplicatingTheStructure() {
+    // An older deployment's zones cannot be merged with the demo's zone A / line 1 / six positions.
+    when(productRepository.count()).thenReturn(0L);
+    when(orderMongoRepository.count()).thenReturn(0L);
+    when(zoneRepository.count()).thenReturn(2L);
+    when(zoneRepository.existsById("z-A")).thenReturn(false);
+
+    seeder(true).run(null);
+
+    verify(zoneRepository, never()).saveAll(any());
+    verify(positionRepository, never()).saveAll(any());
+    verifyNoInteractions(userRepository, restockOrderRepository, receptionRepository);
+  }
+
+  @Test
+  void run_whenOnlyTheBootstrapWarehouseExists_fillsItInPlace() {
+    when(productRepository.count()).thenReturn(0L);
+    when(zoneRepository.count()).thenReturn(1L);
+    when(zoneRepository.existsById("z-A")).thenReturn(true);
+    when(passwordEncoder.encode(anyString())).thenReturn("$2a$hashed");
+
+    seeder(true).run(null);
+
+    // Same ids as the bootstrap's documents, so saveAll replaces them instead of adding to them.
+    verify(zoneRepository)
+        .saveAll(argThat((Iterable<Zone> it) -> count(it) == 1 && it.iterator().next().getId().equals("z-A")));
+    verify(positionRepository).saveAll(argThat((Iterable<Position> it) -> count(it) == 6));
+  }
+
+  @Test
   void run_whenEnabledAndEmpty_seedsEveryCollection() {
     when(productRepository.count()).thenReturn(0L);
     when(passwordEncoder.encode(anyString())).thenReturn("$2a$hashed");
@@ -141,14 +171,14 @@ class DemoDataSeederTest {
         .noneMatch(line -> line.contains(DemoDataset.SHARED_PASSWORD));
     verify(userRepository).saveAll(argThat((Iterable<User> it) -> count(it) == 13));
     verify(productRepository).saveAll(argThat((Iterable<Product> it) -> count(it) == 20));
-    verify(zoneRepository).saveAll(argThat((Iterable<Zone> it) -> count(it) == 2));
-    verify(lineRepository).saveAll(argThat((Iterable<Line> it) -> count(it) == 7));
-    verify(positionRepository).saveAll(argThat((Iterable<Position> it) -> count(it) == 35));
+    verify(zoneRepository).saveAll(argThat((Iterable<Zone> it) -> count(it) == 1));
+    verify(lineRepository).saveAll(argThat((Iterable<Line> it) -> count(it) == 1));
+    verify(positionRepository).saveAll(argThat((Iterable<Position> it) -> count(it) == 6));
     verify(vehicleRepository).saveAll(argThat((Iterable<Vehicle> it) -> count(it) == 6));
-    // Bulk inserts: two years of history is ~50k orders, too many for one upsert per document.
-    verify(orderMongoRepository).insert(argThat((Iterable<Order> it) -> count(it) > 40_000));
-    verify(restockOrderRepository).insert(argThat((Iterable<RestockOrder> it) -> count(it) > 400));
-    verify(receptionRepository).insert(argThat((Iterable<Reception> it) -> count(it) > 400));
+    // Bulk inserts: two years of history is ~15k orders, too many for one upsert per document.
+    verify(orderMongoRepository).insert(argThat((Iterable<Order> it) -> count(it) > 10_000));
+    verify(restockOrderRepository).insert(argThat((Iterable<RestockOrder> it) -> count(it) > 60));
+    verify(receptionRepository).insert(argThat((Iterable<Reception> it) -> count(it) > 60));
     // Seeded inside the same fresh-database guard: the metrics store has no backfill, so the
     // rover charts would otherwise be blank next to a year of orders.
     verify(demoTelemetrySeeder).seed(argThat((java.util.List<Vehicle> it) -> it.size() == 6));

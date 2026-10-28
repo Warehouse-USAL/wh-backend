@@ -31,7 +31,7 @@ import org.junit.jupiter.api.Test;
 
 class DemoDatasetTest {
 
-  // Built once: two years of history is ~50k orders, and every test only reads it.
+  // Built once: two years of history is ~15k orders, and every test only reads it.
   private static DemoData data;
 
   @BeforeAll
@@ -110,20 +110,26 @@ class DemoDatasetTest {
   }
 
   @Test
-  void warehouseHasExpectedZonesLinesAndPositions() {
-    assertThat(data.getZones()).hasSize(2);
-    assertThat(data.getZones())
-        .extracting(z -> z.getZoneCode())
-        .containsExactlyInAnyOrder("B", "C");
-    assertThat(data.getZones()).allMatch(z -> z.isActive());
-    assertThat(data.getLines()).hasSize(7);
-    assertThat(data.getPositions()).hasSize(35);
-    assertThat(data.getPositions().stream().map(Position::getId).distinct().count()).isEqualTo(35);
-    assertThat(data.getPositions()).allMatch(p -> p.getId().matches("pos-l-[BC]-\\d-P\\d{2}"));
+  void warehouseIsTheRealOneZoneOneLineSixPositions() {
+    assertThat(data.getZones()).hasSize(1);
+    assertThat(data.getZones().get(0).getZoneCode()).isEqualTo("A");
+    assertThat(data.getZones().get(0).isActive()).isTrue();
+    assertThat(data.getLines()).hasSize(1);
+    assertThat(data.getLines().get(0).getNumberLine()).isEqualTo(1);
+    assertThat(data.getLines().get(0).isActive()).isTrue();
+    assertThat(data.getPositions()).hasSize(6);
+    assertThat(data.getPositions())
+        .extracting(Position::getPositionName)
+        .containsExactlyInAnyOrder("PA1", "PA2", "PA3", "PM1", "PM2", "PM3");
+    assertThat(data.getPositions()).allMatch(Position::isActive);
+    assertThat(data.getPositions())
+        .extracting(Position::getId)
+        .doesNotHaveDuplicates()
+        .allMatch(id -> id.matches("pos-l-A-1-P[AM][1-3]"));
   }
 
   @Test
-  void everyPositionReferencesValidZoneLineAndOptionalProduct() {
+  void everyPositionReferencesValidZoneLineAndProduct() {
     Set<String> zoneIds = data.getZones().stream().map(z -> z.getId()).collect(Collectors.toSet());
     Set<String> lineIds = data.getLines().stream().map(l -> l.getId()).collect(Collectors.toSet());
     Set<String> productIds =
@@ -132,22 +138,32 @@ class DemoDatasetTest {
       assertThat(zoneIds).contains(pos.getIdZone());
       assertThat(lineIds).contains(pos.getIdLine());
       assertThat(pos.getCurrentStock()).isGreaterThanOrEqualTo(0);
-      if (pos.getProductId() != null) {
-        assertThat(productIds).contains(pos.getProductId());
-      }
+      assertThat(productIds).contains(pos.getProductId());
     }
   }
 
   @Test
-  void everyProductIsStoredInAtLeastOnePosition() {
-    Set<String> hostedProductIds =
-        data.getPositions().stream()
-            .map(Position::getProductId)
-            .filter(id -> id != null)
-            .collect(Collectors.toSet());
-    for (Product p : data.getProducts()) {
-      assertThat(hostedProductIds).as("product %s is hosted", p.getSku()).contains(p.getId());
-    }
+  void eachPositionHoldsADifferentProductAndTheRestOfTheCatalogueIsUnstocked() {
+    // The model assigns one product per position; six positions stock six of the twenty products.
+    assertThat(data.getPositions())
+        .extracting(Position::getProductId)
+        .doesNotHaveDuplicates()
+        .doesNotContainNull();
+    assertThat(data.getPositions()).allMatch(p -> p.getCurrentStock() > 0);
+    Set<String> hosted =
+        data.getPositions().stream().map(Position::getProductId).collect(Collectors.toSet());
+    assertThat(data.getProducts().stream().filter(p -> !hosted.contains(p.getId())))
+        .hasSize(14)
+        .as("the unstocked catalogue has no orders, receptions or restock orders")
+        .allSatisfy(
+            p -> {
+              assertThat(data.getOrders())
+                  .noneMatch(
+                      o -> o.getItems().stream().anyMatch(i -> i.getProductId().equals(p.getId())));
+              assertThat(data.getReceptions()).noneMatch(r -> r.getProductId().equals(p.getId()));
+              assertThat(data.getRestockOrders())
+                  .noneMatch(r -> r.getProductId().equals(p.getId()));
+            });
   }
 
   @Test
@@ -187,14 +203,14 @@ class DemoDatasetTest {
   @Test
   void buildsTwoYearsOfOrdersAcrossAllStatuses() {
     var orders = data.getOrders();
-    // ~40–120 a day over two years; the exact count depends on the calendar the seed lands on.
-    assertThat(orders).hasSizeBetween(40_000, 70_000);
+    // ~12–35 a day over two years; the exact count depends on the calendar the seed lands on.
+    assertThat(orders).hasSizeBetween(10_000, 30_000);
     Map<OrderStatus, Long> byStatus =
         orders.stream().collect(Collectors.groupingBy(Order::getStatus, Collectors.counting()));
     // The near-term batch (7 pending, 2 riding a rover) plus whatever arrived too recently to ship.
     assertThat(byStatus.get(OrderStatus.PENDING)).isGreaterThanOrEqualTo(7);
     assertThat(byStatus.get(OrderStatus.IN_PROGRESS)).isEqualTo(2);
-    assertThat(byStatus.get(OrderStatus.COMPLETED)).isGreaterThan(35_000);
+    assertThat(byStatus.get(OrderStatus.COMPLETED)).isGreaterThan(8_000);
     assertThat(byStatus.get(OrderStatus.CANCELLED)).isPositive();
   }
 
@@ -410,8 +426,8 @@ class DemoDatasetTest {
     long recent =
         data.getRestockOrders().stream().filter(r -> r.getCreatedAt().isAfter(oneYearAgo)).count();
     long older = data.getRestockOrders().size() - recent;
-    assertThat(recent).isGreaterThan(200);
-    assertThat(older).isGreaterThan(200);
+    assertThat(recent).isGreaterThan(30);
+    assertThat(older).isGreaterThan(30);
   }
 
   @Test
@@ -496,11 +512,25 @@ class DemoDatasetTest {
             Instant.now(),
             DemoDataset.DEMO_RESTOCK_PARAMS.recentDays(),
             DemoDataset.DEMO_RESTOCK_PARAMS.longDays());
-    // Product 0 is the never-ordered low-stock item; every other one has a demand history.
-    for (Product p : data.getProducts().subList(1, data.getProducts().size())) {
+    // The first stocked product (PA1) is the never-ordered low-stock item; every other stocked one
+    // has a demand history.
+    for (Product p : stockedProducts().subList(1, 6)) {
       assertThat(demand.get(p.getId())).as("demand for %s", p.getSku()).isNotNull();
       assertThat(demand.get(p.getId()).longTerm()).isPositive();
     }
+  }
+
+  /** The products the six positions hold, in layout order (PA1 first). */
+  private static java.util.List<Product> stockedProducts() {
+    Map<String, Product> productById =
+        data.getProducts().stream().collect(Collectors.toMap(Product::getId, p -> p));
+    return data.getPositions().stream()
+        .sorted(
+            java.util.Comparator.comparing(
+                p -> WarehouseLayout.SLOTS.stream().map(WarehouseLayout.Slot::name).toList()
+                    .indexOf(p.getPositionName())))
+        .map(p -> productById.get(p.getProductId()))
+        .toList();
   }
 
   private static Map<String, RestockResult> restockResults() {
@@ -512,7 +542,7 @@ class DemoDatasetTest {
     Map<String, RestockInputs.Demand> demand =
         RestockInputs.demandByProduct(
             data.getOrders(), Instant.now(), params.recentDays(), params.longDays());
-    return data.getProducts().stream()
+    return stockedProducts().stream()
         .collect(
             Collectors.toMap(
                 Product::getId,
@@ -620,23 +650,22 @@ class DemoDatasetTest {
   }
 
   @Test
-  void qrCodesFollowTheWh2ZoneSequenceScheme() {
-    Map<String, String> zoneCodeById =
-        data.getZones().stream().collect(Collectors.toMap(z -> z.getId(), z -> z.getZoneCode()));
-    Map<String, Integer> nextInZone = new java.util.HashMap<>();
-    for (Position pos : data.getPositions()) {
-      String zone = zoneCodeById.get(pos.getIdZone());
-      int n = nextInZone.merge(zone, 1, Integer::sum);
-      assertThat(pos.getQrCode()).as(pos.getId()).isEqualTo("WH2|P" + zone + n);
-    }
-    assertThat(nextInZone).containsEntry("B", 20).containsEntry("C", 15);
+  void qrCodesArePrefixPlusPositionNameAsPrintedInTheWarehouse() {
+    assertThat(data.getPositions())
+        .allSatisfy(p -> assertThat(p.getQrCode()).isEqualTo("WH2|" + p.getPositionName()));
+    assertThat(data.getPositions())
+        .extracting(Position::getQrCode)
+        .containsExactlyInAnyOrder(
+            "WH2|PA1", "WH2|PA2", "WH2|PA3", "WH2|PM1", "WH2|PM2", "WH2|PM3");
   }
 
   @Test
   void qrPrefixIsConfigurable() {
     DemoData custom = new DemoDataset(p -> p, "ALM1|").build();
-    assertThat(custom.getPositions()).allMatch(p -> p.getQrCode().startsWith("ALM1|P"));
-    assertThat(custom.getPositions().get(0).getQrCode()).isEqualTo("ALM1|PB1");
+    assertThat(custom.getPositions())
+        .extracting(Position::getQrCode)
+        .containsExactlyInAnyOrder(
+            "ALM1|PA1", "ALM1|PA2", "ALM1|PA3", "ALM1|PM1", "ALM1|PM2", "ALM1|PM3");
   }
 
   @Test
@@ -646,7 +675,7 @@ class DemoDatasetTest {
     assertThat(DemoDataset.qrPrefixOrDefault(null)).isEqualTo("WH2|");
     assertThat(DemoDataset.qrPrefixOrDefault("ALM1|")).isEqualTo("ALM1|");
     assertThat(new DemoDataset(p -> p, "").build().getPositions().get(0).getQrCode())
-        .isEqualTo("WH2|PB1");
+        .isEqualTo("WH2|PA1");
   }
 
   @Test
