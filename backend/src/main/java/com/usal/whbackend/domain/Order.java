@@ -38,6 +38,9 @@ public class Order {
   private Instant completedAt;
   private String cancelReason;
 
+  // Set when an in-progress order is asked to cancel: the vehicle must first put the goods back, so
+  // the order stays IN_PROGRESS until Infra reports it cancelled.
+  private Instant cancellationRequestedAt;
   private Address address;
   private Product.Price total;
 
@@ -137,6 +140,14 @@ public class Order {
 
   public void setCancelReason(String cancelReason) {
     this.cancelReason = cancelReason;
+  }
+
+  public Instant getCancellationRequestedAt() {
+    return cancellationRequestedAt;
+  }
+
+  public void setCancellationRequestedAt(Instant cancellationRequestedAt) {
+    this.cancellationRequestedAt = cancellationRequestedAt;
   }
 
   public Address getAddress() {

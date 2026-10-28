@@ -1,5 +1,6 @@
 package com.usal.whbackend.api.order;
 
+import static org.hamcrest.Matchers.nullValue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -197,7 +198,7 @@ class OrderControllerTest {
         .perform(post("/orders/test-id/cancel"))
         .andExpect(status().isOk())
         .andExpect(jsonPath("$.order.status").value("cancelled"))
-        .andExpect(jsonPath("$.order.timestamps.cancellation_requested_at").doesNotExist());
+        .andExpect(jsonPath("$.order.timestamps.cancellation_requested_at").value(nullValue()));
   }
 
   @Test

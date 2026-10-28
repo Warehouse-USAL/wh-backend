@@ -249,7 +249,7 @@ def test_cancel_in_progress_order_is_immediate(operator, warehouse, factory, inf
     assert warehouse.get(f"/vehicles/{vid}").json_("current_order_id") == o["id"]
     c = operator.post(f"/orders/{o['id']}/cancel", json={"reason": "stop it"}).expect(200).json_("order")
     assert c["status"] == "cancelled" and c["cancel_reason"] == "stop it", c
-    assert "cancellation_requested_at" not in c["timestamps"], c
+    assert c["timestamps"].get("cancellation_requested_at") is None, c  # the key stays in the response (contract) but is never set any more
     kafka.wait_order(o["id"], "cancelled")
     assert factory.get_order(o["id"])["status"] == "cancelled"
     assert factory.stock(s.id) == {"available": 10, "reserved": 0, "physical": 10, "min": 0}
