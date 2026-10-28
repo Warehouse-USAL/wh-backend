@@ -565,7 +565,10 @@ main() {
 	stream_open s1 "$ADMIN_TOKEN" '{"subscriptions":[{"id":"status","kind":"status"},{"id":"orders","kind":"ws-events","feed":"orders"},{"id":"m","kind":"metric","metric":"http.server.duration","range":"5m","step":"10s","agg":"p95","group_by":["route"]},{"id":"bad","kind":"metric","metric":"smoke.no.such.metric","range":"5m","step":"10s","agg":"avg"}]}' 45
 	exp=$(jq -nc --arg s "$ADMIN_SUB" '{sub:$s,role:"SUPERADMIN",iat:(now|floor),exp:((now|floor)+25)}')
 	EXP_TOKEN=$(jwt_mint "$JWT_SECRET" "$exp")
-	CAP_TOKEN=$(jwt_mint "$JWT_SECRET" "$(jq -nc --arg s "smoke-cap-$$" '{sub:$s,role:"SUPERADMIN",iat:(now|floor),exp:((now|floor)+300)}')")
+	# A different, real user (the backend rejects tokens of users that do not exist), so the cap is its own.
+	local cap_sub
+	cap_sub=$(jwt_payload "${SYSTEM_TOKEN:-$ADMIN_TOKEN}" | jq -r .sub)
+	CAP_TOKEN=$(jwt_mint "$JWT_SECRET" "$(jq -nc --arg s "$cap_sub" '{sub:$s,role:"SUPERADMIN",iat:(now|floor),exp:((now|floor)+300)}')")
 	TOKENS="$TOKENS expiring=$EXP_TOKEN cap=$CAP_TOKEN"
 	stream_open s2 "$EXP_TOKEN" '{"subscriptions":[{"id":"st","kind":"status"}]}' 60
 	t_stream_cap
