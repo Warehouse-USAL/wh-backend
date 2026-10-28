@@ -51,6 +51,7 @@ class DemoDataSeederTest {
   @Mock ReceptionRepository receptionRepository;
   @Mock PasswordEncoder passwordEncoder;
   @Mock DemoTelemetrySeeder demoTelemetrySeeder;
+  @Mock DemoOrderEventPublisher demoOrderEventPublisher;
 
   private DemoDataSeeder seeder(boolean seedDemo) {
     return new DemoDataSeeder(
@@ -65,6 +66,7 @@ class DemoDataSeederTest {
         receptionRepository,
         passwordEncoder,
         demoTelemetrySeeder,
+        demoOrderEventPublisher,
         seedDemo,
         DemoDataset.DEFAULT_QR_PREFIX);
   }
@@ -94,6 +96,7 @@ class DemoDataSeederTest {
 
     verify(productRepository).count();
     verify(productRepository, never()).saveAll(any());
+    verifyNoInteractions(demoOrderEventPublisher);
     verifyNoInteractions(
         userRepository,
         zoneRepository,
@@ -116,6 +119,7 @@ class DemoDataSeederTest {
 
     verify(orderMongoRepository, never())
         .insert(org.mockito.ArgumentMatchers.<Iterable<Order>>any());
+    verifyNoInteractions(demoOrderEventPublisher);
     verifyNoInteractions(
         userRepository, restockOrderRepository, receptionRepository, passwordEncoder);
   }
@@ -132,6 +136,7 @@ class DemoDataSeederTest {
 
     verify(zoneRepository, never()).saveAll(any());
     verify(positionRepository, never()).saveAll(any());
+    verifyNoInteractions(demoOrderEventPublisher);
     verifyNoInteractions(userRepository, restockOrderRepository, receptionRepository);
   }
 
@@ -185,6 +190,9 @@ class DemoDataSeederTest {
     // Seeded inside the same fresh-database guard: the metrics store has no backfill, so the
     // rover charts would otherwise be blank next to a year of orders.
     verify(demoTelemetrySeeder).seed(argThat((java.util.List<Vehicle> it) -> it.size() == 6));
+    // The suggestions model is preloaded with the very orders just inserted.
+    verify(demoOrderEventPublisher)
+        .publishAsync(argThat((java.util.List<Order> it) -> it.size() > 12_000));
   }
 
   private static int count(Iterable<?> iterable) {

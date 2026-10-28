@@ -30,7 +30,9 @@ import org.springframework.stereotype.Component;
  *
  * <p>The dataset is built in memory by the pure {@link DemoDataset} and persisted via the plain
  * Mongo repositories (not the Kafka-publishing {@code OrderRepository}), so seeding fires no
- * events.
+ * orders-topic or WebSocket events. The one thing it does announce is {@code order.completed} for
+ * each COMPLETED order ({@link DemoOrderEventPublisher}), so the suggestions service starts with
+ * the model of exactly these orders.
  */
 @Component
 @Order(2)
@@ -49,6 +51,7 @@ public class DemoDataSeeder implements ApplicationRunner {
   private final ReceptionRepository receptionRepository;
   private final PasswordEncoder passwordEncoder;
   private final DemoTelemetrySeeder demoTelemetrySeeder;
+  private final DemoOrderEventPublisher demoOrderEventPublisher;
   private final boolean seedDemo;
   private final String qrPrefix;
 
@@ -64,6 +67,7 @@ public class DemoDataSeeder implements ApplicationRunner {
       ReceptionRepository receptionRepository,
       PasswordEncoder passwordEncoder,
       DemoTelemetrySeeder demoTelemetrySeeder,
+      DemoOrderEventPublisher demoOrderEventPublisher,
       @Value("${SEED_DEMO:false}") boolean seedDemo,
       @Value("${WH_QR_PREFIX:" + DemoDataset.DEFAULT_QR_PREFIX + "}") String qrPrefix) {
     this.userRepository = userRepository;
@@ -77,6 +81,7 @@ public class DemoDataSeeder implements ApplicationRunner {
     this.receptionRepository = receptionRepository;
     this.passwordEncoder = passwordEncoder;
     this.demoTelemetrySeeder = demoTelemetrySeeder;
+    this.demoOrderEventPublisher = demoOrderEventPublisher;
     this.seedDemo = seedDemo;
     this.qrPrefix = qrPrefix;
   }
@@ -127,6 +132,11 @@ public class DemoDataSeeder implements ApplicationRunner {
     // Deliberately last and inside the same fresh-database guard: the metrics store has no
     // backfill, so without this the rover charts would be blank next to two years of orders.
     demoTelemetrySeeder.seed(data.getVehicles());
+
+    // Last, and only on this fresh-database path: the suggestions model is built from
+    // order.completed, and these orders were inserted without announcing themselves. Background
+    // and failure-proof (see the class), so it can neither delay nor break the boot.
+    demoOrderEventPublisher.publishAsync(data.getOrders());
 
     logSeedSummary(data);
     log.info(
