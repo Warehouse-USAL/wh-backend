@@ -3447,6 +3447,53 @@
      }
     ]
    }
+  },
+  "/metrics/suggestion-conversion": {
+   "post": {
+    "tags": [
+     "Metrics"
+    ],
+    "summary": "Suggestion conversion",
+    "description": "Per calendar bucket (day, week or month), how many non-cancelled orders, order lines and units came from a recommendation (the optional from_recommendation flag of each item in POST /orders). Every bucket of the range is returned, empty ones with zeros. Filters restrict the lines considered.",
+    "operationId": "suggestionConversion",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/SuggestionConversionRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "One row per bucket, oldest first",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/ComputedMetricResponseConversionBucket"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "INVALID_METRIC_PARAMS",
+      "content": {
+       "*/*": {
+        "schema": {
+         "$ref": "#/components/schemas/ComputedMetricResponseConversionBucket"
+        }
+       }
+      }
+     }
+    },
+    "security": [
+     {
+      "bearer-jwt": []
+     }
+    ]
+   }
   }
  },
  "components": {
@@ -4392,6 +4439,10 @@
      "quantity": {
       "type": "integer",
       "format": "int32"
+     },
+     "from_recommendation": {
+      "type": "boolean",
+      "description": "Optional. True when the client picked this product from a suggestion of the suggestions service; absent means false."
      }
     }
    },
@@ -4409,6 +4460,9 @@
      },
      "unit_price": {
       "$ref": "#/components/schemas/Price"
+     },
+     "from_recommendation": {
+      "type": "boolean"
      }
     }
    },
@@ -5115,6 +5169,110 @@
      "size": {
       "type": "integer",
       "format": "int64"
+     }
+    }
+   },
+   "SuggestionConversionRequest": {
+    "properties": {
+     "params": {
+      "$ref": "#/components/schemas/ConversionRange"
+     },
+     "filters": {
+      "$ref": "#/components/schemas/ConversionFilters"
+     }
+    }
+   },
+   "ConversionRange": {
+    "properties": {
+     "from": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "to": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "granularity": {
+      "type": "string"
+     },
+     "time_zone": {
+      "type": "string"
+     }
+    }
+   },
+   "ConversionFilters": {
+    "properties": {
+     "product_ids": {
+      "type": "array",
+      "items": {
+       "type": "string"
+      }
+     },
+     "category": {
+      "type": "string"
+     }
+    }
+   },
+   "ConversionBucket": {
+    "properties": {
+     "bucket": {
+      "type": "string"
+     },
+     "orders": {
+      "type": "integer",
+      "format": "int32"
+     },
+     "orders_with_recommendation": {
+      "type": "integer",
+      "format": "int32"
+     },
+     "order_conversion_rate": {
+      "type": "number",
+      "format": "double"
+     },
+     "lines": {
+      "type": "integer",
+      "format": "int32"
+     },
+     "lines_from_recommendation": {
+      "type": "integer",
+      "format": "int32"
+     },
+     "line_conversion_rate": {
+      "type": "number",
+      "format": "double"
+     },
+     "units": {
+      "type": "integer",
+      "format": "int64"
+     },
+     "units_from_recommendation": {
+      "type": "integer",
+      "format": "int64"
+     },
+     "unit_conversion_rate": {
+      "type": "number",
+      "format": "double"
+     }
+    }
+   },
+   "ComputedMetricResponseConversionBucket": {
+    "properties": {
+     "metric": {
+      "type": "string"
+     },
+     "params_used": {
+      "type": "object"
+     },
+     "generated_at": {
+      "type": "string",
+      "format": "date-time"
+     },
+     "data": {
+      "type": "array",
+      "items": {
+       "$ref": "#/components/schemas/ConversionBucket"
+      }
      }
     }
    }

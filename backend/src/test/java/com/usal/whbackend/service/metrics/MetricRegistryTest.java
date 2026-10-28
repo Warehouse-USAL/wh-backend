@@ -28,6 +28,23 @@ class MetricRegistryTest {
   }
 
   @Test
+  void suggestionConversionIsListedWithItsRangeAndGranularity() {
+    ComputedMetricDescriptor d =
+        registry.computedVisibleTo(Set.of(UserRole.DASHBOARD)).stream()
+            .filter(m -> m.name().equals("suggestion_conversion"))
+            .findFirst()
+            .orElseThrow();
+
+    assertThat(d.path()).isEqualTo("/metrics/suggestion-conversion");
+    assertThat(d.params())
+        .extracting(ComputedMetricDescriptor.Field::name)
+        .containsExactly("from", "to", "granularity");
+    assertThat(d.filters())
+        .extracting(ComputedMetricDescriptor.Field::name)
+        .containsExactly("time_zone", "product_ids", "category");
+  }
+
+  @Test
   void computedMetricsAreHiddenFromRolesThatCannotReadMetrics() {
     assertThat(registry.computedVisibleTo(Set.of(UserRole.OPERATOR))).isEmpty();
   }

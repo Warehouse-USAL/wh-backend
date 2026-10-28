@@ -1,0 +1,39 @@
+meta {
+  name: Suggestion Conversion
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{baseUrl}}/metrics/suggestion-conversion
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+body:json {
+  {
+    "params": {
+      "from": "2026-09-01T00:00:00Z",
+      "to": "2026-10-01T00:00:00Z",
+      "granularity": "day",
+      "time_zone": "America/Argentina/Buenos_Aires"
+    },
+    "filters": {}
+  }
+}
+
+docs {
+  Computed metric: per day/week/month, orders, order lines and units that came from a recommendation
+  (from_recommendation on the items of POST /orders) and their share. Cancelled orders do not count.
+
+  Required params: from (inclusive), to (exclusive, at most 731 days later), granularity
+  (day | week | month). Optional: time_zone (IANA, UTC by default), filters.product_ids,
+  filters.category.
+
+  Response: {metric, params_used, generated_at, data[]}, oldest bucket first, empty buckets included.
+  Rejections: INVALID_METRIC_PARAMS (400), naming the offending param.
+}

@@ -233,6 +233,37 @@ Con la semilla de demo y exactamente esos params van a ver los tres casos: produ
 productos cubiertos por un pedido en camino (`on_order_stock > 0`, `should_restock: false`) y
 productos sanos.
 
+### `POST /metrics/suggestion-conversion`
+
+Cuánto de lo que se pide sale de una recomendación del servicio de sugerencias. Los clientes marcan
+`from_recommendation: true` en cada ítem de `POST /orders` que agregaron desde una sugerencia
+(opcional; ausente = `false`).
+
+```json
+POST /metrics/suggestion-conversion
+{"params": {"from": "2026-09-01T00:00:00Z", "to": "2026-10-01T00:00:00Z",
+            "granularity": "day", "time_zone": "America/Argentina/Buenos_Aires"},
+ "filters": {"category": "TECNOLOGIA"}}
+```
+
+- `from` inclusive, `to` exclusivo, como máximo 731 días. `granularity`: `day`, `week` (de lunes a
+  domingo) o `month`. `time_zone` (IANA) es opcional y por defecto `UTC`: define dónde se corta
+  cada día. `filters.product_ids` / `filters.category` limitan las **líneas** consideradas.
+- Una fila por bucket, de más viejo a más nuevo, **incluidos los buckets vacíos** (ceros), así que
+  la serie no tiene huecos. `bucket` es el primer día del bucket (`YYYY-MM-DD`).
+- Los pedidos cancelados no cuentan.
+
+```json
+{"bucket": "2026-09-01", "orders": 33, "orders_with_recommendation": 9,
+ "order_conversion_rate": 0.2727, "lines": 71, "lines_from_recommendation": 12,
+ "line_conversion_rate": 0.169, "units": 164, "units_from_recommendation": 25,
+ "unit_conversion_rate": 0.1524}
+```
+
+`order_conversion_rate` = pedidos con al menos una línea recomendada / pedidos; `line_…` y `unit_…`
+son lo mismo por línea y por unidad. Cada tasa vale 0 si no hubo pedidos en el bucket. Con filtros,
+un pedido cuenta si tiene al menos una línea que cumple el filtro.
+
 ### La recomendación diaria: `product.restock`
 
 No hace falta llamar a la simulación para mostrar qué reponer. Una vez por día el servicio
