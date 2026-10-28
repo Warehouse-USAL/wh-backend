@@ -66,6 +66,7 @@ jobs:
       bridge: ${{ steps.changes.outputs.bridge }}
       console: ${{ steps.changes.outputs.console }}
       platform: ${{ steps.changes.outputs.platform }}
+      suggestions: ${{ steps.changes.outputs.suggestions }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -188,6 +189,42 @@ jobs:
         run: |
           go run github.com/boumenot/gocover-cobertura@v1.5.0 <coverage.out >coverage.xml
           cd .. && pipx run --spec diff-cover==10.6.0 diff-cover bridge/coverage.xml \
+            --compare-branch="origin/$BASE_REF" --fail-under=90
+
+  suggestions:
+    name: Suggestions (go vet + tests)
+    needs: changes
+    if: needs.changes.outputs.suggestions == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: suggestions
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: suggestions/go.mod
+          cache-dependency-path: suggestions/go.sum
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test (includes the backtest)
+        run: go test -race ./...
+
+      - name: Coverage (./internal/... >= 90%)
+        working-directory: .
+        run: scripts/go-coverage.sh suggestions 90
+
+      - name: Diff coverage (changed lines >= 90%)
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          go run github.com/boumenot/gocover-cobertura@v1.5.0 <coverage.out >coverage.xml
+          cd .. && pipx run --spec diff-cover==10.6.0 diff-cover suggestions/coverage.xml \
             --compare-branch="origin/$BASE_REF" --fail-under=90
 
   console:
@@ -369,7 +406,7 @@ jobs:
   ci-ok:
     name: ci-ok
     if: always()
-    needs: [skip-drafts, validate-branch, changes, code-quality, test-coverage, bridge, console, compose, console-smoke, build]
+    needs: [skip-drafts, validate-branch, changes, code-quality, test-coverage, bridge, suggestions, console, compose, console-smoke, build]
     runs-on: ubuntu-latest
     steps:
       - name: All jobs passed or were skipped
@@ -381,6 +418,7 @@ jobs:
             bridge=${{ needs.changes.outputs.bridge }}
             console=${{ needs.changes.outputs.console }}
             platform=${{ needs.changes.outputs.platform }}
+            suggestions=${{ needs.changes.outputs.suggestions }}
         run: |
           echo "results: $RESULTS"
           if [ "$CHANGES" = success ]; then
