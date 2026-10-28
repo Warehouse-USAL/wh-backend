@@ -323,13 +323,14 @@ jobs:
             esac
           done
           shellcheck -S error scripts/*.sh config/restock-cron/*.sh e2e/*.sh
-          shellcheck scripts/ci-changes.sh scripts/ci-changes.test.sh scripts/go-coverage.sh scripts/go-coverage.test.sh scripts/prod-env.sh scripts/prod-env.test.sh
+          shellcheck scripts/ci-changes.sh scripts/ci-changes.test.sh scripts/go-coverage.sh scripts/go-coverage.test.sh scripts/prod-env.sh scripts/prod-env.test.sh scripts/push-image.sh scripts/push-image.test.sh
 
       - name: CI script tests
         run: |
           sh scripts/ci-changes.test.sh
           sh scripts/go-coverage.test.sh
           bash scripts/prod-env.test.sh
+          bash scripts/push-image.test.sh
 
   # The whole console stack in Docker, asserted over HTTP through the console's nginx, push stream
   # included (scripts/console-smoke.sh, docs/CONSOLE.md "Smoke test"). Any component can break it.
