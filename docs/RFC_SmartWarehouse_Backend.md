@@ -129,6 +129,7 @@ El Backend actúa como gateway entre los consumidores y el ecosistema de vehícu
 | product_id | string (UUID) | Referencia al producto |
 | sku | string | SKU del producto al momento de la orden |
 | quantity | integer | Cantidad solicitada |
+| from_recommendation | boolean | Opcional al crear (ausente = `false`). `true` si el cliente tomó este producto de una sugerencia del servicio de sugerencias. Alimenta la métrica `suggestion_conversion` |
 
 ### 3.4. Vehículo (Rover)
 

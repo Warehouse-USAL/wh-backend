@@ -1,5 +1,6 @@
 package com.usal.whbackend.repository.kafka;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 
@@ -22,5 +23,14 @@ public record OrderCompletedMessage(
   public record Item(
       @JsonProperty("sku") String sku,
       @JsonProperty("productId") String productId,
-      @JsonProperty("quantity") int quantity) {}
+      @JsonProperty("quantity") int quantity,
+      // Omitted when false, so the payload of an order without suggestions is byte-for-byte what
+      // it was before the field existed.
+      @JsonProperty("fromRecommendation") @JsonInclude(JsonInclude.Include.NON_DEFAULT)
+          boolean fromRecommendation) {
+
+    public Item(String sku, String productId, int quantity) {
+      this(sku, productId, quantity, false);
+    }
+  }
 }
