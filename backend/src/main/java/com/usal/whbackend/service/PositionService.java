@@ -133,6 +133,10 @@ public class PositionService {
     if (!line.isActive()) {
       throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "LINE_INACTIVE");
     }
+    // Every position counts, inactive (soft-deleted) ones included: they keep their name and QR.
+    if (positionRepository.countByIdLine(lineId) >= line.getMaxAllowedPositions()) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "LINE_POSITION_LIMIT_REACHED");
+    }
     Position position = new Position();
     position.setIdLine(lineId);
     position.setIdZone(line.getIdZone());
@@ -143,7 +147,14 @@ public class PositionService {
     position.setActive(false);
     position.setCurrentStock(0);
     position.setCreatedAt(Instant.now());
-    return positionRepository.save(position);
+    Position saved = positionRepository.save(position);
+    // Two requests can pass the check above together: the one that finds the line over its limit
+    // after saving undoes itself, so the limit holds without a lock.
+    if (positionRepository.countByIdLine(lineId) > line.getMaxAllowedPositions()) {
+      positionRepository.deleteById(saved.getId());
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "LINE_POSITION_LIMIT_REACHED");
+    }
+    return saved;
   }
 
   /**

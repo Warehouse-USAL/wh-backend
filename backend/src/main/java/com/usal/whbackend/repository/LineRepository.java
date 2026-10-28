@@ -8,5 +8,7 @@ import org.springframework.data.mongodb.repository.MongoRepository;
 public interface LineRepository extends MongoRepository<Line, String> {
   List<Line> findByIdZone(String idZone);
 
+  long countByIdZone(String idZone);
+
   Optional<Line> findByIdZoneAndNumberLine(String idZone, int numberLine);
 }

@@ -42,13 +42,25 @@ public class LineService {
     if (lineRepository.findByIdZoneAndNumberLine(zoneId, request.numberLine()).isPresent()) {
       throw new LineNumberAlreadyExistsException(request.numberLine(), zoneId);
     }
+    // Every line counts, inactive (soft-deleted) ones included: they keep their number and
+    // positions.
+    if (lineRepository.countByIdZone(zoneId) >= zone.getMaxAllowedLines()) {
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "ZONE_LINE_LIMIT_REACHED");
+    }
     Line line = new Line();
     line.setIdZone(zoneId);
     line.setNumberLine(request.numberLine());
     line.setMaxAllowedPositions(request.maxAllowedPositions());
     line.setActive(false);
     line.setCreatedAt(Instant.now());
-    return lineRepository.save(line);
+    Line saved = lineRepository.save(line);
+    // Two requests can pass the check above together: the one that finds the zone over its limit
+    // after saving undoes itself, so the limit holds without a lock.
+    if (lineRepository.countByIdZone(zoneId) > zone.getMaxAllowedLines()) {
+      lineRepository.deleteById(saved.getId());
+      throw new ResponseStatusException(HttpStatus.CONFLICT, "ZONE_LINE_LIMIT_REACHED");
+    }
+    return saved;
   }
 
   public Line updateLine(String id, UpdateLineRequest request) {

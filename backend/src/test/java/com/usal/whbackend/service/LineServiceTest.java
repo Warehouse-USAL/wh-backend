@@ -33,6 +33,7 @@ class LineServiceTest {
     z.setId(id);
     z.setZoneCode("A");
     z.setActive(true);
+    z.setMaxAllowedLines(5);
     return z;
   }
 
@@ -77,6 +78,59 @@ class LineServiceTest {
     when(lineRepository.save(any())).thenReturn(saved);
     Line result = lineService.createLine("z1", new CreateLineRequest(2, 20));
     assertEquals("z1", result.getIdZone());
+  }
+
+  @Test
+  void createLine_zoneAtItsLimit_isRefusedWithConflict() {
+    Zone z = zone("z1");
+    z.setMaxAllowedLines(1);
+    when(zoneRepository.findById("z1")).thenReturn(Optional.of(z));
+    when(lineRepository.findByIdZoneAndNumberLine("z1", 2)).thenReturn(Optional.empty());
+    when(lineRepository.countByIdZone("z1")).thenReturn(1L);
+    CreateLineRequest req = new CreateLineRequest(2, 20);
+    var ex =
+        assertThrows(
+            org.springframework.web.server.ResponseStatusException.class,
+            () -> lineService.createLine("z1", req));
+    assertEquals(org.springframework.http.HttpStatus.CONFLICT, ex.getStatusCode());
+    assertEquals("ZONE_LINE_LIMIT_REACHED", ex.getReason());
+    verify(lineRepository, never()).save(any());
+  }
+
+  @Test
+  void createLine_zoneAlreadyOverItsLimit_stillRefusesButReadsAndUpdatesKeepWorking() {
+    Zone z = zone("z1");
+    z.setMaxAllowedLines(1);
+    when(zoneRepository.findById("z1")).thenReturn(Optional.of(z));
+    when(lineRepository.countByIdZone("z1")).thenReturn(3L); // data that predates the limit
+    assertThrows(
+        org.springframework.web.server.ResponseStatusException.class,
+        () -> lineService.createLine("z1", new CreateLineRequest(9, 20)));
+    when(lineRepository.findById("l1")).thenReturn(Optional.of(line("l1", "z1", 1)));
+    when(lineRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+    assertTrue(
+        lineService.updateLine("l1", new UpdateLineRequest(null, 6, true)).isActive(),
+        "updates are not blocked by existing data above the limit");
+    when(lineRepository.findByIdZone("z1")).thenReturn(List.of(line("l1", "z1", 1)));
+    assertEquals(1, lineService.getLinesByZone("z1").size());
+  }
+
+  @Test
+  void createLine_losingARaceForTheLastSlot_undoesItself() {
+    Zone z = zone("z1");
+    z.setMaxAllowedLines(1);
+    when(zoneRepository.findById("z1")).thenReturn(Optional.of(z));
+    when(lineRepository.findByIdZoneAndNumberLine("z1", 2)).thenReturn(Optional.empty());
+    when(lineRepository.countByIdZone("z1"))
+        .thenReturn(0L, 2L); // free when checked, full once saved
+    when(lineRepository.save(any())).thenReturn(line("l2", "z1", 2));
+    CreateLineRequest req = new CreateLineRequest(2, 20);
+    var ex =
+        assertThrows(
+            org.springframework.web.server.ResponseStatusException.class,
+            () -> lineService.createLine("z1", req));
+    assertEquals("ZONE_LINE_LIMIT_REACHED", ex.getReason());
+    verify(lineRepository).deleteById("l2");
   }
 
   @Test
