@@ -405,7 +405,7 @@ const suggestions: PageSpec = {
       ],
     },
   ],
-  empty: 'Nothing reported yet: the service is opt-in (docker compose --profile suggestions) and exports only when OTEL_EXPORTER_OTLP_ENDPOINT is set (docs/SUGGESTIONS.md, Observability)',
+  empty: 'No samples in this range: the service has nothing to count here yet, or it is not exporting (compose sets OTEL_EXPORTER_OTLP_ENDPOINT for it; the Service tile says whether it is reporting). See docs/SUGGESTIONS.md, Observability',
   note: 'Pushed by the service over OTLP, so an off or unreachable service shows no data rather than a status. Lag is read from the Kafka reader and updates with each fetch. Requests count the recommendation routes only (not /healthz); 4xx are rejected requests, only 5xx count as failures.',
 }
 

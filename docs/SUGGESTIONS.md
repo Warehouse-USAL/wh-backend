@@ -291,14 +291,15 @@ images. Caddy (wh-autodeploys) already routes `/suggestions/*`, prefix stripped,
 | `HOT_DECAY_INTERVAL` | `15m` | |
 | `ORDER_DEDUPE_TTL` | `168h` | How long an applied order id is remembered to ignore redelivered events; positive duration |
 | `KAFKA_COMMIT_INTERVAL` | `1s` | How often consumed offsets are flushed (`0` = one commit per event); an offset is only recorded after the event is in Redis |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | empty (off) | OTLP/HTTP collector base URL, e.g. `http://otel-collector:4318`; the same variable the bridge reads. Empty exports nothing. See "Observability" |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | empty (off) in the binary; compose sets `http://otel-collector:4318` | OTLP/HTTP collector base URL; the same variable the bridge reads. Empty exports nothing. See "Observability" |
 
 ## Observability
 
 The service pushes OTLP metrics to the same collector as the backend and the bridge
 (`config/otel/collector-config*.yml` -> VictoriaMetrics), only when `OTEL_EXPORTER_OTLP_ENDPOINT` is
-set. It is **off by default**: unset, the service installs no exporter and behaves exactly as
-before. docker-compose.yml carries the variable commented out under `suggestions`. Metrics are
+set. The binary is **off by default** (unset, it installs no exporter and behaves exactly as
+before), but both compose files set the variable for the `suggestions` service, defaulting to
+`http://otel-collector:4318`, so a deployment needs nothing in `.env`. Metrics are
 exported every 10 s with the resource `service.name=wh-suggestions`. A collector that is down or
 unreachable only logs at debug level; it never blocks startup, requests or the Kafka loop. Logs stay
 on stdout (they are not shipped to VictoriaLogs).
@@ -318,7 +319,7 @@ Labels are fixed small sets: no user id, SKU or path ever becomes a label. The b
 (`/infra/suggestions`, docs/CONSOLE.md) charts them. Quick check without the console:
 
 ```
-docker compose --profile suggestions up -d suggestions   # with OTEL_EXPORTER_OTLP_ENDPOINT set
+docker compose --profile suggestions up -d suggestions
 curl -s 'localhost:8428/api/v1/series?match[]={__name__=~"suggestions_.*"}'   # VictoriaMetrics, dev host
 ```
 
