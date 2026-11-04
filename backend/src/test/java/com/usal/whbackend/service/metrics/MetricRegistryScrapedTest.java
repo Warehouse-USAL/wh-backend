@@ -21,7 +21,8 @@ import org.junit.jupiter.api.Test;
 import org.springframework.web.server.ResponseStatusException;
 
 /**
- * The series scraped from MinIO, the collector, VictoriaMetrics and Caddy. Their names are not ours
+ * The series scraped from MinIO, the collector's Redis receiver, the collector, VictoriaMetrics and
+ * Caddy. Their names are not ours
  * to choose, so the expected names are read from the verified tables in {@code docs/CONSOLE.md}
  * rather than repeated here.
  */
@@ -41,6 +42,17 @@ class MetricRegistryScrapedTest {
           "minio.latency",
           "minio.traffic.received",
           "minio.traffic.sent",
+          "redis.memory.used",
+          "redis.memory.max",
+          "redis.clients.connected",
+          "redis.commands",
+          "redis.keyspace.hits",
+          "redis.keyspace.misses",
+          "redis.keys.evicted",
+          "redis.keys.expired",
+          "redis.db.keys",
+          "redis.db.expires",
+          "redis.uptime",
           "collector.received",
           "collector.refused",
           "collector.exported",

@@ -28,6 +28,12 @@ import (
 	"github.com/Warehouse-USAL/wh-backend/suggestions/internal/decay"
 	"github.com/Warehouse-USAL/wh-backend/suggestions/internal/ingest"
 	"github.com/Warehouse-USAL/wh-backend/suggestions/internal/recommend"
+	"github.com/Warehouse-USAL/wh-backend/suggestions/internal/telemetry"
+)
+
+const (
+	flushTimeout = 5 * time.Second
+	lagInterval  = 10 * time.Second
 )
 
 func main() { os.Exit(run()) }
@@ -44,7 +50,14 @@ func run() int {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	if err = serve(ctx, cfg, logger); err != nil {
+	rec, shutdown, err := telemetry.New(ctx, cfg.OTLPEndpoint, "wh-suggestions", logger)
+	if err != nil {
+		// Telemetry never blocks startup: run without it.
+		logger.Error("telemetry unavailable, running without it", "error", err)
+		rec, shutdown = telemetry.Noop(), func(context.Context) error { return nil }
+	}
+	defer flushTelemetry(shutdown, logger)
+	if err = serve(ctx, cfg, logger, rec); err != nil {
 		logger.Error("suggestions stopped", "error", err)
 		return 1
 	}
@@ -52,7 +65,32 @@ func run() int {
 	return 0
 }
 
-func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
+func flushTelemetry(shutdown func(context.Context) error, logger *slog.Logger) {
+	ctx, cancel := context.WithTimeout(context.Background(), flushTimeout)
+	defer cancel()
+	if err := shutdown(ctx); err != nil {
+		logger.Debug("telemetry flush failed", "error", err)
+	}
+}
+
+// reportLag sets the consumer lag on rec every lagInterval until ctx ends. The reader learns the lag
+// from the high-water mark of each fetch, so it is -1 before the first one and is skipped until then.
+func reportLag(ctx context.Context, reader interface{ Stats() kafka.ReaderStats }, rec telemetry.Recorder) {
+	ticker := time.NewTicker(lagInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if lag := reader.Stats().Lag; lag >= 0 {
+				rec.Lag(lag)
+			}
+		}
+	}
+}
+
+func serve(ctx context.Context, cfg config.Config, logger *slog.Logger, rec telemetry.Recorder) error {
 	rdb := redis.NewClient(&redis.Options{Addr: cfg.RedisAddr, Password: cfg.RedisPassword})
 	defer rdb.Close()
 
@@ -72,7 +110,7 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 	aging := ingest.Aging{Factor: cfg.DecayFactor, Interval: cfg.DecayInterval}
 	cons := consumer.New(reader, func(ctx context.Context, ev ingest.OrderCompleted) error {
 		return ingest.ApplyAged(ctx, rdb, ev, cfg.DedupeTTL, aging)
-	}, logger)
+	}, logger).WithRecorder(rec)
 
 	srv := &http.Server{
 		Addr: cfg.HTTPAddr,
@@ -82,6 +120,7 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 			Ping:          func(ctx context.Context) error { return rdb.Ping(ctx).Err() },
 			ConsumerAlive: cons.Alive,
 			Log:           logger,
+			Telemetry:     rec,
 		}),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
@@ -92,6 +131,9 @@ func serve(ctx context.Context, cfg config.Config, logger *slog.Logger) error {
 
 	var wg sync.WaitGroup
 	wg.Go(func() { _ = cons.Run(ctx) })
+	if rec != telemetry.Noop() {
+		wg.Go(func() { reportLag(ctx, reader, rec) })
+	}
 	wg.Go(func() { decay.Run(ctx, rdb, cfg.DecayFactor, cfg.DecayInterval, logger) })
 
 	errc := make(chan error, 1)

@@ -241,6 +241,55 @@
     "dimensions" : [ "flow" ],
     "permitted_aggregations" : [ "avg", "max", "last" ]
   }, {
+    "name" : "suggestions.events",
+    "display_name" : "Suggestions events",
+    "unit" : "1",
+    "type" : "counter",
+    "dimensions" : [ "outcome" ],
+    "permitted_aggregations" : [ "rate", "increase" ]
+  }, {
+    "name" : "suggestions.consumer.lag",
+    "display_name" : "Suggestions consumer lag",
+    "unit" : "1",
+    "type" : "gauge",
+    "dimensions" : [  ],
+    "permitted_aggregations" : [ "avg", "max", "last" ]
+  }, {
+    "name" : "suggestions.ingest.duration",
+    "display_name" : "Suggestions ingest duration",
+    "unit" : "ms",
+    "type" : "histogram",
+    "dimensions" : [ "result" ],
+    "permitted_aggregations" : [ "p50", "p95", "p99", "rate", "increase" ]
+  }, {
+    "name" : "suggestions.http.requests",
+    "display_name" : "Suggestions HTTP requests",
+    "unit" : "1",
+    "type" : "counter",
+    "dimensions" : [ "endpoint", "status_class" ],
+    "permitted_aggregations" : [ "rate", "increase" ]
+  }, {
+    "name" : "suggestions.http.duration",
+    "display_name" : "Suggestions HTTP duration",
+    "unit" : "ms",
+    "type" : "histogram",
+    "dimensions" : [ "endpoint", "status_class" ],
+    "permitted_aggregations" : [ "p50", "p95", "p99", "rate", "increase" ]
+  }, {
+    "name" : "suggestions.redis.errors",
+    "display_name" : "Suggestions Redis errors",
+    "unit" : "1",
+    "type" : "counter",
+    "dimensions" : [ "operation" ],
+    "permitted_aggregations" : [ "rate", "increase" ]
+  }, {
+    "name" : "suggestions.recommendations.empty",
+    "display_name" : "Suggestions empty recommendations",
+    "unit" : "1",
+    "type" : "counter",
+    "dimensions" : [ "endpoint" ],
+    "permitted_aggregations" : [ "rate", "increase" ]
+  }, {
     "name" : "job.run",
     "display_name" : "Cron job run",
     "unit" : "1",
@@ -296,6 +345,83 @@
     "type" : "counter",
     "dimensions" : [ ],
     "permitted_aggregations" : [ "rate", "increase" ]
+  }, {
+    "name" : "redis.memory.used",
+    "display_name" : "Redis memory used",
+    "unit" : "By",
+    "type" : "gauge",
+    "dimensions" : [ ],
+    "permitted_aggregations" : [ "avg", "max", "last" ]
+  }, {
+    "name" : "redis.memory.max",
+    "display_name" : "Redis memory limit",
+    "unit" : "By",
+    "type" : "gauge",
+    "dimensions" : [ ],
+    "permitted_aggregations" : [ "avg", "max", "last" ]
+  }, {
+    "name" : "redis.clients.connected",
+    "display_name" : "Redis connected clients",
+    "unit" : "1",
+    "type" : "gauge",
+    "dimensions" : [ ],
+    "permitted_aggregations" : [ "avg", "max", "last" ]
+  }, {
+    "name" : "redis.commands",
+    "display_name" : "Redis commands processed",
+    "unit" : "1",
+    "type" : "counter",
+    "dimensions" : [ ],
+    "permitted_aggregations" : [ "rate", "increase" ]
+  }, {
+    "name" : "redis.keyspace.hits",
+    "display_name" : "Redis keyspace hits",
+    "unit" : "1",
+    "type" : "counter",
+    "dimensions" : [ ],
+    "permitted_aggregations" : [ "rate", "increase" ]
+  }, {
+    "name" : "redis.keyspace.misses",
+    "display_name" : "Redis keyspace misses",
+    "unit" : "1",
+    "type" : "counter",
+    "dimensions" : [ ],
+    "permitted_aggregations" : [ "rate", "increase" ]
+  }, {
+    "name" : "redis.keys.evicted",
+    "display_name" : "Redis keys evicted",
+    "unit" : "1",
+    "type" : "counter",
+    "dimensions" : [ ],
+    "permitted_aggregations" : [ "rate", "increase" ]
+  }, {
+    "name" : "redis.keys.expired",
+    "display_name" : "Redis keys expired",
+    "unit" : "1",
+    "type" : "counter",
+    "dimensions" : [ ],
+    "permitted_aggregations" : [ "rate", "increase" ]
+  }, {
+    "name" : "redis.db.keys",
+    "display_name" : "Redis keys",
+    "unit" : "1",
+    "type" : "gauge",
+    "dimensions" : [ "db" ],
+    "permitted_aggregations" : [ "avg", "max", "last" ]
+  }, {
+    "name" : "redis.db.expires",
+    "display_name" : "Redis keys with a TTL",
+    "unit" : "1",
+    "type" : "gauge",
+    "dimensions" : [ "db" ],
+    "permitted_aggregations" : [ "avg", "max", "last" ]
+  }, {
+    "name" : "redis.uptime",
+    "display_name" : "Redis uptime",
+    "unit" : "s",
+    "type" : "gauge",
+    "dimensions" : [ ],
+    "permitted_aggregations" : [ "avg", "max", "last" ]
   }, {
     "name" : "collector.received",
     "display_name" : "Collector points received",
