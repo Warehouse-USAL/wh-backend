@@ -68,4 +68,19 @@ class ProductResponseTest {
     assertEquals(140, r.inventoryPosition());
     assertEquals(at, r.calculatedAt());
   }
+
+  @Test
+  void from_neverYieldsANegativeAvailable_forAnyPhysicalAndReserved() {
+    Product p = new Product();
+    for (int physical = 0; physical <= 20; physical++) {
+      for (int reserved = 0; reserved <= 20; reserved++) {
+        ProductResponse.Stock stock = ProductResponse.from(p, physical, reserved).stock();
+
+        assertTrue(stock.available() >= 0, "physical=" + physical + " reserved=" + reserved);
+        assertEquals(Math.max(0, physical - reserved), stock.available());
+        assertEquals(physical, stock.physical());
+        assertEquals(reserved, stock.reserved());
+      }
+    }
+  }
 }
