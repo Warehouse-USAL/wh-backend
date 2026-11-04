@@ -87,8 +87,9 @@ public class ProductService {
 
   /**
    * Stock free to cover new orders, per product: on hand in active positions minus what pending and
-   * in-progress orders have reserved. The same figure as {@code stock.available} on the product
-   * API. Every requested id is present; a product with no stock maps to 0.
+   * in-progress orders have reserved. It can be negative when an in-progress order outlives its
+   * stock (the restock maths relies on that); {@code stock.available} on the product API shows the
+   * same figure cut at 0. Every requested id is present; a product with no stock maps to 0.
    */
   public Map<String, Integer> netAvailableStock(List<String> productIds) {
     Map<String, Integer> onHand = bulkAvailableStock(productIds);

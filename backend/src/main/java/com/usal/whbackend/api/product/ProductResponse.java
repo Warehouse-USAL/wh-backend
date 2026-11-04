@@ -39,7 +39,10 @@ public record ProductResponse(
   /**
    * physical = units on hand in active positions, the reference figure for a product's state; it
    * only drops when an order completes and its units actually leave. reserved = units held by
-   * pending or in-progress orders. available = physical - reserved, free for new orders.
+   * pending or in-progress orders. available = physical - reserved, free for new orders, never
+   * below zero: an in-progress order is honoured even when its stock was later removed (see
+   * docs/STOCK_ADJUSTMENTS.md), so reserved can exceed physical; the excess shows as {@code
+   * reserved > physical} and available stays at 0 instead of a negative number.
    */
   public record Stock(int available, int reserved, int physical, int min) {}
 
@@ -92,7 +95,7 @@ public record ProductResponse(
         price,
         specs,
         new Stock(
-            availableStock - reservedStock,
+            Math.max(0, availableStock - reservedStock),
             reservedStock,
             availableStock,
             product.getMinimumStock()),
