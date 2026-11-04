@@ -7,7 +7,9 @@ import static org.mockito.Mockito.*;
 import com.usal.whbackend.api.warehouse.position.CreatePositionRequest;
 import com.usal.whbackend.api.warehouse.position.UpdatePositionRequest;
 import com.usal.whbackend.domain.Line;
+import com.usal.whbackend.domain.Order;
 import com.usal.whbackend.domain.Position;
+import com.usal.whbackend.domain.StockAdjustmentType;
 import com.usal.whbackend.domain.StockSize;
 import com.usal.whbackend.domain.Zone;
 import com.usal.whbackend.repository.LineRepository;
@@ -20,8 +22,10 @@ import com.usal.whbackend.service.exception.PositionNotFoundException;
 import com.usal.whbackend.service.exception.StockExceedsCapacityException;
 import java.util.List;
 import java.util.Optional;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -40,7 +44,15 @@ class PositionServiceTest {
   @Mock ZoneRepository zoneRepository;
   @Mock ProductRepository productRepository;
   @Mock MongoTemplate mongoTemplate;
+  @Mock StockAdjustmentService stockAdjustmentService;
   @InjectMocks PositionService positionService;
+
+  @BeforeEach
+  void stubAdjustmentRecording() {
+    lenient()
+        .when(stockAdjustmentService.recordChange(any()))
+        .thenReturn(new StockAdjustmentResult(null, List.of()));
+  }
 
   private Line line(String id, String zoneId) {
     Line l = new Line();
@@ -93,7 +105,7 @@ class PositionServiceTest {
     p.setProductId("product-A");
     when(positionRepository.findById("p1")).thenReturn(Optional.of(p));
     UpdatePositionRequest req =
-        new UpdatePositionRequest(null, null, null, null, "product-B", null, null);
+        new UpdatePositionRequest(null, null, null, null, "product-B", null, null, null);
     assertThrows(
         PositionAlreadyOccupiedException.class, () -> positionService.updatePosition("p1", req));
   }
@@ -103,7 +115,8 @@ class PositionServiceTest {
     Position p = position("p1", "l1", "z1");
     p.setMaximumCapacity(50);
     when(positionRepository.findById("p1")).thenReturn(Optional.of(p));
-    UpdatePositionRequest req = new UpdatePositionRequest(null, null, 60, null, null, null, null);
+    UpdatePositionRequest req =
+        new UpdatePositionRequest(null, null, 60, null, null, null, null, null);
     assertThrows(
         StockExceedsCapacityException.class, () -> positionService.updatePosition("p1", req));
   }
@@ -115,8 +128,9 @@ class PositionServiceTest {
     p.setCurrentStock(50);
     when(positionRepository.findById("p1")).thenReturn(Optional.of(p));
     when(positionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
-    UpdatePositionRequest req = new UpdatePositionRequest(null, null, null, null, null, true, null);
-    Position result = positionService.updatePosition("p1", req);
+    UpdatePositionRequest req =
+        new UpdatePositionRequest(null, null, null, null, null, true, null, null);
+    Position result = positionService.updatePosition("p1", req).position();
     assertNull(result.getProductId());
     assertEquals(0, result.getCurrentStock());
   }
@@ -148,7 +162,8 @@ class PositionServiceTest {
     when(positionRepository.findById("p1")).thenReturn(Optional.of(p));
     when(productRepository.findById("product-1")).thenReturn(Optional.of(prod));
 
-    UpdatePositionRequest req = new UpdatePositionRequest(null, null, 10, null, null, null, null);
+    UpdatePositionRequest req =
+        new UpdatePositionRequest(null, null, 10, null, null, null, null, null);
 
     assertThrows(
         StockExceedsCapacityException.class, () -> positionService.updatePosition("p1", req));
@@ -172,8 +187,9 @@ class PositionServiceTest {
     when(productRepository.findById("product-1")).thenReturn(Optional.of(prod));
     when(positionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-    UpdatePositionRequest req = new UpdatePositionRequest(null, null, 5, null, null, null, null);
-    Position result = positionService.updatePosition("p1", req);
+    UpdatePositionRequest req =
+        new UpdatePositionRequest(null, null, 5, null, null, null, null, null);
+    Position result = positionService.updatePosition("p1", req).position();
 
     assertEquals(5, result.getCurrentStock());
   }
@@ -220,7 +236,8 @@ class PositionServiceTest {
   @Test
   void updatePosition_notFound_throwsPositionNotFound() {
     when(positionRepository.findById("bad")).thenReturn(Optional.empty());
-    UpdatePositionRequest req = new UpdatePositionRequest(null, null, null, null, null, null, null);
+    UpdatePositionRequest req =
+        new UpdatePositionRequest(null, null, null, null, null, null, null, null);
     assertThrows(PositionNotFoundException.class, () -> positionService.updatePosition("bad", req));
   }
 
@@ -230,7 +247,7 @@ class PositionServiceTest {
     when(positionRepository.findById("p1")).thenReturn(Optional.of(p));
     when(productRepository.existsById("ghost")).thenReturn(false);
     UpdatePositionRequest req =
-        new UpdatePositionRequest(null, null, null, null, "ghost", null, null);
+        new UpdatePositionRequest(null, null, null, null, "ghost", null, null, null);
     var ex =
         assertThrows(
             org.springframework.web.server.ResponseStatusException.class,
@@ -242,7 +259,8 @@ class PositionServiceTest {
   void updatePosition_negativeStock_throwsStockExceedsCapacity() {
     Position p = position("p1", "l1", "z1");
     when(positionRepository.findById("p1")).thenReturn(Optional.of(p));
-    UpdatePositionRequest req = new UpdatePositionRequest(null, null, -1, null, null, null, null);
+    UpdatePositionRequest req =
+        new UpdatePositionRequest(null, null, -1, null, null, null, null, null);
     assertThrows(
         StockExceedsCapacityException.class, () -> positionService.updatePosition("p1", req));
   }
@@ -255,8 +273,8 @@ class PositionServiceTest {
     when(positionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
     UpdatePositionRequest req =
-        new UpdatePositionRequest("P99", true, 0, StockSize.PALLET, "product-A", null, null);
-    Position result = positionService.updatePosition("p1", req);
+        new UpdatePositionRequest("P99", true, 0, StockSize.PALLET, "product-A", null, null, null);
+    Position result = positionService.updatePosition("p1", req).position();
 
     assertEquals("product-A", result.getProductId());
     assertEquals("P99", result.getPositionName());
@@ -273,8 +291,8 @@ class PositionServiceTest {
     when(positionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
     UpdatePositionRequest req =
-        new UpdatePositionRequest(null, null, null, null, "product-A", null, null);
-    assertEquals("product-A", positionService.updatePosition("p1", req).getProductId());
+        new UpdatePositionRequest(null, null, null, null, "product-A", null, null, null);
+    assertEquals("product-A", positionService.updatePosition("p1", req).position().getProductId());
   }
 
   @Test
@@ -285,7 +303,8 @@ class PositionServiceTest {
     when(positionRepository.findById("p1")).thenReturn(Optional.of(p));
     when(productRepository.findById("product-1")).thenReturn(Optional.empty());
 
-    UpdatePositionRequest req = new UpdatePositionRequest(null, null, 1, null, null, null, null);
+    UpdatePositionRequest req =
+        new UpdatePositionRequest(null, null, 1, null, null, null, null, null);
     var ex =
         assertThrows(
             org.springframework.web.server.ResponseStatusException.class,
@@ -753,7 +772,7 @@ class PositionServiceTest {
     when(positionRepository.findById("p1")).thenReturn(Optional.of(p));
     when(positionRepository.existsByQrCode("WH|A-L1-P02")).thenReturn(true);
     UpdatePositionRequest req =
-        new UpdatePositionRequest(null, null, null, null, null, null, "WH|A-L1-P02");
+        new UpdatePositionRequest(null, null, null, null, null, null, "WH|A-L1-P02", null);
 
     ResponseStatusException e =
         assertThrows(
@@ -769,9 +788,9 @@ class PositionServiceTest {
     when(positionRepository.findById("p1")).thenReturn(Optional.of(p));
     when(positionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
     UpdatePositionRequest req =
-        new UpdatePositionRequest(null, null, null, null, null, null, "WH|A-L1-P01");
+        new UpdatePositionRequest(null, null, null, null, null, null, "WH|A-L1-P01", null);
 
-    Position result = positionService.updatePosition("p1", req);
+    Position result = positionService.updatePosition("p1", req).position();
 
     assertEquals("WH|A-L1-P01", result.getQrCode());
     verify(positionRepository, never()).existsByQrCode(any());
@@ -784,8 +803,172 @@ class PositionServiceTest {
     when(positionRepository.findById("p1")).thenReturn(Optional.of(p));
     when(positionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
     UpdatePositionRequest req =
-        new UpdatePositionRequest("P99", null, null, null, null, null, null);
+        new UpdatePositionRequest("P99", null, null, null, null, null, null, null);
 
-    assertEquals("WH|A-L1-P01", positionService.updatePosition("p1", req).getQrCode());
+    assertEquals("WH|A-L1-P01", positionService.updatePosition("p1", req).position().getQrCode());
+  }
+
+  // ── Stock adjustments (history + order reconciliation) ─────────────────────
+
+  private Position active(int stock) {
+    Position p = position("p1", "l1", "z1");
+    p.setActive(true);
+    p.setProductId("product-A");
+    p.setSizeStockToSave(null); // skip the volume check; these tests are about the history
+    p.setCurrentStock(stock);
+    return p;
+  }
+
+  private StockChange recordedChange() {
+    ArgumentCaptor<StockChange> captor = ArgumentCaptor.forClass(StockChange.class);
+    verify(stockAdjustmentService).recordChange(captor.capture());
+    return captor.getValue();
+  }
+
+  private void stubSave(Position p) {
+    when(positionRepository.findById("p1")).thenReturn(Optional.of(p));
+    when(positionRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+  }
+
+  @Test
+  void updatePosition_stockDown_recordsDecreaseAndReconcilesTheProduct() {
+    stubSave(active(14));
+    Order cancelled = new Order();
+    cancelled.setId("o1");
+    when(stockAdjustmentService.recordChange(any()))
+        .thenReturn(new StockAdjustmentResult(null, List.of(cancelled)));
+
+    UpdatePositionRequest req =
+        new UpdatePositionRequest(null, null, 8, null, null, null, null, "rotas");
+    PositionService.PositionUpdate update = positionService.updatePosition("p1", req);
+
+    StockChange change = recordedChange();
+    assertEquals(StockAdjustmentType.MANUAL_DECREASE, change.type());
+    assertEquals(14, change.quantityBefore());
+    assertEquals(8, change.quantityAfter());
+    assertEquals("product-A", change.productId());
+    assertEquals("product-A", change.reconcileProductId());
+    assertEquals("rotas", change.reason());
+    assertEquals(List.of(cancelled), update.cancelledOrders());
+  }
+
+  @Test
+  void updatePosition_stockUp_recordsIncreaseWithoutReconciling() {
+    stubSave(active(2));
+
+    positionService.updatePosition(
+        "p1", new UpdatePositionRequest(null, null, 9, null, null, null, null, null));
+
+    StockChange change = recordedChange();
+    assertEquals(StockAdjustmentType.MANUAL_INCREASE, change.type());
+    assertNull(change.reconcileProductId());
+  }
+
+  @Test
+  void updatePosition_stockDownOnInactivePosition_recordsButDoesNotReconcile() {
+    Position p = active(14);
+    p.setActive(false);
+    stubSave(p);
+
+    positionService.updatePosition(
+        "p1", new UpdatePositionRequest(null, null, 8, null, null, null, null, null));
+
+    StockChange change = recordedChange();
+    assertEquals(StockAdjustmentType.MANUAL_DECREASE, change.type());
+    assertNull(change.reconcileProductId());
+  }
+
+  @Test
+  void updatePosition_unassign_recordsUnassignedAndReconcilesThePreviousProduct() {
+    stubSave(active(10));
+
+    positionService.updatePosition(
+        "p1", new UpdatePositionRequest(null, null, null, null, null, true, null, null));
+
+    StockChange change = recordedChange();
+    assertEquals(StockAdjustmentType.UNASSIGNED, change.type());
+    assertEquals(10, change.quantityBefore());
+    assertEquals(0, change.quantityAfter());
+    assertEquals("product-A", change.productId());
+    assertEquals("product-A", change.reconcileProductId());
+  }
+
+  @Test
+  void updatePosition_unassignOfAnEmptyPosition_recordsNothing() {
+    stubSave(active(0));
+
+    positionService.updatePosition(
+        "p1", new UpdatePositionRequest(null, null, null, null, null, true, null, null));
+
+    verify(stockAdjustmentService, never()).recordChange(any());
+  }
+
+  @Test
+  void updatePosition_deactivate_recordsDeactivationAndReconciles() {
+    stubSave(active(10));
+
+    positionService.updatePosition(
+        "p1", new UpdatePositionRequest(null, false, null, null, null, null, null, null));
+
+    StockChange change = recordedChange();
+    assertEquals(StockAdjustmentType.DEACTIVATED, change.type());
+    assertEquals(10, change.quantityBefore());
+    assertEquals(0, change.quantityAfter());
+    assertEquals("product-A", change.reconcileProductId());
+  }
+
+  @Test
+  void updatePosition_nameOnly_recordsNothing() {
+    stubSave(active(10));
+
+    positionService.updatePosition(
+        "p1", new UpdatePositionRequest("P77", null, null, null, null, null, null, null));
+
+    verify(stockAdjustmentService, never()).recordChange(any());
+  }
+
+  @Test
+  void updatePosition_runsInOneTransaction() throws Exception {
+    assertNotNull(
+        PositionService.class
+            .getMethod("updatePosition", String.class, UpdatePositionRequest.class)
+            .getAnnotation(org.springframework.transaction.annotation.Transactional.class));
+    assertNotNull(
+        PositionService.class
+            .getMethod("deletePosition", String.class)
+            .getAnnotation(org.springframework.transaction.annotation.Transactional.class));
+  }
+
+  @Test
+  void updatePosition_failureWhileReconciling_propagates() {
+    stubSave(active(14));
+    when(stockAdjustmentService.recordChange(any())).thenThrow(new IllegalStateException("boom"));
+
+    assertThrows(
+        IllegalStateException.class,
+        () ->
+            positionService.updatePosition(
+                "p1", new UpdatePositionRequest(null, null, 8, null, null, null, null, null)));
+  }
+
+  @Test
+  void deletePosition_withStock_recordsDeactivationAndReconciles() {
+    stubSave(active(6));
+
+    positionService.deletePosition("p1");
+
+    StockChange change = recordedChange();
+    assertEquals(StockAdjustmentType.DEACTIVATED, change.type());
+    assertEquals(6, change.quantityBefore());
+    assertEquals("product-A", change.reconcileProductId());
+  }
+
+  @Test
+  void deletePosition_withoutStock_recordsNothing() {
+    stubSave(active(0));
+
+    positionService.deletePosition("p1");
+
+    verify(stockAdjustmentService, never()).recordChange(any());
   }
 }

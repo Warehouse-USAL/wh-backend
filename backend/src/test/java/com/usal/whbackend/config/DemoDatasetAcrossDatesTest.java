@@ -147,7 +147,7 @@ class DemoDatasetAcrossDatesTest {
 
   private static void ordersArriveToday(DemoData data, Instant now) {
     LocalDate today = LocalDate.ofInstant(now, DemoHistory.ZONE);
-    boolean openingHoursPassed = now.atZone(DemoHistory.ZONE).getHour() >= 10;
+    boolean openingHoursPassed = now.atZone(DemoHistory.ZONE).getHour() >= 12;
     long todays =
         data.getOrders().stream()
             .filter(o -> LocalDate.ofInstant(o.getCreatedAt(), DemoHistory.ZONE).equals(today))

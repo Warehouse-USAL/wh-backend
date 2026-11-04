@@ -23,13 +23,16 @@ import org.springframework.stereotype.Component;
 /**
  * Seeds a complete, interconnected "production-looking" demo dataset on startup.
  *
- * <p>Runs after {@link DataInitializer} (the SUPERADMIN + Zone A baseline) and only when {@code
- * SEED_DEMO=true}. Off by default, so it can never fire on a real deployment unless explicitly
- * enabled. Idempotent: if any products already exist it no-ops, so restarts are safe.
+ * <p>Runs after {@link DataInitializer} (the SUPERADMIN plus the warehouse structure: one zone, one
+ * line, six empty positions) and only when {@code SEED_DEMO=true}. Off by default, so it can never
+ * fire on a real deployment unless explicitly enabled. Idempotent: if any products already exist it
+ * no-ops, so restarts are safe.
  *
  * <p>The dataset is built in memory by the pure {@link DemoDataset} and persisted via the plain
  * Mongo repositories (not the Kafka-publishing {@code OrderRepository}), so seeding fires no
- * events.
+ * orders-topic or WebSocket events. The one thing it does announce is {@code order.completed} for
+ * each COMPLETED order ({@link DemoOrderEventPublisher}), so the suggestions service starts with
+ * the model of exactly these orders.
  */
 @Component
 @Order(2)
@@ -48,7 +51,9 @@ public class DemoDataSeeder implements ApplicationRunner {
   private final ReceptionRepository receptionRepository;
   private final PasswordEncoder passwordEncoder;
   private final DemoTelemetrySeeder demoTelemetrySeeder;
+  private final DemoOrderEventPublisher demoOrderEventPublisher;
   private final boolean seedDemo;
+  private final String qrPrefix;
 
   public DemoDataSeeder(
       UserRepository userRepository,
@@ -62,7 +67,9 @@ public class DemoDataSeeder implements ApplicationRunner {
       ReceptionRepository receptionRepository,
       PasswordEncoder passwordEncoder,
       DemoTelemetrySeeder demoTelemetrySeeder,
-      @Value("${SEED_DEMO:false}") boolean seedDemo) {
+      DemoOrderEventPublisher demoOrderEventPublisher,
+      @Value("${SEED_DEMO:false}") boolean seedDemo,
+      @Value("${WH_QR_PREFIX:" + DemoDataset.DEFAULT_QR_PREFIX + "}") String qrPrefix) {
     this.userRepository = userRepository;
     this.productRepository = productRepository;
     this.zoneRepository = zoneRepository;
@@ -74,7 +81,9 @@ public class DemoDataSeeder implements ApplicationRunner {
     this.receptionRepository = receptionRepository;
     this.passwordEncoder = passwordEncoder;
     this.demoTelemetrySeeder = demoTelemetrySeeder;
+    this.demoOrderEventPublisher = demoOrderEventPublisher;
     this.seedDemo = seedDemo;
+    this.qrPrefix = qrPrefix;
   }
 
   @Override
@@ -93,9 +102,21 @@ public class DemoDataSeeder implements ApplicationRunner {
       return;
     }
 
-    DemoData data = new DemoDataset(passwordEncoder::encode).build();
+    // The bootstrap (DataInitializer) already created the warehouse structure; the demo fills those
+    // same documents. Any other structure (an older deployment's zones) cannot be merged with it.
+    if (zoneRepository.count() > 0 && !zoneRepository.existsById(WarehouseLayout.ZONE_ID)) {
+      log.warn(
+          "Demo seed skipped: the warehouse already has zones other than {}. Drop the database to"
+              + " re-seed.",
+          WarehouseLayout.ZONE_ID);
+      return;
+    }
 
-    // Persist in dependency order. Ids are already wired in the dataset, so no back-patching.
+    long startedNanos = System.nanoTime();
+    DemoData data = new DemoDataset(passwordEncoder::encode, qrPrefix).build();
+
+    // Persist in dependency order. Ids are already wired in the dataset, so no back-patching; the
+    // zone, line and positions replace the bootstrap's (same ids) rather than adding to them.
     userRepository.saveAll(data.getUsers());
     productRepository.saveAll(data.getProducts());
     zoneRepository.saveAll(data.getZones());
@@ -112,7 +133,15 @@ public class DemoDataSeeder implements ApplicationRunner {
     // backfill, so without this the rover charts would be blank next to two years of orders.
     demoTelemetrySeeder.seed(data.getVehicles());
 
+    // Last, and only on this fresh-database path: the suggestions model is built from
+    // order.completed, and these orders were inserted without announcing themselves. Background
+    // and failure-proof (see the class), so it can neither delay nor break the boot.
+    demoOrderEventPublisher.publishAsync(data.getOrders());
+
     logSeedSummary(data);
+    log.info(
+        "Demo seed took {} ms (dataset, MongoDB and the fleet telemetry).",
+        (System.nanoTime() - startedNanos) / 1_000_000);
   }
 
   private void logSeedSummary(DemoData data) {

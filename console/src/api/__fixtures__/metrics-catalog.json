@@ -47,6 +47,37 @@
       "type" : "string",
       "description" : "Limita a una categoría del catálogo"
     } ]
+  }, {
+    "name" : "suggestion_conversion",
+    "path" : "/metrics/suggestion-conversion",
+    "display_name" : "Conversión de sugerencias",
+    "description" : "Por día, semana o mes, cuántos pedidos, líneas y unidades salieron de una recomendación (from_recommendation en POST /orders) y qué proporción representan. Los pedidos cancelados no cuentan.",
+    "params" : [ {
+      "name" : "from",
+      "type" : "string",
+      "description" : "Inicio del rango, inclusive (ISO-8601)"
+    }, {
+      "name" : "to",
+      "type" : "string",
+      "description" : "Fin del rango, exclusivo (ISO-8601); como máximo 731 días después de from"
+    }, {
+      "name" : "granularity",
+      "type" : "string",
+      "description" : "Tamaño del bucket: day, week (lunes a domingo) o month"
+    } ],
+    "filters" : [ {
+      "name" : "time_zone",
+      "type" : "string",
+      "description" : "Zona horaria IANA con la que se cortan los buckets; UTC si se omite"
+    }, {
+      "name" : "product_ids",
+      "type" : "string[]",
+      "description" : "Considera solo las líneas de estos productos; vacío o ausente = todos"
+    }, {
+      "name" : "category",
+      "type" : "string",
+      "description" : "Considera solo las líneas de una categoría del catálogo"
+    } ]
   } ],
   "metrics" : [ {
     "name" : "wh.vehicle.battery",

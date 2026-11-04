@@ -12,7 +12,8 @@ public record CreateReceptionRequest(
     @NotBlank String productId,
     @Min(1) int quantityReceived,
     @NotNull StockSize deliveryUnit,
-    @NotBlank String supplier,
+    // Required from administrators; a PROVIDER's own supplier is used instead.
+    String supplier,
     @Valid List<AssignmentRequest> assignments) {
 
   public CreateReceptionRequest {

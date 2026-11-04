@@ -1,8 +1,11 @@
 package com.usal.whbackend.api.restock.order;
 
 import com.usal.whbackend.api.Pagination;
+import com.usal.whbackend.api.Roles;
 import com.usal.whbackend.domain.RestockOrder;
+import com.usal.whbackend.domain.UserRole;
 import com.usal.whbackend.service.RestockOrderService;
+import com.usal.whbackend.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -34,15 +37,23 @@ import org.springframework.web.bind.annotation.RestController;
 public class RestockOrderController {
 
   private final RestockOrderService restockOrderService;
+  private final UserService userService;
 
-  public RestockOrderController(RestockOrderService restockOrderService) {
+  public RestockOrderController(RestockOrderService restockOrderService, UserService userService) {
     this.restockOrderService = restockOrderService;
+    this.userService = userService;
   }
 
   @Operation(
       summary = "Create restock order",
-      description = "Registers a request to a supplier. Never affects stock (RN-03).")
+      description =
+          "Registers a request to a supplier. Never affects stock (RN-03). Accepts an optional"
+              + " expected_delivery_date (#134) that is informational only — it is not used in any"
+              + " stock computation.")
   @ApiResponse(responseCode = "201", description = "Restock order created")
+  @ApiResponse(
+      responseCode = "400",
+      description = "INVALID_EXPECTED_DELIVERY_DATE — expected_delivery_date must be after now")
   @ApiResponse(responseCode = "404", description = "PRODUCT_NOT_FOUND")
   @PostMapping
   public ResponseEntity<Map<String, RestockOrderResponse>> createRestockOrder(
@@ -53,8 +64,17 @@ public class RestockOrderController {
         .body(Map.of("restock_order", RestockOrderResponse.from(order)));
   }
 
-  @Operation(summary = "List restock orders", description = "Paginated, filterable listing.")
+  @Operation(
+      summary = "List restock orders",
+      description =
+          "Paginated, filterable listing. Cancelled orders are hidden by default; pass"
+              + " includeCancelled=true to include them. A PROVIDER only sees its own supplier's"
+              + " orders: the supplier filter is forced to it.")
   @ApiResponse(responseCode = "200", description = "Paginated restock order list")
+  @ApiResponse(
+      responseCode = "403",
+      description = "PROVIDER_WITHOUT_SUPPLIER — provider not linked to a supplier")
+  @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_WAREHOUSE', 'PROVIDER')")
   @GetMapping
   public ResponseEntity<Map<String, Object>> getRestockOrders(
       @RequestParam(required = false) String productId,
@@ -63,11 +83,22 @@ public class RestockOrderController {
           String from,
       @Parameter(description = "ISO-8601 end date (inclusive)") @RequestParam(required = false)
           String to,
+      @Parameter(description = "Include cancelled orders in the result (default false)")
+          @RequestParam(defaultValue = "false")
+          boolean includeCancelled,
       @RequestParam(defaultValue = "0") int page,
-      @RequestParam(defaultValue = "10") int size) {
+      @RequestParam(defaultValue = "10") int size,
+      @CurrentSecurityContext(expression = "authentication") Authentication authentication) {
+    String ownSupplier = providerSupplier(authentication);
     Pageable pageable = PageRequest.of(Math.max(page, 0), Math.max(Math.min(size, 50), 1));
     Page<RestockOrder> result =
-        restockOrderService.getRestockOrders(productId, supplier, from, to, pageable);
+        restockOrderService.getRestockOrders(
+            productId,
+            ownSupplier != null ? ownSupplier : supplier,
+            from,
+            to,
+            includeCancelled,
+            pageable);
     return ResponseEntity.ok(
         Map.of(
             "restock_orders", result.getContent().stream().map(RestockOrderResponse::from).toList(),
@@ -76,15 +107,55 @@ public class RestockOrderController {
 
   @Operation(
       summary = "Get restock order by ID",
-      description = "Includes quantity_received_so_far, computed from linked receptions.")
+      description =
+          "Includes quantity_received_so_far, computed from linked receptions. A PROVIDER only"
+              + " finds its own supplier's orders.")
   @ApiResponse(responseCode = "200", description = "Restock order found")
+  @ApiResponse(
+      responseCode = "403",
+      description = "PROVIDER_WITHOUT_SUPPLIER — provider not linked to a supplier")
   @ApiResponse(responseCode = "404", description = "RESTOCK_ORDER_NOT_FOUND")
+  @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_WAREHOUSE', 'PROVIDER')")
   @GetMapping("/{id}")
   public ResponseEntity<Map<String, RestockOrderDetailResponse>> getRestockOrder(
-      @PathVariable String id) {
-    RestockOrder order = restockOrderService.getRestockOrder(id);
+      @PathVariable String id,
+      @CurrentSecurityContext(expression = "authentication") Authentication authentication) {
+    RestockOrder order = restockOrderService.getRestockOrder(id, providerSupplier(authentication));
     int receivedSoFar = restockOrderService.computeReceivedSoFar(id);
     return ResponseEntity.ok(
         Map.of("restock_order", RestockOrderDetailResponse.from(order, receivedSoFar)));
+  }
+
+  @Operation(
+      summary = "Cancel restock order",
+      description =
+          "Marks a pending restock order as cancelled. The order is kept as a historical record"
+              + " (soft delete). An order that already has receptions against it cannot be"
+              + " cancelled.")
+  @ApiResponse(responseCode = "200", description = "Restock order cancelled")
+  @ApiResponse(responseCode = "404", description = "RESTOCK_ORDER_NOT_FOUND")
+  @ApiResponse(
+      responseCode = "409",
+      description =
+          "RESTOCK_ORDER_ALREADY_CANCELLED — the order was already cancelled;"
+              + " RESTOCK_ORDER_HAS_RECEPTIONS — receptions were registered against this order")
+  @PostMapping("/{id}/cancel")
+  public ResponseEntity<Map<String, RestockOrderDetailResponse>> cancelRestockOrder(
+      @PathVariable String id,
+      @RequestBody(required = false) CancelRestockOrderRequest body,
+      @CurrentSecurityContext(expression = "authentication") Authentication authentication) {
+    String reason = body != null ? body.reason() : null;
+    RestockOrder order =
+        restockOrderService.cancelRestockOrder(id, reason, authentication.getName());
+    int receivedSoFar = restockOrderService.computeReceivedSoFar(id);
+    return ResponseEntity.ok(
+        Map.of("restock_order", RestockOrderDetailResponse.from(order, receivedSoFar)));
+  }
+
+  /** The caller's own supplier if they are a PROVIDER, otherwise null (no restriction). */
+  private String providerSupplier(Authentication authentication) {
+    return Roles.of(authentication).contains(UserRole.PROVIDER)
+        ? userService.supplierOf(authentication.getName())
+        : null;
   }
 }

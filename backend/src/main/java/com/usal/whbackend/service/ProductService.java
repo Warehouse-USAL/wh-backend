@@ -6,12 +6,14 @@ import com.usal.whbackend.api.product.UpdateProductRequest;
 import com.usal.whbackend.domain.Position;
 import com.usal.whbackend.domain.Product;
 import com.usal.whbackend.domain.ProductCategory;
+import com.usal.whbackend.domain.StockAdjustmentType;
 import com.usal.whbackend.repository.LineRepository;
 import com.usal.whbackend.repository.PositionRepository;
 import com.usal.whbackend.repository.ProductRepository;
 import com.usal.whbackend.repository.ZoneRepository;
 import com.usal.whbackend.service.storage.StorageService;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -44,6 +46,7 @@ public class ProductService {
   private final LineRepository lineRepository;
   private final ZoneRepository zoneRepository;
   private final StorageService storageService;
+  private final StockAdjustmentService stockAdjustmentService;
 
   public ProductService(
       ProductRepository productRepository,
@@ -51,13 +54,15 @@ public class ProductService {
       MongoTemplate mongoTemplate,
       LineRepository lineRepository,
       ZoneRepository zoneRepository,
-      StorageService storageService) {
+      StorageService storageService,
+      StockAdjustmentService stockAdjustmentService) {
     this.productRepository = productRepository;
     this.positionRepository = positionRepository;
     this.mongoTemplate = mongoTemplate;
     this.lineRepository = lineRepository;
     this.zoneRepository = zoneRepository;
     this.storageService = storageService;
+    this.stockAdjustmentService = stockAdjustmentService;
   }
 
   // ── Stock computation ──────────────────────────────────────────────────────
@@ -331,15 +336,28 @@ public class ProductService {
 
     product.setActive(false);
     saveExceptRestock(product);
-    // Clear all position assignments for this product (cascade effect)
-    positionRepository
-        .findByProductIdIn(List.of(id))
-        .forEach(
-            p -> {
-              p.setProductId(null);
-              p.setCurrentStock(0);
-              positionRepository.save(p);
-            });
+    // Clear all position assignments for this product (cascade effect). The stock leaves like any
+    // unassign: recorded, and the product's orders are re-checked against what is left (nothing).
+    List<StockChange> changes = new ArrayList<>();
+    for (Position p : positionRepository.findByProductIdIn(List.of(id))) {
+      int stock = p.getCurrentStock();
+      boolean counted = p.isActive() && stock > 0;
+      p.setProductId(null);
+      p.setCurrentStock(0);
+      positionRepository.save(p);
+      if (stock > 0) {
+        changes.add(
+            new StockChange(
+                p.getId(),
+                id,
+                StockAdjustmentType.UNASSIGNED,
+                stock,
+                0,
+                counted ? id : null,
+                "Product deleted"));
+      }
+    }
+    changes.forEach(stockAdjustmentService::recordChange);
   }
 
   /**

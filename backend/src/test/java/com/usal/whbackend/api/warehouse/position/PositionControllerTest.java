@@ -251,7 +251,8 @@ class PositionControllerTest {
   void updatePosition_valid_returns200() throws Exception {
     Position updated = position("p1", "l1");
     updated.setCurrentStock(7);
-    when(positionService.updatePosition(eq("p1"), any())).thenReturn(updated);
+    when(positionService.updatePosition(eq("p1"), any()))
+        .thenReturn(new PositionService.PositionUpdate(updated, List.of()));
 
     mockMvc
         .perform(
@@ -357,5 +358,47 @@ class PositionControllerTest {
                 .param("deliveryUnit", "PALLET")
                 .param("quantity", "10"))
         .andExpect(status().isNotFound());
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void updatePosition_keepsEveryExistingFieldAndAddsCancelledOrders() throws Exception {
+    Position updated = position("p1", "l1");
+    updated.setCurrentStock(8);
+    com.usal.whbackend.domain.Order cancelled = new com.usal.whbackend.domain.Order();
+    cancelled.setId("o1");
+    cancelled.setCancelReason("INSUFFICIENT_STOCK: product SKU-1 needs 4 units");
+    when(positionService.updatePosition(eq("p1"), any()))
+        .thenReturn(new PositionService.PositionUpdate(updated, List.of(cancelled)));
+
+    mockMvc
+        .perform(
+            patch("/warehouse/positions/p1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"current_stock\":8,\"reason\":\"rotas\"}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.id_position").value("p1"))
+        .andExpect(jsonPath("$.id_line").value("l1"))
+        .andExpect(jsonPath("$.position_name").value("P01"))
+        .andExpect(jsonPath("$.current_stock").value(8))
+        .andExpect(jsonPath("$.cancelled_orders[0].id").value("o1"))
+        .andExpect(
+            jsonPath("$.cancelled_orders[0].cancel_reason")
+                .value("INSUFFICIENT_STOCK: product SKU-1 needs 4 units"));
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void updatePosition_withoutCancellations_returnsAnEmptyArray() throws Exception {
+    when(positionService.updatePosition(eq("p1"), any()))
+        .thenReturn(new PositionService.PositionUpdate(position("p1", "l1"), List.of()));
+
+    mockMvc
+        .perform(
+            patch("/warehouse/positions/p1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"current_stock\":0}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.cancelled_orders").isEmpty());
   }
 }

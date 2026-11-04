@@ -196,4 +196,53 @@ class DemoTelemetryDatasetTest {
   void valuesAndTimestampsAlwaysLineUp() {
     assertThat(build()).allSatisfy(s -> assertThat(s.values()).hasSameSizeAs(s.timestampsMs()));
   }
+
+  /** The day (UTC) of a sample. */
+  private static long dayOf(long timestampMs) {
+    return Math.floorDiv(timestampMs, Duration.ofDays(1).toMillis());
+  }
+
+  @Test
+  void everyDayOfTheTwoYearsHasBatteryAndStateSamplesForEveryVehicle() {
+    List<SeriesData> all = build();
+    for (String name : List.of("wh_vehicle_battery", "wh_vehicle_state")) {
+      for (SeriesData series : named(all, name)) {
+        Map<Long, Long> perDay =
+            series.timestampsMs().stream()
+                .collect(
+                    Collectors.groupingBy(DemoTelemetryDatasetTest::dayOf, Collectors.counting()));
+        // 730 days of history plus the partial day it ends on, 48 samples a full day.
+        assertThat(perDay).as(name + " " + series.labels()).hasSizeGreaterThanOrEqualTo(730);
+        long firstDay = dayOf(NOW.toEpochMilli()) - 730;
+        for (long day = firstDay + 1; day < dayOf(NOW.toEpochMilli()); day++) {
+          assertThat(perDay.get(day)).as(name + " day " + day).isEqualTo(48L);
+        }
+      }
+    }
+  }
+
+  @Test
+  void transitionsAndFaultsHappenEveryDaySoTheDailyCountersAreNeverEmpty() {
+    List<SeriesData> transitions = named(build(), "wh_vehicle_transitions");
+    for (boolean faultsOnly : List.of(false, true)) {
+      Map<Long, Double> increasePerDay = new java.util.TreeMap<>();
+      for (SeriesData s : transitions) {
+        if (faultsOnly && !"OFFLINE".equals(s.labels().get("to"))) {
+          continue;
+        }
+        for (int i = 1; i < s.values().size(); i++) {
+          double delta = s.values().get(i) - s.values().get(i - 1);
+          increasePerDay.merge(dayOf(s.timestampsMs().get(i)), delta, Double::sum);
+        }
+      }
+      // Skip the two partial days at either end of the window.
+      List<Long> days = new java.util.ArrayList<>(increasePerDay.keySet());
+      for (Long day : days.subList(1, days.size() - 1)) {
+        assertThat(increasePerDay.get(day))
+            .as((faultsOnly ? "faults" : "transitions") + " on day " + day)
+            .isPositive();
+      }
+      assertThat(days.size()).isGreaterThanOrEqualTo(730);
+    }
+  }
 }

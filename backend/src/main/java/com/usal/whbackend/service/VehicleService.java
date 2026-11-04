@@ -58,6 +58,9 @@ public class VehicleService {
       update.set("positionY", request.positionY());
     }
     if (request.battery() != null) {
+      if (request.battery() < 0 || request.battery() > 100) {
+        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "INVALID_BATTERY");
+      }
       update.set("battery", request.battery());
     }
     if (request.currentOrderId() != null) {

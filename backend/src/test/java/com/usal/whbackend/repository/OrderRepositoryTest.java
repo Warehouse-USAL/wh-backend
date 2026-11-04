@@ -1,6 +1,7 @@
 package com.usal.whbackend.repository;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -113,6 +114,26 @@ class OrderRepositoryTest {
   }
 
   @Test
+  void publishCompleted_flagsTheItemsTakenFromARecommendation() throws Exception {
+    Order order = new Order();
+    order.setId("o-1");
+    order.setItems(
+        List.of(
+            new OrderItem("p-1", "TEC-001", 1, null, true),
+            new OrderItem("p-2", "TEC-002", 1, null, false),
+            new OrderItem("p-3", "TEC-003", 1)));
+
+    orderRepository.publishCompleted(order);
+
+    Thread.sleep(100);
+    JsonNode items = new ObjectMapper().readTree(sentValue("order.completed", null)).get("items");
+    assertTrue(items.get(0).get("fromRecommendation").asBoolean());
+    // Omitted (not false) for the other lines: their payload is what it was before the field.
+    assertFalse(items.get(1).has("fromRecommendation"));
+    assertFalse(items.get(2).has("fromRecommendation"));
+  }
+
+  @Test
   void publishCompleted_withNullItemsAndCompletedAt_publishesEmptyItemsAndNull() throws Exception {
     Order order = new Order();
     order.setId("o-1");
@@ -159,6 +180,38 @@ class OrderRepositoryTest {
 
     assertEquals(2, result.getContent().size());
     assertEquals(2L, result.getTotalElements());
+  }
+
+  @Test
+  void findByFilters_withoutASort_listsNewestFirst() {
+    when(mongoTemplate.count(any(Query.class), eq(Order.class))).thenReturn(0L);
+    when(mongoTemplate.find(any(Query.class), eq(Order.class))).thenReturn(List.of());
+
+    orderRepository.findByFilters(null, null, null, null, PageRequest.of(2, 10));
+
+    org.mockito.ArgumentCaptor<Query> query = org.mockito.ArgumentCaptor.forClass(Query.class);
+    verify(mongoTemplate).find(query.capture(), eq(Order.class));
+    assertEquals(-1, query.getValue().getSortObject().get("createdAt"));
+    assertEquals(20, query.getValue().getSkip());
+    assertEquals(10, query.getValue().getLimit());
+  }
+
+  @Test
+  void findByFilters_withACallerSort_keepsIt() {
+    when(mongoTemplate.count(any(Query.class), eq(Order.class))).thenReturn(0L);
+    when(mongoTemplate.find(any(Query.class), eq(Order.class))).thenReturn(List.of());
+
+    orderRepository.findByFilters(
+        null,
+        null,
+        null,
+        null,
+        PageRequest.of(0, 10, org.springframework.data.domain.Sort.by("status")));
+
+    org.mockito.ArgumentCaptor<Query> query = org.mockito.ArgumentCaptor.forClass(Query.class);
+    verify(mongoTemplate).find(query.capture(), eq(Order.class));
+    assertEquals(1, query.getValue().getSortObject().get("status"));
+    assertFalse(query.getValue().getSortObject().containsKey("createdAt"));
   }
 
   @Test
@@ -287,5 +340,98 @@ class OrderRepositoryTest {
     when(mongo.save(order)).thenReturn(order);
 
     assertThrows(RuntimeException.class, () -> repo.save(order));
+  }
+
+  @Test
+  void cancelWithoutPublishing_persistsTheCancellationAndSendsNothing() throws Exception {
+    Order order = new Order();
+    order.setId("ord-1");
+    order.setStatus(OrderStatus.PENDING);
+    when(mongo.save(order)).thenReturn(order);
+
+    Order saved = orderRepository.cancelWithoutPublishing(order, "INSUFFICIENT_STOCK: x");
+
+    assertEquals(OrderStatus.CANCELLED, saved.getStatus());
+    assertEquals("INSUFFICIENT_STOCK: x", saved.getCancelReason());
+    Thread.sleep(100);
+    org.mockito.Mockito.verifyNoInteractions(kafka);
+  }
+
+  @Test
+  void publishCancelled_sendsTheCancelledMessageKeyedByOrderId() throws Exception {
+    Order order = new Order();
+    order.setId("ord-1");
+    order.setStops(List.of("WH|A-L1-P01"));
+
+    orderRepository.publishCancelled(order);
+
+    Thread.sleep(100);
+    JsonNode node = new ObjectMapper().readTree(sentValue("orders", "ord-1"));
+    assertEquals("cancelled", node.get("status").asString());
+  }
+
+  @Test
+  void findActiveByProductId_queriesPendingAndInProgressOrdersWithTheProduct() {
+    Order order = new Order();
+    when(mongoTemplate.find(any(Query.class), eq(Order.class))).thenReturn(List.of(order));
+
+    assertEquals(List.of(order), orderRepository.findActiveByProductId("prod-1"));
+
+    ArgumentCaptor<Query> query = ArgumentCaptor.forClass(Query.class);
+    verify(mongoTemplate).find(query.capture(), eq(Order.class));
+    org.bson.Document criteria = query.getValue().getQueryObject();
+    assertEquals("prod-1", criteria.get("items.productId"));
+    assertEquals(
+        List.of(OrderStatus.PENDING, OrderStatus.IN_PROGRESS),
+        ((org.bson.Document) criteria.get("status")).get("$in"));
+  }
+
+  @Test
+  void guardStockReconciliation_bumpsTheProductsGuardDocument() {
+    orderRepository.guardStockReconciliation("prod-1");
+
+    ArgumentCaptor<Query> query = ArgumentCaptor.forClass(Query.class);
+    verify(mongoTemplate)
+        .upsert(
+            query.capture(),
+            any(org.springframework.data.mongodb.core.query.Update.class),
+            eq("stock_guards"));
+    assertEquals("prod-1", query.getValue().getQueryObject().get("_id"));
+  }
+
+  @Test
+  void guardStockReconciliation_transientTransactionError_isAConflict() {
+    com.mongodb.MongoException conflict = new com.mongodb.MongoException("write conflict");
+    conflict.addLabel(com.mongodb.MongoException.TRANSIENT_TRANSACTION_ERROR_LABEL);
+    when(mongoTemplate.upsert(
+            any(Query.class),
+            any(org.springframework.data.mongodb.core.query.Update.class),
+            eq("stock_guards")))
+        .thenThrow(new org.springframework.dao.DataIntegrityViolationException("112", conflict));
+
+    org.springframework.web.server.ResponseStatusException e =
+        assertThrows(
+            org.springframework.web.server.ResponseStatusException.class,
+            () -> orderRepository.guardStockReconciliation("prod-1"));
+
+    assertEquals(org.springframework.http.HttpStatus.CONFLICT, e.getStatusCode());
+    assertEquals("STOCK_CHANGE_CONFLICT", e.getReason());
+  }
+
+  @Test
+  void guardStockReconciliation_otherDataErrors_propagateUnchanged() {
+    org.springframework.dao.DataAccessResourceFailureException down =
+        new org.springframework.dao.DataAccessResourceFailureException("down");
+    when(mongoTemplate.upsert(
+            any(Query.class),
+            any(org.springframework.data.mongodb.core.query.Update.class),
+            eq("stock_guards")))
+        .thenThrow(down);
+
+    assertSame(
+        down,
+        assertThrows(
+            org.springframework.dao.DataAccessResourceFailureException.class,
+            () -> orderRepository.guardStockReconciliation("prod-1")));
   }
 }

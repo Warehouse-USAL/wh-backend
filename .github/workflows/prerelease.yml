@@ -84,19 +84,25 @@ jobs:
         run: |
           IMAGE="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/wh-backend"
           docker build -t "${IMAGE}:${{ steps.tag.outputs.tag }}" ./backend
-          docker push "${IMAGE}:${{ steps.tag.outputs.tag }}"
+          scripts/push-image.sh "${IMAGE}:${{ steps.tag.outputs.tag }}"
 
       - name: Build and push bridge Docker image
         run: |
           IMAGE="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/wh-bridge"
           docker build -t "${IMAGE}:${{ steps.tag.outputs.tag }}" ./bridge
-          docker push "${IMAGE}:${{ steps.tag.outputs.tag }}"
+          scripts/push-image.sh "${IMAGE}:${{ steps.tag.outputs.tag }}"
+
+      - name: Build and push suggestions Docker image
+        run: |
+          IMAGE="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/wh-suggestions"
+          docker build -t "${IMAGE}:${{ steps.tag.outputs.tag }}" ./suggestions
+          scripts/push-image.sh "${IMAGE}:${{ steps.tag.outputs.tag }}"
 
       - name: Build and push console Docker image
         run: |
           IMAGE="ghcr.io/$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')/wh-console"
           docker build -t "${IMAGE}:${{ steps.tag.outputs.tag }}" ./console
-          docker push "${IMAGE}:${{ steps.tag.outputs.tag }}"
+          scripts/push-image.sh "${IMAGE}:${{ steps.tag.outputs.tag }}"
 
       - name: Create pre-release draft (upload assets before publishing)
         uses: softprops/action-gh-release@v2

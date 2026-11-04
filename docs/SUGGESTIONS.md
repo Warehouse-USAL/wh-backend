@@ -1,0 +1,296 @@
+# Suggestions service
+
+`suggestions/` is a Go service that turns the order history into product recommendations: "also add"
+for a cart, "what similar users bought" for a user, and the SKUs trending right now. It implements
+RFC [wh-general#12](https://github.com/Warehouse-USAL/wh-general/issues/12) and supersedes the
+standalone `wh-suggestions` scaffold repository.
+
+```
+wh-backend ──Kafka `order.completed`──► suggestions ──► Redis (its only store, AOF)
+                                             ▲
+              web / apps ──HTTP + JWT────────┘   /v1/recommendations/*, /healthz
+```
+
+The backend publishes `order.completed` (`OrderCompletedMessage`, camelCase) when an order
+completes. With `SEED_DEMO=true` it also publishes one for every COMPLETED order it seeds (see
+"Preload from the demo seed"), so the model starts out holding exactly the orders MongoDB holds.
+The service never calls the backend; JWTs are verified locally.
+
+## API
+
+Every `/v1` route needs `Authorization: Bearer <JWT issued by wh-backend>`. Responses:
+
+```json
+{"recommendations": [{"sku": "TEC-004", "score": 12.0}]}
+```
+
+| Route | Purpose | Auth |
+|---|---|---|
+| `GET /v1/recommendations/cart?skus=TEC-002,TEC-004&limit=5` | "Also add", idempotent and cache-friendly (the one the web uses). `skus` is comma separated and may repeat. | any valid JWT |
+| `POST /v1/recommendations/cart` body `{"skus":[...],"limit":5}` | Same logic and response; for lists too long for a URL. `limit` optional. | any valid JWT |
+| `GET /v1/recommendations/user/:userId?limit=5` | SKUs bought by users similar to `:userId` (see below). | JWT `sub` == `:userId`, or role `SUPERADMIN` / `ADMIN_SYSTEM` (the backend's `SYSTEM_ADMINS`) |
+| `GET /v1/recommendations/hot?limit=10` | Top of `hot:global`. | any valid JWT |
+| `GET /healthz` | 200 only if Redis answers PING **and** the Kafka loop is alive; 503 otherwise, with `{"status","redis","consumer"}`. | none |
+
+`limit` is an integer in 1..50 (defaults: 5, hot 10). A cart takes 1..100 distinct SKUs of at most 64
+characters. Errors always look like `{"error": "<code>", "message": "<text>"}`:
+
+| Status | `error` | When |
+|---|---|---|
+| 400 | `bad_request` | bad `limit`, empty/oversized/invalid `skus`, malformed body |
+| 401 | `unauthorized` | missing, malformed, badly signed or expired token |
+| 403 | `forbidden` | `/user/:userId` of someone else without a system-admin role |
+| 404 / 405 | `not_found` / `method_not_allowed` | unknown route / method |
+| 500 | `internal_error` | Redis failure |
+
+CORS: the service sends no CORS headers; browsers reach it same-origin through Caddy (`/suggestions/*`), and server-side clients are unaffected. The HTTP server has read/write/idle timeouts and a 16 KiB header limit; cart bodies are capped at 64 KiB.
+
+JWT: the backend's `JwtService` signs with `Keys.hmacShaKeyFor(JWT_SECRET)` and claims `sub` (user
+id), `email`, `role`, `exp`. jjwt picks HS256, HS384 or HS512 from the secret's length, so the
+service accepts those three HMAC algorithms (and nothing else) with the same secret.
+
+## Redis model
+
+| Key | Type | Content | Written per event |
+|---|---|---|---|
+| `user:{userId}:skus` | zset | sku -> total quantity the user ordered | `ZINCRBY qty` per distinct SKU |
+| `sku:{sku}:buyers` | zset | userId -> total quantity (inverted index of the above; **added** to answer the RFC comment) | `ZINCRBY qty` per distinct SKU |
+| `cooccur:{sku}` | zset | other sku -> number of orders containing both | `ZINCRBY 1` for each ordered pair, both directions |
+| `hot:global` | zset | sku -> decayed quantity | `ZINCRBY qty * w` per distinct SKU, `w` = age weight (see "Hot items and decay"); skipped when `w < 0.01` |
+| `sku:count` | hash | sku -> number of applied orders containing it (the popularity the cart score divides by) | `HINCRBY 1` per distinct SKU, in the same atomic step |
+| `processed:{orderId}` | string | marker `1` of an order already applied, with a TTL (`ORDER_DEDUPE_TTL`) | `SET ... EX`, in the same atomic step as the counts |
+
+One event is applied atomically (a single Lua `EVAL`, or `MULTI/EXEC` for events without an order id). Lines repeating a SKU are summed; lines without a SKU
+or with quantity <= 0 are ignored; a line counts at most 1000 (so a corrupt quantity cannot pin a SKU on top); an order without `userId` still feeds `hot:global` and
+`cooccur`.
+
+Delivery is at-least-once, so ingestion is idempotent per order id: the script skips the event when
+`processed:{orderId}` exists and otherwise applies the counts and then sets the marker, all in one
+atomic step. A redelivered `order.completed` (consumer retry, rebalance, a crash between the Redis
+write and the offset commit) is therefore counted once, and the marker never exists without its
+counts. The marker expires after `ORDER_DEDUPE_TTL` (default `168h`, 7 days, the default Kafka
+retention, so a replay can not be older), which bounds memory to about one small key per order of
+the last week. A redelivery later than the window would be counted again. Events without an
+`orderId` cannot be recognised and are applied every time. The id is only ever used behind the
+fixed `processed:` prefix, like the other key builders in `store/keys.go`.
+
+## Preload from the demo seed
+
+The demo seeder (`SEED_DEMO=true`, a fresh database only) inserts about 25 000 orders straight into
+MongoDB, which announces nothing. Right after the inserts `DemoOrderEventPublisher` publishes one
+`order.completed` for every seeded COMPLETED order (22 745 of them), so the model holds exactly
+the orders MongoDB holds:
+
+- the payload is `OrderCompletedMessage.from(order)` serialized with the application's ObjectMapper
+  and sent through the same `KafkaTemplate` as a real completion (same orderId, userId, items with
+  sku/quantity, `completedAt`, and `fromRecommendation` only when true): byte-identical, and a unit
+  test compares both paths;
+- chronological by `completedAt`; orders in other statuses publish nothing (and the seeder still
+  fires no WebSocket or `orders` events);
+- it runs on a daemon thread, acks are awaited at the end with a bounded timeout
+  (`SEED_DEMO_PUBLISH_TIMEOUT_SECONDS`, default 120), and it logs
+  `Published N order.completed events of the demo seed in X ms`. If Kafka is unavailable it only
+  logs a warning with the recovery hint and the boot is never failed or delayed;
+- an already seeded database ("Demo data already present, skipping") publishes nothing.
+
+Measured in the E2E stack (Docker, single-partition topic): the backend publishes the 22 745 events
+in about 0.7-1.0 s. The suggestions consumer, reading from `earliest` with a fresh group, drained
+them in about 25 s when it committed every message (about 900 events/s) and in about 2.5 s with
+batched commits (`KAFKA_COMMIT_INTERVAL`, default 1s). The consumer still records an offset only
+after the event is in Redis; a crash re-reads at most one interval of events, which the
+`processed:{orderId}` markers make harmless.
+
+Because every event goes through the age weighting above, `hot:global` after the preload only
+holds SKUs ordered in roughly the last 38 hours; `user:*`, `buyers`, `cooccur` and `sku:count`
+cover the whole two years.
+
+**Operations.**
+
+- *Dedupe TTL vs replay.* `processed:{orderId}` markers live `ORDER_DEDUPE_TTL` (7 days). Nothing
+  replays the seeded events except a consumer group reset, so the TTL matters only then: a replay
+  into a Redis that still has the markers is a no-op; into a wiped Redis it rebuilds everything; a
+  replay into a Redis whose markers expired (more than 7 days after ingesting, Redis not wiped)
+  would count the history twice. Do not reset the group without also wiping `suggestions-redis`.
+- *Redis wiped, same group.* The committed offset is at the end of the topic, so nothing is
+  replayed: the model starts empty and only new orders feed it. Rebuild by wiping Redis **and**
+  using a new `KAFKA_GROUP_ID` (or `rpk group seek wh-suggestions --to start`).
+- *Retention.* Redpanda keeps topics 7 days by default (`log_retention_ms`, measured on the
+  producer timestamp, i.e. the day of the seed). After that the seeded events are gone and a
+  rebuild only restores what is still on the topic. To keep the history rebuildable run once
+  `rpk topic alter-config order.completed --set retention.ms=-1` (the compose files do not change
+  broker defaults). The topic has one partition when auto-created; ordering does not matter to the
+  model (all updates are commutative sums), so more partitions would also be safe.
+- *Kafka down at seed time.* The backend logs the warning and boots; the model starts empty. Drop
+  the database and the suggestions Redis and restart with `SEED_DEMO=true` once Kafka is up.
+
+## Did the buyer use a recommendation? (`from_recommendation`)
+
+The RFC says what to recommend; it cannot say whether anyone listened. `POST /orders` therefore
+takes an optional boolean **per item**:
+
+```json
+{"destination_area": "AREA-A",
+ "items": [{"product_id": "p-TEC-002", "quantity": 2, "from_recommendation": true},
+           {"product_id": "p-TEC-004", "quantity": 1}]}
+```
+
+- A client sets it to `true` on the lines it added because one of this service's responses
+  (cart, user or hot) suggested that product. Absent, `null` or `false` mean "not from a
+  suggestion", so every existing client keeps working unchanged and no existing field, status or
+  error code changes.
+- Why per item and not an order-level list of SKUs: the flag lives next to the thing it describes,
+  so lines, units and orders can all be counted exactly; and it cannot reference a product that is
+  not in the order (a SKU list could, which would need a validation rule). A product appears once
+  per order (`DUPLICATE_PRODUCT_IN_ORDER`), so a line is unambiguous. It is a client claim, not
+  proof that the SKU was ever suggested: the backend does not call this service, by design.
+- It is stored on the order item, returned as `items[].from_recommendation` by every order response
+  and WebSocket `order.updated` event, and published on `order.completed` as `items[].fromRecommendation` (camelCase, like the rest of that
+  payload) only on the lines where it is `true`: the payload of an order without suggestions is
+  unchanged. The Go `ingest.Item` decodes it and does not use it
+  yet; events without the field decode to `false`, and unknown fields are ignored, so the
+  consumer keeps working across both versions.
+- The business metric on top of it is `POST /metrics/suggestion-conversion` (see
+  `DASHBOARD_INTEGRATION.md`).
+
+## Decisions on the RFC comment
+
+**1. The user endpoint is collaborative filtering, not "buy again".** It recommends SKUs bought by
+users who share purchases with the user, never SKUs the user already bought. Algorithm (all reads
+bounded, three Redis round trips):
+
+1. Read the user's whole history from `user:{id}:skus` (it is also the exclusion set); the
+   `ProfileTop = 50` SKUs with the most quantity form the profile.
+2. For each profile SKU read its top `BuyersTop = 200` buyers from `sku:{sku}:buyers` and its
+   `ZCARD n`. Every other buyer `v` earns `1/(1+n)` per shared SKU (inverse user frequency: sharing
+   a niche SKU says more than sharing a bestseller). Keep the `Neighbours = 50` heaviest.
+3. For each neighbour read its top `NeighbourTop = 50` SKUs. `score(sku) = sum over neighbours of
+   weight(v) * ln(1 + quantity(v, sku))`, skipping owned SKUs. Return the top `limit`.
+
+Cold start: a user without history gets `hot:global`. A user whose neighbours bought nothing new
+gets `hot:global` minus what they own. Without the inverted index, finding neighbours would need a
+scan of every `user:*:skus` key; with it the cost is independent of the number of users.
+
+**2. The cart endpoint exists as GET and POST.** GET is the idempotent, cacheable form for the web;
+POST (the RFC's form) stays for long lists. Both call the same function. Logic: for every SKU `b`
+in the top 100 of `cooccur:{a}` of a cart SKU `a`, add `cooccur(a,b) / sqrt(count(a) * count(b))`
+(`count` = `sku:count`), summed over the cart; drop the cart's own SKUs, return the top `limit`;
+with no co-occurrence it falls back to `hot:global` minus the cart. See "Cart score: popularity
+normalisation" below.
+
+## Hot items and decay
+
+A goroutine runs every `HOT_DECAY_INTERVAL` (15 min) a Lua script (`EVAL`) that multiplies every
+`hot:global` score by `HOT_DECAY_FACTOR` (0.97) and removes members that fall below 0.01 so the set
+stays bounded. That is exponential decay with a half-life of about 5.7 hours. `user:*`, `buyers` and
+`cooccur` do not decay on purpose: they describe taste, not trend. The factor is an untested guess
+(RFC section 10); revisit with real traffic.
+
+**Age weighting of replayed events.** The decay job only ages what is already in `hot:global`, so an
+event that completed two years ago and is ingested today would enter at full weight and top the
+list. Ingestion therefore weights each event's contribution to `hot:global` by its age, computed
+from `completedAt`:
+
+```
+contribution = quantity * HOT_DECAY_FACTOR ^ (age / HOT_DECAY_INTERVAL)      age = max(now - completedAt, 0)
+```
+
+which is exactly what the decay job would have done to it had it been ingested on time. Hand-checked
+values with the defaults (0.97 per 15 min): 1 hour old = 0.97^4 = 0.885, 1 day = 0.97^96 = 0.0537,
+a week = 0.97^672 = 1.3e-9. An event whose weight is under 0.01 (older than ~151 intervals, about
+38 hours) adds nothing to `hot:global` (the next decay round would delete it anyway) but still feeds
+`user:*`, `buyers`, `cooccur` and `sku:count`. A missing or unparsable `completedAt`, or one in the
+future (clock skew), weighs 1, so a fresh real event (age about 0) behaves exactly as before. The
+weighting happens inside the same atomic script as the counts and the `processed:{orderId}` marker.
+It is independent of event order and of the number of partitions.
+
+## Cart score: popularity normalisation
+
+The first version summed the raw `cooccur:{sku}` counts, so best-sellers (in nearly every order,
+hence co-occurring with everything) were recommended for every cart. The score is now the cosine
+`cooccur(a,b) / sqrt(count(a) * count(b))` summed over the cart SKUs, `count` being the number of
+orders containing the SKU (`sku:count`, written atomically with `cooccur`). A pair that is ordered
+together out of proportion to how often either sells now beats a pair that merely involves a
+best-seller. Example (hand-computed in `TestCartNormalisesByPopularity`): A is in 5 orders, with
+best-seller P (10 orders) 3 times and niche N (2 orders) twice. Raw: P 3 > N 2. Cosine: N
+2/sqrt(5*2) = 0.632 > P 3/sqrt(5*10) = 0.424.
+
+The HTTP contract is unchanged (same routes and JSON; `score` was already a float, its scale is now
+roughly 0..1 per cart SKU). No backfill is needed: the model is rebuilt from the topic. A SKU with
+no count (a model built before `sku:count` existed) is treated as having as many orders as it
+co-occurred, so the answer degrades to a per-pair 1 instead of failing.
+The backtest below measured it before keeping it.
+
+Not done: filtering out-of-stock SKUs from "also add". The service never calls the backend and has
+no stock data (by design); doing it needs either the backend to publish stock changes or a filter
+in the client. Future work.
+
+## Durability
+
+Redis holds the whole model and runs with AOF (`--appendonly yes`) on a volume (named volume in prod,
+`./data/suggestions-redis` in dev). The consumer group `wh-suggestions` starts from the earliest
+offset, so a fresh group (or an emptied Redis plus a new `KAFKA_GROUP_ID`) rebuilds the model by
+replaying the topic as far as Redpanda's retention allows. Offsets are committed only after Redis
+accepted the event; while Redis is down the same message is retried with backoff. During a deploy the
+group rebalances and ingestion pauses briefly (acceptable, no correctness requirement).
+
+## Backtest
+
+`suggestions/internal/recommend/backtest_test.go` generates synthetic events in the test (fixed
+seed; the backend's demo seeder is not involved), feeds them through the real ingest code into
+miniredis and scores precision@3 against held-out purchases, versus a "always return hot items"
+baseline:
+
+- five pairs always ordered together: cart recommendations for one half must contain the other;
+- a group of ten users with shared niche taste, each missing one SKU the others bought: the user
+  endpoint must surface it;
+- a trending SKU after a long decayed period of an old star: it must lead `hot`.
+
+Both recommenders reach 0.333 (the maximum with one held-out SKU and k=3) versus 0.000 for the
+baseline.
+
+A fourth scenario, `TestBacktestCartPopularityBias`, plants a niche partner bought with its anchor
+6 times while three best-sellers are bought with the same anchor 12 times each. Cart precision@3
+before and after the popularity normalisation (same synthetic data, fixed seed):
+
+| Scenario | Raw co-occurrence (before) | Cosine (after) | Hot baseline |
+|---|---|---|---|
+| planted pairs (cart) | 0.333 | 0.333 | 0.000 |
+| popularity bias (cart) | 0.000 | 0.333 | 0.000 |
+| similar users (user, unchanged) | 0.333 | 0.333 | 0.000 |
+
+The change is kept because no scenario got worse and the new one went from 0.000 to the maximum.
+
+## Running
+
+Dev (needs the base stack for Redpanda; the service is opt-in):
+
+```
+docker compose --profile suggestions up --build suggestions
+curl -H "Authorization: Bearer $TOKEN" 'localhost:8084/v1/recommendations/hot'
+```
+
+Tests: `make suggestions-test` (`go vet` + `go test -race`, no Docker needed).
+
+Prod: `docker-compose.prod.yml` defines `suggestions` (image
+`ghcr.io/warehouse-usal/wh-suggestions:${WH_IMAGE_TAG:-latest}`, on `wh-network` and `wh-proxy`,
+listening on `:8080`) and `suggestions-redis`. `make deploy` pulls and restarts them with the other
+images. Caddy (wh-autodeploys) already routes `/suggestions/*`, prefix stripped, to `suggestions:8080`.
+
+## Environment
+
+| Variable | Default | Description |
+|---|---|---|
+| `JWT_SECRET` | required, >= 32 chars | The backend's secret (same `.env` variable) |
+| `KAFKA_BROKERS` | `redpanda:9092` | Comma separated (compose passes `REDPANDA_BOOTSTRAP_SERVERS`) |
+| `KAFKA_TOPIC` | `order.completed` | |
+| `KAFKA_GROUP_ID` | `wh-suggestions` | |
+| `REDIS_ADDR` | `suggestions-redis:6379` | |
+| `REDIS_PASSWORD` | empty | |
+| `HTTP_ADDR` | `:8080` | Also used by the container healthcheck (`/suggestions healthcheck`) |
+| `HOT_DECAY_FACTOR` | `0.97` | In (0, 1) |
+| `HOT_DECAY_INTERVAL` | `15m` | |
+| `ORDER_DEDUPE_TTL` | `168h` | How long an applied order id is remembered to ignore redelivered events; positive duration |
+| `KAFKA_COMMIT_INTERVAL` | `1s` | How often consumed offsets are flushed (`0` = one commit per event); an offset is only recorded after the event is in Redis |
+
+Not done: OpenTelemetry metrics (the bridge exports them; the RFC does not ask for it), per-zone hot
+items and the warehouse-side restock suggestions (RFC out of scope).

@@ -3,6 +3,9 @@ package com.usal.whbackend.api.metrics;
 import com.usal.whbackend.api.Roles;
 import com.usal.whbackend.service.exception.InvalidMetricParamsException;
 import com.usal.whbackend.service.metrics.MetricsQueryService;
+import com.usal.whbackend.service.metrics.conversion.ConversionBucket;
+import com.usal.whbackend.service.metrics.conversion.ConversionParams;
+import com.usal.whbackend.service.metrics.conversion.SuggestionConversionService;
 import com.usal.whbackend.service.metrics.restock.RestockParams;
 import com.usal.whbackend.service.metrics.restock.RestockSuggestionService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -29,14 +32,19 @@ import org.springframework.web.bind.annotation.RestController;
 public class MetricsController {
 
   static final String RESTOCK_SUGGESTIONS = "restock_suggestions";
+  static final String SUGGESTION_CONVERSION = "suggestion_conversion";
 
   private final MetricsQueryService metricsQueryService;
   private final RestockSuggestionService restockSuggestionService;
+  private final SuggestionConversionService suggestionConversionService;
 
   public MetricsController(
-      MetricsQueryService metricsQueryService, RestockSuggestionService restockSuggestionService) {
+      MetricsQueryService metricsQueryService,
+      RestockSuggestionService restockSuggestionService,
+      SuggestionConversionService suggestionConversionService) {
     this.metricsQueryService = metricsQueryService;
     this.restockSuggestionService = restockSuggestionService;
+    this.suggestionConversionService = suggestionConversionService;
   }
 
   @Operation(
@@ -119,5 +127,25 @@ public class MetricsController {
         restockSuggestionService.apply(params).stream().map(RestockSuggestionRow::from).toList();
     return ResponseEntity.ok(
         new ComputedMetricResponse<>(RESTOCK_SUGGESTIONS, params, Instant.now(), rows));
+  }
+
+  @Operation(
+      summary = "Suggestion conversion",
+      description =
+          "Per calendar bucket (day, week or month), how many non-cancelled orders, order lines and"
+              + " units came from a recommendation (the optional from_recommendation flag of each"
+              + " item in POST /orders). Every bucket of the range is returned, empty ones with"
+              + " zeros. Filters restrict the lines considered.")
+  @ApiResponse(responseCode = "200", description = "One row per bucket, oldest first")
+  @ApiResponse(responseCode = "400", description = "INVALID_METRIC_PARAMS")
+  @PostMapping("/suggestion-conversion")
+  public ResponseEntity<ComputedMetricResponse<ConversionBucket>> suggestionConversion(
+      @RequestBody SuggestionConversionRequest request) {
+    ConversionParams params = request.toParams();
+    var rows =
+        suggestionConversionService.conversion(
+            params, request.filters().productIds(), request.filters().category());
+    return ResponseEntity.ok(
+        new ComputedMetricResponse<>(SUGGESTION_CONVERSION, params, Instant.now(), rows));
   }
 }

@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.usal.whbackend.api.error.GlobalExceptionHandler;
 import com.usal.whbackend.config.JwtService;
 import com.usal.whbackend.service.metrics.MetricsQueryService;
+import com.usal.whbackend.service.metrics.conversion.SuggestionConversionService;
 import com.usal.whbackend.service.metrics.restock.RestockSuggestionService;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
@@ -31,6 +32,7 @@ class MetricsControllerSecurityTest {
   @MockitoBean MetricsQueryService metricsQueryService;
   @MockitoBean JwtService jwtService;
   @MockitoBean RestockSuggestionService restockSuggestionService;
+  @MockitoBean SuggestionConversionService suggestionConversionService;
 
   @BeforeEach
   void setUp() {
@@ -64,6 +66,32 @@ class MetricsControllerSecurityTest {
   private static final String RESTOCK_BODY =
       "{\"params\":{\"alpha\":0.3,\"recent_days\":7,\"long_days\":60,\"safety_days\":2,"
           + "\"lead_time_days\":5,\"coverage_days\":7}}";
+
+  private static final String CONVERSION_BODY =
+      "{\"params\":{\"from\":\"2026-03-02T00:00:00Z\",\"to\":\"2026-03-04T00:00:00Z\","
+          + "\"granularity\":\"day\"}}";
+
+  @Test
+  @WithMockUser(roles = "DASHBOARD")
+  void dashboardRoleCanRequestSuggestionConversion() throws Exception {
+    mockMvc
+        .perform(
+            post("/metrics/suggestion-conversion")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(CONVERSION_BODY))
+        .andExpect(status().isOk());
+  }
+
+  @Test
+  @WithMockUser(roles = "OPERATOR")
+  void operatorCannotRequestSuggestionConversion() throws Exception {
+    mockMvc
+        .perform(
+            post("/metrics/suggestion-conversion")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(CONVERSION_BODY))
+        .andExpect(status().isForbidden());
+  }
 
   @Test
   @WithMockUser(roles = "DASHBOARD")

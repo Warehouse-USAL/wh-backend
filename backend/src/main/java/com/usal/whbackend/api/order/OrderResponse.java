@@ -51,9 +51,15 @@ public record OrderResponse(
 
   public record Price(long amountCents, String currency, boolean taxIncluded) {}
 
-  public record OrderItemResponse(String productId, String sku, int quantity, Price unitPrice) {
+  /** {@code fromRecommendation}: the client took this line from a suggestion (default false). */
+  public record OrderItemResponse(
+      String productId, String sku, int quantity, Price unitPrice, boolean fromRecommendation) {
+    public OrderItemResponse(String productId, String sku, int quantity, Price unitPrice) {
+      this(productId, sku, quantity, unitPrice, false);
+    }
+
     public OrderItemResponse(String productId, String sku, int quantity) {
-      this(productId, sku, quantity, null);
+      this(productId, sku, quantity, null, false);
     }
   }
 
@@ -88,7 +94,8 @@ public record OrderResponse(
                                 : new Price(
                                     i.getUnitPrice().getAmountCents(),
                                     i.getUnitPrice().getCurrency(),
-                                    i.getUnitPrice().isTaxIncluded())))
+                                    i.getUnitPrice().isTaxIncluded()),
+                            i.isFromRecommendation()))
                 .toList();
 
     AddressResponse address = null;

@@ -18,6 +18,7 @@ import com.usal.whbackend.service.PositionService;
 import com.usal.whbackend.service.ProductService;
 import com.usal.whbackend.service.ReceptionService;
 import com.usal.whbackend.service.RestockOrderService;
+import com.usal.whbackend.service.StockAdjustmentService;
 import com.usal.whbackend.service.UserService;
 import com.usal.whbackend.service.VehicleService;
 import com.usal.whbackend.service.VehicleTelemetryService;
@@ -27,6 +28,7 @@ import com.usal.whbackend.service.console.ServiceStatusService;
 import com.usal.whbackend.service.console.WsEventBuffer;
 import com.usal.whbackend.service.console.stream.ConsoleStreamService;
 import com.usal.whbackend.service.metrics.MetricsQueryService;
+import com.usal.whbackend.service.metrics.conversion.SuggestionConversionService;
 import com.usal.whbackend.service.metrics.restock.RestockSuggestionService;
 import com.usal.whbackend.service.query.EntityQueryService;
 import com.usal.whbackend.service.storage.StorageService;
@@ -101,6 +103,8 @@ class SuperadminReachTest {
    */
   private static final String RESTOCK =
       "{\"params\":{\"alpha\":0.5,\"recent_days\":7,\"long_days\":28,\"safety_days\":1,\"lead_time_days\":1,\"coverage_days\":1},\"filters\":{}}";
+  private static final String CONVERSION =
+      "{\"params\":{\"from\":\"2026-03-02T00:00:00Z\",\"to\":\"2026-03-04T00:00:00Z\",\"granularity\":\"day\"}}";
   private static final String USER =
       "{\"email\":\"a@b.co\",\"name\":\"n\",\"role\":\"ADMIN_SALES\",\"initial_password\":\"x\"}";
   private static final String PRODUCT =
@@ -159,6 +163,9 @@ class SuperadminReachTest {
     {"POST", "/warehouse/lines/l1/positions", POSITION},
     {"PATCH", "/warehouse/positions/pos1", JSON},
     {"DELETE", "/warehouse/positions/pos1", null},
+    {"GET", "/warehouse/positions/pos1/stock-adjustments", null},
+    {"POST", "/warehouse/positions/pos1/stock-adjustments", "{\"quantity\":1}"},
+    {"GET", "/products/p1/stock-adjustments", null},
     {
       "POST",
       "/warehouse/positions/validate-fit",
@@ -189,6 +196,7 @@ class SuperadminReachTest {
     {"POST", "/metrics/query", METRICS},
     {"GET", "/metrics/catalog", null},
     {"POST", "/metrics/restock-suggestions", RESTOCK},
+    {"POST", "/metrics/suggestion-conversion", CONVERSION},
     {"POST", "/metrics/restock-suggestions/apply", RESTOCK},
     // Public download (permitAll in SecurityConfig): product images are shown before login, so
     // it must stay reachable for every caller, SUPERADMIN included.
@@ -222,6 +230,7 @@ class SuperadminReachTest {
   @MockitoBean ZoneService zoneService;
   @MockitoBean LineService lineService;
   @MockitoBean PositionService positionService;
+  @MockitoBean StockAdjustmentService stockAdjustmentService;
   @MockitoBean RestockOrderService restockOrderService;
   @MockitoBean ReceptionService receptionService;
   @MockitoBean StorageService storageService;
@@ -231,6 +240,7 @@ class SuperadminReachTest {
   @MockitoBean ConsoleStreamService consoleStreamService;
   @MockitoBean MetricsQueryService metricsQueryService;
   @MockitoBean RestockSuggestionService restockSuggestionService;
+  @MockitoBean SuggestionConversionService suggestionConversionService;
   @MockitoBean EntityQueryService entityQueryService;
 
   @BeforeEach

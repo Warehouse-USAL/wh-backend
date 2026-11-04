@@ -1,0 +1,24 @@
+meta {
+  name: Get Position Stock Adjustments
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/warehouse/positions/:id/stock-adjustments?page=0&size=10
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+params:path {
+  id: POSITION_ID_HERE
+}
+
+params:query {
+  page: 0
+  size: 10
+}

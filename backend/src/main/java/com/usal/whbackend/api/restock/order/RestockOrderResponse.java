@@ -1,6 +1,7 @@
 package com.usal.whbackend.api.restock.order;
 
 import com.usal.whbackend.domain.RestockOrder;
+import com.usal.whbackend.domain.RestockOrderStatus;
 import java.time.Instant;
 
 public record RestockOrderResponse(
@@ -9,6 +10,8 @@ public record RestockOrderResponse(
     int quantityRequested,
     String supplier,
     String requestedByUserId,
+    RestockOrderStatus status,
+    Instant expectedDeliveryDate,
     Instant createdAt) {
 
   public static RestockOrderResponse from(RestockOrder order) {
@@ -18,6 +21,8 @@ public record RestockOrderResponse(
         order.getQuantityRequested(),
         order.getSupplier(),
         order.getRequestedByUserId(),
+        order.getStatus(),
+        order.getExpectedDeliveryDate(),
         order.getCreatedAt());
   }
 }

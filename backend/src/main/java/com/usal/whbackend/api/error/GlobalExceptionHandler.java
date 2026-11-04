@@ -1,6 +1,7 @@
 package com.usal.whbackend.api.error;
 
-import com.fasterxml.jackson.databind.exc.InvalidFormatException;
+import com.mongodb.MongoSocketException;
+import com.mongodb.MongoTimeoutException;
 import com.usal.whbackend.domain.StockSize;
 import com.usal.whbackend.service.exception.AccountDisabledException;
 import com.usal.whbackend.service.exception.EmailAlreadyExistsException;
@@ -21,17 +22,23 @@ import com.usal.whbackend.service.storage.StorageException;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessResourceFailureException;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.transaction.CannotCreateTransactionException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.servlet.NoHandlerFoundException;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -62,6 +69,8 @@ public class GlobalExceptionHandler {
               "No se puede incluir el mismo producto más de una vez en la orden."),
           Map.entry("MISSING_REQUIRED_FIELDS", "Los campos sku, name y category son obligatorios."),
           Map.entry("SKU_ALREADY_EXISTS", "Ya existe un producto con ese SKU."),
+          Map.entry("INVALID_ROLE", "Rol inválido."),
+          Map.entry("INVALID_BATTERY", "La batería debe ser un porcentaje entre 0 y 100."),
           Map.entry("ZONE_INACTIVE", "La zona no está activa y no puede recibir nuevas líneas."),
           Map.entry(
               "LINE_INACTIVE", "La línea no está activa y no puede recibir nuevas posiciones."),
@@ -90,6 +99,7 @@ public class GlobalExceptionHandler {
               "La consulta es demasiado amplia. Reducir el rango o aumentar el step."),
           Map.entry(
               "METRICS_UNAVAILABLE", "El almacén de métricas no está disponible en este momento."),
+          Map.entry("DATABASE_UNAVAILABLE", "La base de datos no está disponible en este momento."),
           Map.entry(
               "LOG_STORE_UNAVAILABLE", "El almacén de logs no está disponible en este momento."),
           Map.entry(
@@ -128,7 +138,28 @@ public class GlobalExceptionHandler {
               "UNBOUNDED_RANGE",
               "Una consulta agrupada debe acotarse con un filtro de fecha (ej: created_at >=)."),
           Map.entry("RESTOCK_ORDER_NOT_FOUND", "La orden de restock solicitada no existe."),
+          Map.entry(
+              "RESTOCK_ORDER_ALREADY_CANCELLED", "La orden de restock ya se encuentra cancelada."),
+          Map.entry(
+              "RESTOCK_ORDER_HAS_RECEPTIONS",
+              "No se puede cancelar: ya se registraron remitos contra esta orden de restock."),
+          Map.entry(
+              "RESTOCK_ORDER_CANCELLED",
+              "La orden de restock está cancelada y no admite nuevos remitos."),
+          Map.entry(
+              "INVALID_EXPECTED_DELIVERY_DATE",
+              "La fecha de entrega esperada debe ser posterior a la fecha de creación."),
           Map.entry("QR_CODE_ALREADY_EXISTS", "Otra posición ya tiene ese código QR."),
+          Map.entry(
+              "INVALID_ADJUSTMENT_TYPE",
+              "Tipo de ajuste inválido. Valores aceptados: MANUAL_DECREASE, DAMAGE."),
+          Map.entry(
+              "STOCK_CHANGE_CONFLICT",
+              "Otro cambio de stock del mismo producto se estaba aplicando. Reintentá la operación."),
+          Map.entry("POSITION_WITHOUT_PRODUCT", "La posición no tiene un producto asignado."),
+          Map.entry(
+              "QUANTITY_EXCEEDS_POSITION_STOCK",
+              "La cantidad a descontar supera el stock de la posición."),
           Map.entry("RECEPTION_NOT_FOUND", "El remito solicitado no existe."),
           Map.entry(
               "ASSIGNMENT_QUANTITY_MISMATCH",
@@ -159,6 +190,24 @@ public class GlobalExceptionHandler {
     return ResponseEntity.status(ex.getStatusCode())
         .contentType(MediaType.APPLICATION_JSON)
         .body(Map.of("error", Map.of("code", code, "message", message)));
+  }
+
+  /**
+   * MongoDB cannot be reached (no server within the selection timeout, connection lost, or a
+   * transaction that could not start): the same 503-with-a-code answer the metrics and log stores
+   * give, instead of Spring's default 500 body.
+   */
+  @ExceptionHandler({
+    DataAccessResourceFailureException.class,
+    CannotCreateTransactionException.class,
+    MongoTimeoutException.class,
+    MongoSocketException.class
+  })
+  public ResponseEntity<ErrorResponse> handleDatabaseUnavailable(Exception ex) {
+    log.error("MongoDB unavailable: {}", ex.toString());
+    return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+        .contentType(MediaType.APPLICATION_JSON)
+        .body(ErrorResponse.of("DATABASE_UNAVAILABLE", MESSAGES.get("DATABASE_UNAVAILABLE")));
   }
 
   @ExceptionHandler(InvalidMetricParamsException.class)
@@ -215,7 +264,7 @@ public class GlobalExceptionHandler {
     // type.
     log.warn("Malformed request body: {}", ex.getClass().getSimpleName());
     for (Throwable cause = ex.getCause(); cause != null; cause = cause.getCause()) {
-      if (cause instanceof InvalidFormatException ife && ife.getTargetType() == StockSize.class) {
+      if (isInvalidDeliveryUnit(cause)) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
             .contentType(MediaType.APPLICATION_JSON)
             .body(ErrorResponse.of("INVALID_DELIVERY_UNIT", MESSAGES.get("INVALID_DELIVERY_UNIT")));
@@ -225,6 +274,40 @@ public class GlobalExceptionHandler {
         .contentType(MediaType.APPLICATION_JSON)
         .body(
             ErrorResponse.of("MALFORMED_REQUEST", "El cuerpo de la solicitud no es JSON válido."));
+  }
+
+  /**
+   * An unknown {@code delivery_unit} surfaces as a Jackson mapping exception (an invalid format
+   * from the enum deserializer, or an instantiation failure because {@code StockSize.fromValue} is
+   * a {@code @JsonCreator} that throws) whose message names {@code StockSize}. Matched by package
+   * and message so it does not depend on the Jackson major version in use.
+   */
+  private static boolean isInvalidDeliveryUnit(Throwable cause) {
+    return cause.getClass().getName().contains(".databind.exc.")
+        && cause.getMessage() != null
+        && cause.getMessage().contains(StockSize.class.getName());
+  }
+
+  /** Unknown routes answer with the API's error envelope, not Spring's default body. */
+  @ExceptionHandler({NoResourceFoundException.class, NoHandlerFoundException.class})
+  public ResponseEntity<ErrorResponse> handleUnknownRoute(Exception ex) {
+    return ResponseEntity.status(HttpStatus.NOT_FOUND)
+        .contentType(MediaType.APPLICATION_JSON)
+        .body(ErrorResponse.of("NOT_FOUND", "El recurso solicitado no existe."));
+  }
+
+  @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+  public ResponseEntity<ErrorResponse> handleMethodNotAllowed(
+      HttpRequestMethodNotSupportedException ex) {
+    ResponseEntity.BodyBuilder response =
+        ResponseEntity.status(HttpStatus.METHOD_NOT_ALLOWED)
+            .contentType(MediaType.APPLICATION_JSON);
+    if (ex.getSupportedHttpMethods() != null) {
+      response.allow(ex.getSupportedHttpMethods().toArray(HttpMethod[]::new));
+    }
+    return response.body(
+        ErrorResponse.of(
+            "METHOD_NOT_ALLOWED", "El método HTTP no está permitido en este recurso."));
   }
 
   @ExceptionHandler(MethodArgumentTypeMismatchException.class)

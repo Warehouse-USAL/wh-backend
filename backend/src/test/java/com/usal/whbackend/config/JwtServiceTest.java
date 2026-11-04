@@ -73,4 +73,24 @@ class JwtServiceTest {
 
     assertThat(expiry).isBetween(before.plusSeconds(60), java.time.Instant.now().plusSeconds(61));
   }
+
+  @Test
+  void isTokenValid_returnsFalseWhenTheTokensUserIsNotActive() {
+    UserActivityCache activity = org.mockito.Mockito.mock(UserActivityCache.class);
+    jwtService.setUserActivity(activity);
+    org.mockito.Mockito.when(activity.isActive("USR-001")).thenReturn(true, false);
+    String token = jwtService.generateToken(user);
+
+    assertThat(jwtService.isTokenValid(token)).isTrue();
+    assertThat(jwtService.isTokenValid(token)).isFalse();
+  }
+
+  @Test
+  void isTokenValid_doesNotConsultTheUserStoreForABadSignature() {
+    UserActivityCache activity = org.mockito.Mockito.mock(UserActivityCache.class);
+    jwtService.setUserActivity(activity);
+
+    assertThat(jwtService.isTokenValid(jwtService.generateToken(user) + "x")).isFalse();
+    org.mockito.Mockito.verifyNoInteractions(activity);
+  }
 }

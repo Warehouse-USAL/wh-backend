@@ -19,6 +19,8 @@ import com.usal.whbackend.service.metrics.ComputedMetricDescriptor;
 import com.usal.whbackend.service.metrics.MetricDescriptor;
 import com.usal.whbackend.service.metrics.MetricType;
 import com.usal.whbackend.service.metrics.MetricsQueryService;
+import com.usal.whbackend.service.metrics.conversion.ConversionBucket;
+import com.usal.whbackend.service.metrics.conversion.SuggestionConversionService;
 import com.usal.whbackend.service.metrics.restock.RestockResult;
 import com.usal.whbackend.service.metrics.restock.RestockSuggestion;
 import com.usal.whbackend.service.metrics.restock.RestockSuggestionService;
@@ -44,6 +46,7 @@ class MetricsControllerTest {
   @MockitoBean MetricsQueryService metricsQueryService;
   @MockitoBean JwtService jwtService;
   @MockitoBean RestockSuggestionService restockSuggestionService;
+  @MockitoBean SuggestionConversionService suggestionConversionService;
 
   private static final String QUERY_BODY =
       """
@@ -252,6 +255,68 @@ class MetricsControllerTest {
         .andExpect(status().isBadRequest())
         .andExpect(jsonPath("$.error.code").value("INVALID_METRIC_PARAMS"))
         .andExpect(jsonPath("$.error.message").value("alpha debe estar entre 0 y 1"));
+  }
+
+  private static final String CONVERSION_BODY =
+      """
+      {"params":{"from":"2026-03-02T00:00:00Z","to":"2026-03-04T00:00:00Z",
+                 "granularity":"day","time_zone":"UTC"},
+       "filters":{"product_ids":["p1"],"category":"tecnologia"}}
+      """;
+
+  @Test
+  @WithMockUser(roles = "DASHBOARD")
+  void suggestionConversion_returnsTheCommonEnvelopeWithOneRowPerBucket() throws Exception {
+    when(suggestionConversionService.conversion(any(), eq(List.of("p1")), eq("tecnologia")))
+        .thenReturn(
+            List.of(new ConversionBucket("2026-03-02", 4, 1, 0.25, 9, 2, 0.2222, 20, 5, 0.25)));
+
+    mockMvc
+        .perform(
+            post("/metrics/suggestion-conversion")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(CONVERSION_BODY))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.metric").value("suggestion_conversion"))
+        .andExpect(jsonPath("$.params_used.granularity").value("day"))
+        .andExpect(jsonPath("$.params_used.time_zone").value("UTC"))
+        .andExpect(jsonPath("$.generated_at").isString())
+        .andExpect(jsonPath("$.data[0].bucket").value("2026-03-02"))
+        .andExpect(jsonPath("$.data[0].orders").value(4))
+        .andExpect(jsonPath("$.data[0].orders_with_recommendation").value(1))
+        .andExpect(jsonPath("$.data[0].order_conversion_rate").value(0.25))
+        .andExpect(jsonPath("$.data[0].lines_from_recommendation").value(2))
+        .andExpect(jsonPath("$.data[0].units_from_recommendation").value(5))
+        .andExpect(jsonPath("$.data[0].unit_conversion_rate").value(0.25));
+  }
+
+  @Test
+  @WithMockUser(roles = "DASHBOARD")
+  void suggestionConversion_emptyBodyIsInvalidMetricParamsNot500() throws Exception {
+    mockMvc
+        .perform(
+            post("/metrics/suggestion-conversion")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{}"))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.error.code").value("INVALID_METRIC_PARAMS"))
+        .andExpect(jsonPath("$.error.message").value("params es obligatorio"));
+    verifyNoInteractions(suggestionConversionService);
+  }
+
+  @Test
+  @WithMockUser(roles = "DASHBOARD")
+  void suggestionConversion_badGranularityNamesTheParam() throws Exception {
+    mockMvc
+        .perform(
+            post("/metrics/suggestion-conversion")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(CONVERSION_BODY.replace("\"day\"", "\"hour\"")))
+        .andExpect(status().isBadRequest())
+        .andExpect(jsonPath("$.error.code").value("INVALID_METRIC_PARAMS"))
+        .andExpect(
+            jsonPath("$.error.message").value(org.hamcrest.Matchers.containsString("granularity")));
+    verifyNoInteractions(suggestionConversionService);
   }
 
   @Test

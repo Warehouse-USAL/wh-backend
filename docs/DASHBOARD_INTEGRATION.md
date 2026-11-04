@@ -213,11 +213,11 @@ POST /metrics/restock-suggestions
 Una fila por producto, **primero los que hay que reponer** (de mayor a menor cantidad sugerida):
 
 ```json
-{"product_id": "p-HER-005", "sku": "HER-005", "name": "Llave ajustable Bahco 10\"",
- "long_term_demand": 0.43, "recent_demand": 1.14, "blended_demand": 0.65,
- "safety_stock": 0.87, "reorder_point": 4.1, "target_stock": 8.63,
- "available_stock": 2, "on_order_stock": 0, "inventory_position": 2,
- "should_restock": true, "suggested_quantity": 7}
+{"product_id": "p-TEC-005", "sku": "TEC-005", "name": "Monitor ASUS ProArt PB278Q 27\"",
+ "long_term_demand": 2.83, "recent_demand": 4.71, "blended_demand": 3.4,
+ "safety_stock": 5.66, "reorder_point": 22.64, "target_stock": 46.41,
+ "available_stock": 16, "on_order_stock": 0, "inventory_position": 16,
+ "should_restock": true, "suggested_quantity": 32}
 ```
 
 - **Demanda**: unidades de órdenes no canceladas, contadas por fecha de creación. La ventana larga
@@ -232,6 +232,37 @@ Una fila por producto, **primero los que hay que reponer** (de mayor a menor can
 Con la semilla de demo y exactamente esos params van a ver los tres casos: productos a reponer,
 productos cubiertos por un pedido en camino (`on_order_stock > 0`, `should_restock: false`) y
 productos sanos.
+
+### `POST /metrics/suggestion-conversion`
+
+Cuánto de lo que se pide sale de una recomendación del servicio de sugerencias. Los clientes marcan
+`from_recommendation: true` en cada ítem de `POST /orders` que agregaron desde una sugerencia
+(opcional; ausente = `false`).
+
+```json
+POST /metrics/suggestion-conversion
+{"params": {"from": "2026-09-01T00:00:00Z", "to": "2026-10-01T00:00:00Z",
+            "granularity": "day", "time_zone": "America/Argentina/Buenos_Aires"},
+ "filters": {"category": "TECNOLOGIA"}}
+```
+
+- `from` inclusive, `to` exclusivo, como máximo 731 días. `granularity`: `day`, `week` (de lunes a
+  domingo) o `month`. `time_zone` (IANA) es opcional y por defecto `UTC`: define dónde se corta
+  cada día. `filters.product_ids` / `filters.category` limitan las **líneas** consideradas.
+- Una fila por bucket, de más viejo a más nuevo, **incluidos los buckets vacíos** (ceros), así que
+  la serie no tiene huecos. `bucket` es el primer día del bucket (`YYYY-MM-DD`).
+- Los pedidos cancelados no cuentan.
+
+```json
+{"bucket": "2026-09-01", "orders": 33, "orders_with_recommendation": 9,
+ "order_conversion_rate": 0.2727, "lines": 71, "lines_from_recommendation": 12,
+ "line_conversion_rate": 0.169, "units": 164, "units_from_recommendation": 25,
+ "unit_conversion_rate": 0.1524}
+```
+
+`order_conversion_rate` = pedidos con al menos una línea recomendada / pedidos; `line_…` y `unit_…`
+son lo mismo por línea y por unidad. Cada tasa vale 0 si no hubo pedidos en el bucket. Con filtros,
+un pedido cuenta si tiene al menos una línea que cumple el filtro.
 
 ### La recomendación diaria: `product.restock`
 
@@ -296,7 +327,7 @@ POST /query/orders
   "items": [
     {"units": 12, "sku": "OTR-001"},
     {"units": 12, "sku": "TEC-002"},
-    {"units": 12, "sku": "HER-001"}
+    {"units": 12, "sku": "TEC-004"}
   ]
 }
 ```

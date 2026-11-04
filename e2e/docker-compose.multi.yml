@@ -1,0 +1,29 @@
+# Overlay for the multi-instance E2E group (`make e2e-multi`, docs/E2E.md "Multiple backend instances").
+# Used together with docker-compose.suite.yml: adds a SECOND backend (`backend2`) that shares
+# the same MongoDB replica set, Redpanda and MinIO as `backend`, and nothing else. Both boot at the same
+# time on an empty database, which is what the boot-race test needs. Project name: whmulti (e2e/multi.sh).
+services:
+  backend2:
+    extends:
+      file: docker-compose.yml
+      service: backend
+    build: !reset null
+    image: ${COMPOSE_PROJECT_NAME}-backend
+    pull_policy: never
+    ports: !reset []
+    environment:
+      INFRA_API_KEY: ${INFRA_API_KEY}
+      SEED_DEMO: "true"
+      JWT_SECRET: ${JWT_SECRET}
+      WH_QR_PREFIX: "WH2|"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+
+  runner:
+    environment:
+      BACKEND2_URL: http://backend2:8080

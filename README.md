@@ -11,6 +11,7 @@ Backend service for the SmartWarehouse autonomous warehouse system. Built with S
 | Runtime | Java 25 / Spring Boot 4.0 |
 | Database | MongoDB 7 |
 | Message broker | Redpanda (Kafka-compatible) |
+| Recommendations | Go service `suggestions/` + Redis ([docs/SUGGESTIONS.md](docs/SUGGESTIONS.md)) |
 | Auth | Spring Security + JWT |
 | API docs | SpringDoc OpenAPI (Swagger UI) |
 | Containerization | Docker + Docker Compose |
@@ -109,13 +110,14 @@ feature/* ──► develop ──► beta/* ──► master
 | Coverage | JaCoCo | Minimum **95%** instruction coverage |
 | Architecture | ArchUnit | Services must not depend on controllers; repositories must not depend on services or controllers |
 | Bridge coverage | `scripts/go-coverage.sh` | Minimum **90%** statements over `./internal/...` (without `internal/fakeinfra`) |
+| Suggestions coverage | `scripts/go-coverage.sh` | Minimum **90%** statements over `./internal/...` |
 | Console coverage | Vitest | Minimum **90%** (thresholds in `console/vite.config.ts`) |
 | Diff coverage | diff-cover | Minimum **90%** of the changed lines, per component touched |
 
 Draft PRs are skipped by CI until marked ready for review.
 
 CI is path-aware: `scripts/ci-changes.sh` decides which components the PR touches (`backend/`,
-`bridge/` + `e2e/`, `console/`, and the platform files: compose, `.env.example`, `config/`,
+`bridge/` + `e2e/`, `suggestions/`, `console/`, and the platform files: compose, `.env.example`, `config/`,
 workflows, `scripts/`) and only their jobs run; a change to `ci.yml`, `scripts/ci-changes.sh` or
 the `Makefile` runs everything. The bridge's total and diff coverage measure `./internal/...` only
 (`cmd/` is not counted). The final `ci-ok` job passes when every job passed or was skipped, so **`ci-ok` is the

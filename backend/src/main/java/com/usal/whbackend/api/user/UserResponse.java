@@ -10,7 +10,19 @@ public record UserResponse(
     String role,
     boolean active,
     Instant createdAt,
-    AddressResponse address) {
+    AddressResponse address,
+    String supplier) {
+
+  public UserResponse(
+      String id,
+      String email,
+      String name,
+      String role,
+      boolean active,
+      Instant createdAt,
+      AddressResponse address) {
+    this(id, email, name, role, active, createdAt, address, null);
+  }
 
   public record AddressResponse(
       String street, String department, String floor, String postalCode) {}
@@ -32,6 +44,7 @@ public record UserResponse(
         user.getRole().name(),
         user.isActive(),
         user.getCreatedAt(),
-        address);
+        address,
+        user.getSupplier());
   }
 }

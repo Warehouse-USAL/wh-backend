@@ -129,6 +129,7 @@ El Backend actúa como gateway entre los consumidores y el ecosistema de vehícu
 | product_id | string (UUID) | Referencia al producto |
 | sku | string | SKU del producto al momento de la orden |
 | quantity | integer | Cantidad solicitada |
+| from_recommendation | boolean | Opcional al crear (ausente = `false`). `true` si el cliente tomó este producto de una sugerencia del servicio de sugerencias. Alimenta la métrica `suggestion_conversion` |
 
 ### 3.4. Vehículo (Rover)
 
@@ -416,8 +417,8 @@ Las respuestas de error siguen el formato:
 |---|---|---|
 | `GET /users` | Listado de usuarios. Params: `role`, `isActive`. | `admin_system` |
 | `GET /users/:id` | Detalle de un usuario. | `admin_system` |
-| `POST /users` | Crea un usuario con contraseña inicial. | `admin_system` |
-| `PATCH /users/:id` | Actualiza nombre, rol o estado. El email no se puede modificar. | `admin_system` |
+| `POST /users` | Crea un usuario con contraseña inicial. `supplier` es opcional; un `provider` sin vínculo no puede usar operaciones de proveedor. | `admin_system` |
+| `PATCH /users/:id` | Actualiza nombre, rol, estado o `supplier`. El email no se puede modificar; `supplier` puede omitirse. | `admin_system` |
 | `POST /users/:id/reset-password` | Setea una nueva contraseña. | `admin_system` |
 
 ### 9.3. Productos

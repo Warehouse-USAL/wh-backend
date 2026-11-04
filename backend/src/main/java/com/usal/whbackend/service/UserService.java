@@ -2,12 +2,14 @@ package com.usal.whbackend.service;
 
 import com.usal.whbackend.api.user.CreateUserRequest;
 import com.usal.whbackend.api.user.UpdateUserRequest;
+import com.usal.whbackend.config.UserActivityCache;
 import com.usal.whbackend.domain.User;
 import com.usal.whbackend.domain.UserRole;
 import com.usal.whbackend.repository.UserRepository;
 import com.usal.whbackend.service.exception.EmailAlreadyExistsException;
 import com.usal.whbackend.service.exception.UserNotFoundException;
 import java.time.Instant;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
@@ -20,21 +22,24 @@ public class UserService {
 
   private final UserRepository userRepository;
   private final PasswordEncoder passwordEncoder;
+  private UserActivityCache userActivityCache;
 
   public UserService(UserRepository userRepository, PasswordEncoder passwordEncoder) {
     this.userRepository = userRepository;
     this.passwordEncoder = passwordEncoder;
   }
 
-  public Page<User> getUsers(String role, Boolean active, Pageable pageable) {
-    UserRole parsedRole = null;
-    if (role != null) {
-      try {
-        parsedRole = UserRole.valueOf(role);
-      } catch (IllegalArgumentException e) {
-        throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "INVALID_ROLE");
-      }
+  /** An unknown role is a client error with a stable code, never the raw enum message. */
+  private static UserRole parseRole(String role) {
+    try {
+      return UserRole.valueOf(role);
+    } catch (IllegalArgumentException e) {
+      throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "INVALID_ROLE");
     }
+  }
+
+  public Page<User> getUsers(String role, Boolean active, Pageable pageable) {
+    UserRole parsedRole = role != null ? parseRole(role) : null;
     if (parsedRole != null && active != null) {
       return userRepository.findByRoleAndActive(parsedRole, active, pageable);
     }
@@ -58,19 +63,56 @@ public class UserService {
     User user = new User();
     user.setEmail(request.email());
     user.setName(request.name());
-    user.setRole(UserRole.valueOf(request.role()));
+    user.setRole(parseRole(request.role()));
+    user.setSupplier(request.supplier());
+    normalizeSupplierForRole(user);
     user.setPasswordHash(passwordEncoder.encode(request.initialPassword()));
     user.setActive(true);
     user.setCreatedAt(Instant.now());
     return userRepository.save(user);
   }
 
+  /** Forgets the cached "is this user active" answer as soon as the account changes. */
+  @Autowired(required = false)
+  public void setUserActivityCache(UserActivityCache userActivityCache) {
+    this.userActivityCache = userActivityCache;
+  }
+
   public User updateUser(String id, UpdateUserRequest request) {
     User user = userRepository.findById(id).orElseThrow(() -> new UserNotFoundException(id));
     if (request.name() != null) user.setName(request.name());
-    if (request.role() != null) user.setRole(UserRole.valueOf(request.role()));
+    if (request.role() != null) user.setRole(parseRole(request.role()));
     if (request.active() != null) user.setActive(request.active());
-    return userRepository.save(user);
+    if (request.supplier() != null) user.setSupplier(request.supplier());
+    normalizeSupplierForRole(user);
+    User saved = userRepository.save(user);
+    if (userActivityCache != null) {
+      userActivityCache.evict(id);
+    }
+    return saved;
+  }
+
+  /**
+   * A PROVIDER may exist before it is linked to a supplier, but supplier-scoped operations reject
+   * unlinked providers in {@link #supplierOf(String)}. Any other role has no supplier.
+   */
+  private static void normalizeSupplierForRole(User user) {
+    if (user.getRole() != UserRole.PROVIDER) {
+      user.setSupplier(null);
+      return;
+    }
+    String supplier = user.getSupplier();
+    user.setSupplier(supplier == null || supplier.isBlank() ? null : supplier.trim());
+  }
+
+  /** The supplier a PROVIDER user delivers for; a provider not linked to one may do nothing. */
+  public String supplierOf(String userId) {
+    User user =
+        userRepository.findById(userId).orElseThrow(() -> new UserNotFoundException(userId));
+    if (user.getSupplier() == null || user.getSupplier().isBlank()) {
+      throw new ResponseStatusException(HttpStatus.FORBIDDEN, "PROVIDER_WITHOUT_SUPPLIER");
+    }
+    return user.getSupplier();
   }
 
   public void resetPassword(String id, String newPassword) {

@@ -20,7 +20,26 @@ public record CreateOrderRequest(
     this(items, destinationArea, address, null);
   }
 
-  public record OrderItemRequest(@JsonProperty("product_id") String productId, int quantity) {}
+  /**
+   * One requested line.
+   *
+   * @param fromRecommendation optional; {@code true} when the client picked this product from a
+   *     suggestion of the suggestions service. Absent or {@code null} means {@code false}, so
+   *     clients that do not know the field keep working unchanged.
+   */
+  public record OrderItemRequest(
+      @JsonProperty("product_id") String productId,
+      int quantity,
+      @JsonProperty("from_recommendation") Boolean fromRecommendation) {
+
+    public OrderItemRequest(String productId, int quantity) {
+      this(productId, quantity, null);
+    }
+
+    public boolean recommended() {
+      return Boolean.TRUE.equals(fromRecommendation);
+    }
+  }
 
   public record AddressRequest(
       String street,

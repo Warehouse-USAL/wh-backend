@@ -101,4 +101,24 @@ class JwtAuthFilterTest {
                     .DEFAULT_REQUEST_ATTR_NAME))
         .isNotNull();
   }
+
+  @Test
+  void tokenOfADeactivatedUser_doesNotAuthenticateAndContinuesChain() throws Exception {
+    JwtService real = new JwtService("test-secret-key-for-unit-tests-min32ch", 86_400_000L);
+    UserActivityCache activity = mock(UserActivityCache.class);
+    real.setUserActivity(activity);
+    com.usal.whbackend.domain.User user = new com.usal.whbackend.domain.User();
+    user.setId("USR-9");
+    user.setRole(com.usal.whbackend.domain.UserRole.OPERATOR);
+    when(activity.isActive("USR-9")).thenReturn(false);
+    MockHttpServletRequest request = new MockHttpServletRequest();
+    request.addHeader("Authorization", "Bearer " + real.generateToken(user));
+    MockHttpServletResponse response = new MockHttpServletResponse();
+    FilterChain chain = mock(FilterChain.class);
+
+    new JwtAuthFilter(real).doFilter(request, response, chain);
+
+    assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
+    verify(chain).doFilter(request, response);
+  }
 }

@@ -3,7 +3,7 @@
     <!-- Spring constructor injection stores service references, not mutable data -->
     <Match>
         <Bug pattern="EI_EXPOSE_REP2"/>
-        <Class name="~.*(Controller|Config|Repository|Service|Consumer|WebSocketHandler|HandshakeInterceptor)"/>
+        <Class name="~.*(Controller|Config|Repository|Service|Consumer|WebSocketHandler|HandshakeInterceptor|Publisher)"/>
     </Match>
     <!-- Product, Order, and OrderItem are mutable MongoDB domain classes; embedded value objects
          (Price, ProductImage, Spec) are handled by Spring Data MongoDB reflective field-setting. -->
@@ -47,5 +47,18 @@
         <Bug pattern="EI_EXPOSE_REP"/>
         <Class name="com.usal.whbackend.service.console.ConsoleProperties"/>
         <Method name="getStream"/>
+    </Match>
+    <!-- Carries the Position document straight out of the save that just ran — the live Spring Data
+         document PositionService hands back uncopied everywhere else; the controller only reads it
+         before serialising. The cancelled-orders list is copied. -->
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Class name="com.usal.whbackend.service.PositionService$PositionUpdate"/>
+    </Match>
+    <!-- JwtService is a Spring singleton that gained an optional, setter-injected collaborator; the
+         filter only stores the injected bean, like the constructor-injected services above. -->
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP2"/>
+        <Class name="com.usal.whbackend.config.JwtAuthFilter"/>
     </Match>
 </FindBugsFilter>

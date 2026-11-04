@@ -6,6 +6,8 @@ public class OrderItem {
   private String sku;
   private int quantity;
   private Product.Price unitPrice;
+  // True when the client took this line from a suggestion; absent in older documents = false.
+  private boolean fromRecommendation;
 
   public OrderItem() {}
 
@@ -18,6 +20,16 @@ public class OrderItem {
     this.sku = sku;
     this.quantity = quantity;
     this.unitPrice = unitPrice == null ? null : new Product.Price(unitPrice);
+  }
+
+  public OrderItem(
+      String productId,
+      String sku,
+      int quantity,
+      Product.Price unitPrice,
+      boolean fromRecommendation) {
+    this(productId, sku, quantity, unitPrice);
+    this.fromRecommendation = fromRecommendation;
   }
 
   public String getProductId() {
@@ -34,6 +46,14 @@ public class OrderItem {
 
   public void setSku(String sku) {
     this.sku = sku;
+  }
+
+  public boolean isFromRecommendation() {
+    return fromRecommendation;
+  }
+
+  public void setFromRecommendation(boolean fromRecommendation) {
+    this.fromRecommendation = fromRecommendation;
   }
 
   public int getQuantity() {

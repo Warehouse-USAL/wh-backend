@@ -20,6 +20,10 @@ public class User {
   private Instant createdAt;
   private Address address;
 
+  // The supplier a PROVIDER user delivers for, matching RestockOrder.supplier and
+  // Reception.supplier. Null for every other role.
+  private String supplier;
+
   public User() {}
 
   public String getId() {
@@ -84,5 +88,13 @@ public class User {
 
   public void setAddress(Address address) {
     this.address = address == null ? null : new Address(address);
+  }
+
+  public String getSupplier() {
+    return supplier;
+  }
+
+  public void setSupplier(String supplier) {
+    this.supplier = supplier;
   }
 }

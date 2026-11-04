@@ -9,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.Date;
 import javax.crypto.SecretKey;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -17,6 +18,9 @@ public final class JwtService {
 
   private final SecretKey key;
   private final long expirationMs;
+
+  /** Null when none is wired (plain unit tests): then only the signature and expiry count. */
+  private UserActivityCache userActivity;
 
   public JwtService(
       @Value("${jwt.secret}") String secret, @Value("${jwt.expiration-ms}") long expirationMs) {
@@ -36,10 +40,21 @@ public final class JwtService {
         .compact();
   }
 
+  @Autowired(required = false)
+  public void setUserActivity(UserActivityCache userActivity) {
+    this.userActivity = userActivity;
+  }
+
+  /**
+   * Whether the token is signed with our key, unexpired, and still usable by its owner: the user it
+   * names must exist and be active (see {@link UserActivityCache}), so deactivating an account
+   * invalidates the tokens it already holds. Every authentication path (HTTP filter, WebSocket
+   * handshakes, the console) goes through here.
+   */
   public boolean isTokenValid(String token) {
     try {
-      parseClaims(token);
-      return true;
+      Claims claims = parseClaims(token);
+      return userActivity == null || userActivity.isActive(claims.getSubject());
     } catch (JwtException | IllegalArgumentException e) {
       return false;
     }

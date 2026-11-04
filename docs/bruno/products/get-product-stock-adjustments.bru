@@ -1,0 +1,24 @@
+meta {
+  name: Get Product Stock Adjustments
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{baseUrl}}/products/:id/stock-adjustments?page=0&size=10
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{token}}
+}
+
+params:path {
+  id: PRODUCT_ID_HERE
+}
+
+params:query {
+  page: 0
+  size: 10
+}

@@ -216,4 +216,16 @@ class OrderResponseTest {
         new CreateOrderRequest(List.of(), "AREA-A", null, OrderPriority.URGENT);
     assertEquals(OrderPriority.URGENT, request.priority());
   }
+
+  @Test
+  void from_exposesFromRecommendationPerItem_defaultFalse() {
+    Order order = new Order();
+    order.setItems(
+        List.of(new OrderItem("p-1", "S-1", 1, null, true), new OrderItem("p-2", "S-2", 1)));
+
+    OrderResponse response = OrderResponse.from(order);
+
+    assertTrue(response.items().get(0).fromRecommendation());
+    assertFalse(response.items().get(1).fromRecommendation());
+  }
 }

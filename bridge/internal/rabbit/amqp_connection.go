@@ -11,7 +11,7 @@ func dial(
 ) (connection, error) {
 	conn, err := amqp.DialConfig(url, amqp.Config{Dial: amqp.DefaultDial(dialTimeout)})
 	if err != nil {
-		return nil, err
+		return nil, withHint(url, err)
 	}
 	return amqpConnection{conn}, nil
 }

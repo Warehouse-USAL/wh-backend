@@ -62,7 +62,9 @@ public class VehicleTelemetryService {
             previous -> {
               Update update = new Update().set("lastSeenAt", seenAt);
               if (battery != null) {
-                update.set("battery", battery);
+                // A percentage. Infra derives it from a voltage and can overshoot; the reading is
+                // still real, so it is clamped rather than refused (a 4xx would drop its status).
+                update.set("battery", Math.max(0, Math.min(100, battery)));
               }
               if (current != null) {
                 update.set("status", current);

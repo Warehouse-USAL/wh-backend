@@ -69,13 +69,18 @@ final class DemoHistory {
   record Result(List<Order> orders, List<RestockOrder> restockOrders, List<Reception> receptions) {}
 
   private static final long SEED = 20_261_004L;
-  private static final int BASE_ORDERS_PER_DAY = 68;
+  private static final int BASE_ORDERS_PER_DAY = 30;
+  // Share of order lines taken from a suggestion at the start and at the end of the history.
+  private static final double FIRST_ADOPTION = 0.04;
+  private static final double LAST_ADOPTION = 0.26;
   private static final double YEARLY_GROWTH = 0.15;
   private static final double CUSTOMER_CANCEL_RATE = 0.03;
   private static final double PARTIAL_DELIVERY_RATE = 0.12;
   private static final int MIN_PURCHASE = 5;
   private static final int OPENING_STOCK = 250;
   private static final int NEVER_ORDERED_STOCK = 30;
+  // Products whose positions hold at least this many units sell at full popularity.
+  private static final double FULL_DEMAND_CAPACITY = 400.0;
   private static final String STOCKOUT = "Stock insuficiente";
   // The longest created → completed span DemoDataset gives a completed order (up to 4h to start,
   // up to 6h to deliver): an order more recent than this cannot have completed yet.
@@ -175,10 +180,13 @@ final class DemoHistory {
           positionsByProduct.getOrDefault(p.getId(), List.of()).stream()
               .mapToInt(Position::getMaximumCapacity)
               .sum();
-      // Products with two positions are the best sellers; the rest spread over 0.6–1.4.
+      // Products with two positions are the best sellers; the rest spread over 0.6–1.4. Bulky
+      // products (few units fit in their positions) sell proportionally less, so demand never
+      // outgrows what the warehouse can hold between deliveries.
       popularity[i] =
           (0.6 + Math.floorMod(i * 7, 9) / 10.0)
-              * (positionsByProduct.getOrDefault(p.getId(), List.of()).size() > 1 ? 1.4 : 1.0);
+              * (positionsByProduct.getOrDefault(p.getId(), List.of()).size() > 1 ? 1.4 : 1.0)
+              * Math.min(1.0, capacity[i] / FULL_DEMAND_CAPACITY);
       promoDays.add(promotions());
     }
   }
@@ -206,6 +214,7 @@ final class DemoHistory {
     }
     processOrders(0, nearTermByDay.getOrDefault(0, List.of()));
     shapeEndState();
+    markRecommendedLines();
     return new Result(orders, restockOrders, receptions);
   }
 
@@ -558,6 +567,67 @@ final class DemoHistory {
     }
   }
 
+  // ── Suggestions ──────────────────────────────────────────────────────────────
+
+  /**
+   * Which lines were taken from a suggestion of the suggestions service ({@code
+   * from_recommendation}), for the suggestion-conversion metric.
+   *
+   * <p>Adoption grows over the two years, from {@link #FIRST_ADOPTION} to {@link #LAST_ADOPTION} of
+   * the lines, with a small bump in the November-December campaigns. A cart suggestion ("also add")
+   * is by nature the second or third line of an order, so the first line is rarely one. Decided in
+   * its own pass with its own generator keyed by order number, so it neither perturbs the stock
+   * simulation above nor depends on it; and a day with orders always has at least one recommended
+   * line, so the daily series of the metric never has an empty day.
+   */
+  private void markRecommendedLines() {
+    Map<LocalDate, List<Order>> byDay = new HashMap<>();
+    for (Order o : orders) {
+      if (o.getStatus() == OrderStatus.CANCELLED || o.getItems().isEmpty()) {
+        continue;
+      }
+      byDay
+          .computeIfAbsent(LocalDate.ofInstant(o.getCreatedAt(), ZONE), k -> new ArrayList<>())
+          .add(o);
+    }
+    byDay.forEach(
+        (date, dayOrders) -> {
+          dayOrders.sort(Comparator.comparing(Order::getCreatedAt).thenComparing(Order::getId));
+          double progress =
+              Math.min(
+                  1.0,
+                  Math.max(
+                      0.0, 1.0 - ChronoUnit.DAYS.between(date, today) / (double) HISTORY_DAYS));
+          double adoption = FIRST_ADOPTION + (LAST_ADOPTION - FIRST_ADOPTION) * progress;
+          if (date.getMonthValue() >= 11) {
+            adoption *= 1.15;
+          }
+          boolean any = false;
+          for (Order o : dayOrders) {
+            for (int k = 0; k < o.getItems().size(); k++) {
+              double p = adoption * (k == 0 ? 0.35 : 1.3);
+              if (unit(SEED ^ ((long) o.getId().hashCode() << 8) ^ k) < p) {
+                o.getItems().get(k).setFromRecommendation(true);
+                any = true;
+              }
+            }
+          }
+          if (!any) {
+            Order first = dayOrders.get(0);
+            first.getItems().get(first.getItems().size() - 1).setFromRecommendation(true);
+          }
+        });
+  }
+
+  /** A deterministic value in [0, 1) for {@code key} (the SplitMix64 finaliser), stateless. */
+  private static double unit(long key) {
+    long z = key + 0x9E3779B97F4A7C15L;
+    z = (z ^ (z >>> 30)) * 0xBF58476D1CE4E5B9L;
+    z = (z ^ (z >>> 27)) * 0x94D049BB133111EBL;
+    z ^= z >>> 31;
+    return (z >>> 11) * 0x1.0p-53;
+  }
+
   // ── End state ────────────────────────────────────────────────────────────────
 
   private void shapeEndState() {
@@ -598,15 +668,22 @@ final class DemoHistory {
       RestockResult r = endFormula(i, after, 0);
       int target = (int) Math.ceil(r.targetStock());
       if (group == 1) {
-        // Covered: the suggested purchase was placed a day or three ago and is on its way.
-        int qty = Math.min(target - available(i), capacity[i] - stock[i]);
+        // Covered: the suggested purchase was placed a day or three ago and is on its way. It is
+        // not capped by the position: a single position can hold less than the policy's target
+        // stock, and what is in transit is not on the shelf yet.
+        int qty = target - available(i);
         if (qty <= 0) {
           continue;
         }
         OpenOrder order =
             purchase(i, qty, now.minus(1 + i % 3, ChronoUnit.DAYS), 0 /* arrives later */);
-        if (!partialSeeded && qty >= 2) {
-          receive(i, order, qty / 2, now.minus(12, ChronoUnit.HOURS));
+        // A first delivery already arrived, but small enough to leave the product under its
+        // reorder point: that is what makes it "covered" rather than healthy.
+        int room =
+            Math.min((int) Math.floor(r.reorderPoint()) - available(i), capacity[i] - stock[i]);
+        int arrived = Math.min(qty / 2, room);
+        if (!partialSeeded && arrived >= 1) {
+          receive(i, order, arrived, now.minus(12, ChronoUnit.HOURS));
           partialSeeded = true;
         }
       } else if (group == 2 && available(i) <= Math.max(r.reorderPoint(), target - 1)) {

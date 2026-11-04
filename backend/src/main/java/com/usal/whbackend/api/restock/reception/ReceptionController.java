@@ -1,9 +1,12 @@
 package com.usal.whbackend.api.restock.reception;
 
 import com.usal.whbackend.api.Pagination;
+import com.usal.whbackend.api.Roles;
 import com.usal.whbackend.domain.Reception;
 import com.usal.whbackend.domain.ReceptionStatus;
+import com.usal.whbackend.domain.UserRole;
 import com.usal.whbackend.service.ReceptionService;
+import com.usal.whbackend.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
@@ -36,30 +39,45 @@ import org.springframework.web.bind.annotation.RestController;
 public class ReceptionController {
 
   private final ReceptionService receptionService;
+  private final UserService userService;
 
-  public ReceptionController(ReceptionService receptionService) {
+  public ReceptionController(ReceptionService receptionService, UserService userService) {
     this.receptionService = receptionService;
+    this.userService = userService;
   }
 
   @Operation(
       summary = "Register reception",
       description =
           "Registers the remito and its position assignments atomically, incrementing stock"
-              + " (RN-04/05/06/07).")
+              + " (RN-04/05/06/07). A PROVIDER registers its own delivery: restock_order_id"
+              + " (one of its supplier's orders) is required, assignments are not allowed and"
+              + " supplier is its own, so the reception is created PENDING_LOCATION and adds no"
+              + " stock until an administrator assigns positions with PATCH.")
   @ApiResponse(responseCode = "201", description = "Reception registered")
   @ApiResponse(
       responseCode = "400",
       description =
-          "PRODUCT_NOT_FOUND, ASSIGNMENT_QUANTITY_MISMATCH, RESTOCK_ORDER_PRODUCT_MISMATCH")
+          "PRODUCT_NOT_FOUND, ASSIGNMENT_QUANTITY_MISMATCH, RESTOCK_ORDER_PRODUCT_MISMATCH,"
+              + " SUPPLIER_REQUIRED, RESTOCK_ORDER_REQUIRED, ASSIGNMENTS_NOT_ALLOWED")
+  @ApiResponse(
+      responseCode = "403",
+      description = "PROVIDER_WITHOUT_SUPPLIER — provider not linked to a supplier")
   @ApiResponse(responseCode = "404", description = "RESTOCK_ORDER_NOT_FOUND, POSITION_NOT_FOUND")
   @ApiResponse(
       responseCode = "409",
       description = "POSITION_ALREADY_OCCUPIED, STOCK_EXCEEDS_CAPACITY")
+  @PreAuthorize("hasAnyRole('SUPERADMIN', 'ADMIN_WAREHOUSE', 'PROVIDER')")
   @PostMapping
   public ResponseEntity<Map<String, ReceptionResponse>> createReception(
       @Valid @RequestBody CreateReceptionRequest request,
       @CurrentSecurityContext(expression = "authentication") Authentication authentication) {
-    Reception reception = receptionService.createReception(request, authentication.getName());
+    String providerSupplier =
+        Roles.of(authentication).contains(UserRole.PROVIDER)
+            ? userService.supplierOf(authentication.getName())
+            : null;
+    Reception reception =
+        receptionService.createReception(request, authentication.getName(), providerSupplier);
     return ResponseEntity.status(HttpStatus.CREATED)
         .body(Map.of("reception", ReceptionResponse.from(reception)));
   }

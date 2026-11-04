@@ -7,6 +7,7 @@ import com.usal.whbackend.domain.ProductCategory;
 import com.usal.whbackend.domain.ProductRestock;
 import com.usal.whbackend.domain.Reception;
 import com.usal.whbackend.domain.RestockOrder;
+import com.usal.whbackend.domain.RestockOrderStatus;
 import com.usal.whbackend.service.ProductService;
 import com.usal.whbackend.service.exception.InvalidMetricParamsException;
 import java.time.Clock;
@@ -167,13 +168,24 @@ public class RestockSuggestionService {
   }
 
   /**
-   * Restock orders and receptions accumulate with no end date (an order has no status to close it),
-   * so both reads project only the fields {@link RestockInputs#onOrderByProduct} sums.
+   * Restock orders and receptions accumulate with no end date, so both reads project only the
+   * fields {@link RestockInputs#onOrderByProduct} sums (plus the order status). A cancelled order
+   * will never arrive, so it is not stock on order: the query leaves it out ({@code $ne} also
+   * matches documents saved before the status existed, which read as pending) and the result is
+   * filtered again in case a store returns it anyway.
    */
   private Map<String, Integer> findOnOrder(List<String> productIds) {
-    Query orders = new Query(Criteria.where("productId").in(productIds));
-    orders.fields().include("productId", "quantityRequested");
-    List<RestockOrder> restockOrders = mongoTemplate.find(orders, RestockOrder.class);
+    Query orders =
+        new Query(
+            Criteria.where("productId")
+                .in(productIds)
+                .and("status")
+                .ne(RestockOrderStatus.CANCELLED));
+    orders.fields().include("productId", "quantityRequested", "status");
+    List<RestockOrder> restockOrders =
+        mongoTemplate.find(orders, RestockOrder.class).stream()
+            .filter(order -> !order.isCancelled())
+            .toList();
     if (restockOrders.isEmpty()) {
       return Map.of();
     }

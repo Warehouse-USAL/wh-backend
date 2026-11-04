@@ -1,0 +1,100 @@
+# Overlay for the full-system E2E suite (e2e/suite, docs/E2E.md). Used through `make e2e-suite`
+# (e2e/suite.sh); never points at Infra's real broker. Everything runs inside the compose network:
+# no host ports, named volumes (so `down -v` leaves nothing), the runner reaches services by name.
+services:
+  backend:
+    ports: !reset []
+    environment:
+      INFRA_API_KEY: ${INFRA_API_KEY}
+      SEED_DEMO: "true"
+      JWT_SECRET: ${JWT_SECRET}
+      WH_QR_PREFIX: "WH2|"
+  mongodb:
+    ports: !reset []
+    volumes: [suite_mongodb:/data/db]
+  redpanda:
+    ports: !reset []
+    volumes: [suite_redpanda:/var/lib/redpanda/data]
+  minio:
+    ports: !reset []
+    volumes: [suite_minio:/data]
+  victoriametrics:
+    ports: !reset []
+    volumes: [suite_vm:/victoria-metrics-data]
+  otel-collector:
+    ports: !reset []
+  console:
+    ports: !reset []
+    volumes: !reset []
+  suggestions:
+    ports: !reset []
+    environment:
+      JWT_SECRET: ${JWT_SECRET}
+  suggestions-redis:
+    volumes: [suite_redis:/data]
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    environment:
+      RABBITMQ_DEFAULT_USER: suite
+      RABBITMQ_DEFAULT_PASS: suite
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    networks: [wh-network]
+    profiles: [infra]
+
+  bridge:
+    environment:
+      AMQP_URL: amqp://suite:suite@rabbitmq:5672/
+      INFRA_API_KEY: ${INFRA_API_KEY}
+      RETRY_MIN: 500ms
+      RETRY_MAX: 4s
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+
+  fakeinfra:
+    build:
+      context: ./bridge
+      target: fakeinfra
+    environment:
+      AMQP_URL: amqp://suite:suite@rabbitmq:5672/
+      FAKE_VEHICLE_ID: VHC-SUITE
+      FAKE_STEP_DELAY: 1s
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks: [wh-network]
+    profiles: [infra]
+
+  restock-cron:
+    environment:
+      RESTOCK_RUN_ON_START: "true"
+
+  # The test runner: joins the compose network, drives every service by name and, for the
+  # resilience group, controls sibling containers through the Docker socket.
+  runner:
+    build: ./e2e/suite
+    environment:
+      COMPOSE_PROJECT: ${COMPOSE_PROJECT_NAME}
+      INFRA_API_KEY: ${INFRA_API_KEY}
+      JWT_SECRET: ${JWT_SECRET}
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      PYTEST_ARGS: ${PYTEST_ARGS:-}
+    volumes:
+      - ./e2e/suite:/suite
+      - ./e2e/results:/results
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks: [wh-network]
+    profiles: [runner]
+
+volumes:
+  suite_mongodb:
+  suite_redpanda:
+  suite_minio:
+  suite_vm:
+  suite_redis:
