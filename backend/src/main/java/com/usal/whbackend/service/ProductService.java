@@ -253,7 +253,10 @@ public class ProductService {
             .findById(id)
             .orElseThrow(
                 () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "PRODUCT_NOT_FOUND"));
-    if (!product.isActive()) {
+    // An inactive product is hidden from the catalogue, so a plain edit still answers 404. The one
+    // request that may reach it is the one that switches it back on: without this exception a
+    // deactivated product could never be reactivated through the API.
+    if (!product.isActive() && !Boolean.TRUE.equals(request.isActive())) {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "PRODUCT_NOT_FOUND");
     }
     if (request.name() != null) product.setName(request.name());

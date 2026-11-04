@@ -393,6 +393,44 @@ class ProductServiceTest {
   }
 
   @Test
+  void updateProduct_inactiveProduct_canBeReactivated() {
+    Product p = activeProduct("1");
+    p.setActive(false);
+    when(productRepository.findById("1")).thenReturn(Optional.of(p));
+    when(positionRepository.findByProductIdInAndIsActiveTrue(any())).thenReturn(List.of());
+    mockZeroSingleReservedStock();
+
+    productService.updateProduct(
+        "1",
+        new UpdateProductRequest(
+            null, null, null, null, null, null, null, null, true, null, null, null, null));
+
+    Document update = capturedUpdate();
+    assertEquals(true, update.get("$set", Document.class).get("active"));
+  }
+
+  @Test
+  void updateProduct_inactiveProduct_anyOtherEditStillAnswers404() {
+    Product p = activeProduct("1");
+    p.setActive(false);
+    when(productRepository.findById("1")).thenReturn(Optional.of(p));
+
+    // No is_active at all, and an explicit is_active=false: neither reactivates it.
+    for (Boolean isActive : new Boolean[] {null, Boolean.FALSE}) {
+      ResponseStatusException ex =
+          assertThrows(
+              ResponseStatusException.class,
+              () ->
+                  productService.updateProduct(
+                      "1",
+                      new UpdateProductRequest(
+                          null, null, null, null, null, null, null, null, isActive, null, null,
+                          null, null)));
+      assertEquals("PRODUCT_NOT_FOUND", ex.getReason());
+    }
+  }
+
+  @Test
   void updateProduct_unknownId_throws404() {
     when(productRepository.findById("none")).thenReturn(Optional.empty());
     assertThrows(

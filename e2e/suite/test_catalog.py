@@ -116,6 +116,17 @@ def test_product_deactivate_hides_it(warehouse, factory):
     assert warehouse.get(f"/products/{p['id']}?isActive=false").status == 200
 
 
+def test_product_reactivate_after_deactivate(warehouse, factory):
+    """A deactivated product can be switched back on with PATCH is_active=true; any other edit of it is still 404"""
+    p = factory.product()
+    warehouse.patch(f"/products/{p['id']}", json={"is_active": False}).expect(200)
+    warehouse.patch(f"/products/{p['id']}", json={"name": "Renamed while inactive"}).expect(404, code="PRODUCT_NOT_FOUND")
+    warehouse.patch(f"/products/{p['id']}", json={"is_active": False}).expect(404, code="PRODUCT_NOT_FOUND")
+    warehouse.patch(f"/products/{p['id']}", json={"is_active": True}).expect(200)
+    got = warehouse.get(f"/products/{p['id']}").expect(200).json_("product")
+    assert got["active"] is True
+
+
 def test_product_delete_unassigns_positions_and_hides(warehouse, factory, sales):
     """DELETE /products/{id}: 204, product disappears, its positions are emptied and unassigned; sales cannot delete"""
     s = factory.stocked(15)
