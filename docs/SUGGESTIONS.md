@@ -322,4 +322,20 @@ docker compose --profile suggestions up -d suggestions   # with OTEL_EXPORTER_OT
 curl -s 'localhost:8428/api/v1/series?match[]={__name__=~"suggestions_.*"}'   # VictoriaMetrics, dev host
 ```
 
+### Redis itself
+
+The service's metrics above are the client's view (`suggestions.redis.errors`). Redis' own state is
+scraped by the collector's `redis` receiver (`suggestions-redis:6379`, INFO every 30 s, no
+password) in both `config/otel/collector-config.yml` and the prod overlay, and shown on the
+console's Infrastructure > Redis page (`/infra/redis`, docs/CONSOLE.md). It needs no setting on the
+service and nothing when the stack runs without the `suggestions` profile except one collector
+scrape warning per interval. Series: `redis_memory_used`, `redis_maxmemory`,
+`redis_clients_connected`, `redis_commands_processed`, `redis_keyspace_hits`,
+`redis_keyspace_misses`, `redis_keys_evicted`, `redis_keys_expired`, `redis_db_keys`,
+`redis_db_expires` (label `db`) and `redis_uptime`:
+
+```
+curl -s 'localhost:8428/api/v1/query?query=redis_db_keys'   # VictoriaMetrics, dev host
+```
+
 Not done: per-zone hot items and the warehouse-side restock suggestions (RFC out of scope).

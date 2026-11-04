@@ -163,6 +163,37 @@ public class MetricRegistry {
               "MinIO S3 traffic sent",
               "By",
               List.of()),
+          // Redis of the suggestions service, read by the collector's redis receiver
+          // (collector-config.yml, docs/CONSOLE.md "Scraped series"). The receiver names them, so
+          // each seriesName is the verified stored name.
+          gauge("redis.memory.used", "redis_memory_used", "Redis memory used", "By", List.of()),
+          gauge("redis.memory.max", "redis_maxmemory", "Redis memory limit", "By", List.of()),
+          gauge(
+              "redis.clients.connected",
+              "redis_clients_connected",
+              "Redis connected clients",
+              "1",
+              List.of()),
+          counter(
+              "redis.commands",
+              "redis_commands_processed",
+              "Redis commands processed",
+              "1",
+              List.of()),
+          counter(
+              "redis.keyspace.hits", "redis_keyspace_hits", "Redis keyspace hits", "1", List.of()),
+          counter(
+              "redis.keyspace.misses",
+              "redis_keyspace_misses",
+              "Redis keyspace misses",
+              "1",
+              List.of()),
+          counter("redis.keys.evicted", "redis_keys_evicted", "Redis keys evicted", "1", List.of()),
+          counter("redis.keys.expired", "redis_keys_expired", "Redis keys expired", "1", List.of()),
+          gauge("redis.db.keys", "redis_db_keys", "Redis keys", "1", List.of("db")),
+          gauge(
+              "redis.db.expires", "redis_db_expires", "Redis keys with a TTL", "1", List.of("db")),
+          gauge("redis.uptime", "redis_uptime", "Redis uptime", "s", List.of()),
           counter(
               "collector.received",
               "otelcol_receiver_accepted_metric_points",

@@ -5,7 +5,7 @@ describe('NAV', () => {
   it('navHasTheFiveSectionsInOrder', () => {
     expect(NAV.map((s) => s.section)).toEqual(['Overview', 'Monitoring', 'Infrastructure', 'Domains', 'Dev tools'])
     expect(NAV[2].items.map((i) => i.label)).toEqual([
-      'Backend', 'MongoDB', 'Bridge', 'Suggestions', 'Kafka', 'MinIO', 'Restock cron', 'Edge (prod)', 'Telemetry', 'Logs',
+      'Backend', 'MongoDB', 'Bridge', 'Suggestions', 'Redis', 'Kafka', 'MinIO', 'Restock cron', 'Edge (prod)', 'Telemetry', 'Logs',
     ])
   })
 

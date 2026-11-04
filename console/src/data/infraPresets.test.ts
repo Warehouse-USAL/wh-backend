@@ -21,6 +21,7 @@ const VALUES: Record<string, string[]> = {
   status_class: ['2xx', '4xx', '5xx'],
   operation: ['ingest', 'query', 'health'],
   endpoint: ['cart'],
+  db: ['0'],
   state: ['busy', 'max', 'current', 'in_use', 'available'],
   code: ['200', '304', '401', '403', '502'],
   collection: ['orders', 'users'],
@@ -142,6 +143,7 @@ describe('INFRA_PAGES', () => {
       '/infra/mongodb': 'mongo',
       '/infra/bridge': 'bridge',
       '/infra/suggestions': 'suggestions',
+      '/infra/redis': 'redis',
       '/infra/kafka': 'kafka',
       '/infra/minio': 'minio',
       '/infra/restock-cron': 'cron',
@@ -227,6 +229,48 @@ describe('INFRA_PAGES', () => {
     expect(find<TileSpec>(INFRA_PAGES.suggestions, 'Applied', 'order.completed').value(answer, ctx)).toMatchObject({ value: '89.47%' })
     expect(find<TileSpec>(INFRA_PAGES.suggestions, 'Redis errors').value([seq('x', [0, 0])], ctx)).toMatchObject({ value: '0', tone: 'ok' })
     expect(find<TileSpec>(INFRA_PAGES.suggestions, 'Redis errors').value([seq('x', [2, 1])], ctx)).toMatchObject({ value: '3', tone: 'warn' })
+  })
+
+  it('redisPresetReadsOnlyTheRedisReceiverSeries', () => {
+    const queries = metricQueries(INFRA_PAGES.redis)
+    expect([...new Set(queries.map((q) => q.metric))].sort()).toEqual([
+      'redis.clients.connected',
+      'redis.commands',
+      'redis.db.expires',
+      'redis.db.keys',
+      'redis.keys.evicted',
+      'redis.keys.expired',
+      'redis.keyspace.hits',
+      'redis.keyspace.misses',
+      'redis.memory.max',
+      'redis.memory.used',
+      'redis.uptime',
+    ])
+    expect(INFRA_PAGES.redis.groups.map((g) => g.title)).toEqual(['suggestions-redis', 'memory and clients', 'commands', 'keys'])
+  })
+
+  it('redisServiceTileIsReportingUntilItsScrapesGoStale', () => {
+    const tile = find<TileSpec>(INFRA_PAGES.redis, 'Redis')
+    expect(tile.value([seq('redis.uptime', [10, 40], T0 - 20_000)], ctx)).toMatchObject({ value: 'reporting', tone: 'ok', label: 'Last scrape 20 s ago' })
+    expect(tile.value([seq('redis.uptime', [10], T0 - 300_000)], ctx)).toMatchObject({ value: 'silent', tone: 'warn', label: 'Last scrape 5 min ago' })
+    // A stopped or absent Redis has no samples: no data, never a made-up status.
+    expect(tile.value([], ctx)).toBeUndefined()
+  })
+
+  it('redisTilesFormatUptimeMemoryKeysAndHitRatio', () => {
+    expect(find<TileSpec>(INFRA_PAGES.redis, 'Uptime').value([seq('redis.uptime', [90_000, 93_700])], ctx)).toMatchObject({ value: '1d 2h' })
+    expect(find<TileSpec>(INFRA_PAGES.redis, 'Memory used').value([seq('redis.memory.used', [1_000_000, 2_500_000])], ctx)).toMatchObject({ value: '2.5 MB' })
+    // Keys add up over the databases, each at its newest sample.
+    expect(find<TileSpec>(INFRA_PAGES.redis, 'Keys').value([seq('0', [1, 120]), seq('1', [5, 30])], ctx)).toMatchObject({ value: '150' })
+    const ratio = find<TileSpec>(INFRA_PAGES.redis, 'Hit ratio')
+    expect(ratio.value([seq('hits', [30, 45]), seq('misses', [10, 15])], ctx)).toMatchObject({ value: '75%' })
+    // No lookups at all is no data, not 0 %.
+    expect(ratio.value([seq('hits', [0, 0]), seq('misses', [0])], ctx)).toBeUndefined()
+    expect(find<TileSpec>(INFRA_PAGES.redis, 'Evicted keys').value([seq('x', [2, 1])], ctx)).toMatchObject({ value: '3', tone: 'warn' })
+    // maxmemory 0 is Redis for unlimited.
+    const limit = find<TileSpec>(INFRA_PAGES.redis, 'Memory limit')
+    expect(limit.value([seq('redis.memory.max', [0])], ctx)).toMatchObject({ value: 'none' })
+    expect(limit.value([seq('redis.memory.max', [256_000_000])], ctx)).toMatchObject({ value: '256 MB' })
   })
 
   it('mongoRequestsChartHasOkSlowAndFailed', () => {

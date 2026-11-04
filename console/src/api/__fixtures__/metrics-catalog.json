@@ -346,6 +346,83 @@
     "dimensions" : [ ],
     "permitted_aggregations" : [ "rate", "increase" ]
   }, {
+    "name" : "redis.memory.used",
+    "display_name" : "Redis memory used",
+    "unit" : "By",
+    "type" : "gauge",
+    "dimensions" : [ ],
+    "permitted_aggregations" : [ "avg", "max", "last" ]
+  }, {
+    "name" : "redis.memory.max",
+    "display_name" : "Redis memory limit",
+    "unit" : "By",
+    "type" : "gauge",
+    "dimensions" : [ ],
+    "permitted_aggregations" : [ "avg", "max", "last" ]
+  }, {
+    "name" : "redis.clients.connected",
+    "display_name" : "Redis connected clients",
+    "unit" : "1",
+    "type" : "gauge",
+    "dimensions" : [ ],
+    "permitted_aggregations" : [ "avg", "max", "last" ]
+  }, {
+    "name" : "redis.commands",
+    "display_name" : "Redis commands processed",
+    "unit" : "1",
+    "type" : "counter",
+    "dimensions" : [ ],
+    "permitted_aggregations" : [ "rate", "increase" ]
+  }, {
+    "name" : "redis.keyspace.hits",
+    "display_name" : "Redis keyspace hits",
+    "unit" : "1",
+    "type" : "counter",
+    "dimensions" : [ ],
+    "permitted_aggregations" : [ "rate", "increase" ]
+  }, {
+    "name" : "redis.keyspace.misses",
+    "display_name" : "Redis keyspace misses",
+    "unit" : "1",
+    "type" : "counter",
+    "dimensions" : [ ],
+    "permitted_aggregations" : [ "rate", "increase" ]
+  }, {
+    "name" : "redis.keys.evicted",
+    "display_name" : "Redis keys evicted",
+    "unit" : "1",
+    "type" : "counter",
+    "dimensions" : [ ],
+    "permitted_aggregations" : [ "rate", "increase" ]
+  }, {
+    "name" : "redis.keys.expired",
+    "display_name" : "Redis keys expired",
+    "unit" : "1",
+    "type" : "counter",
+    "dimensions" : [ ],
+    "permitted_aggregations" : [ "rate", "increase" ]
+  }, {
+    "name" : "redis.db.keys",
+    "display_name" : "Redis keys",
+    "unit" : "1",
+    "type" : "gauge",
+    "dimensions" : [ "db" ],
+    "permitted_aggregations" : [ "avg", "max", "last" ]
+  }, {
+    "name" : "redis.db.expires",
+    "display_name" : "Redis keys with a TTL",
+    "unit" : "1",
+    "type" : "gauge",
+    "dimensions" : [ "db" ],
+    "permitted_aggregations" : [ "avg", "max", "last" ]
+  }, {
+    "name" : "redis.uptime",
+    "display_name" : "Redis uptime",
+    "unit" : "s",
+    "type" : "gauge",
+    "dimensions" : [ ],
+    "permitted_aggregations" : [ "avg", "max", "last" ]
+  }, {
     "name" : "collector.received",
     "display_name" : "Collector points received",
     "unit" : "1",

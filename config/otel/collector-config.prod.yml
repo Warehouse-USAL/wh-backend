@@ -17,4 +17,4 @@ receivers:
 service:
   pipelines:
     metrics:
-      receivers: [otlp, prometheus, prometheus/caddy]
+      receivers: [otlp, prometheus, redis, prometheus/caddy]
