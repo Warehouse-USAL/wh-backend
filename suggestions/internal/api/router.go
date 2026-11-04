@@ -11,6 +11,7 @@ import (
 
 	"github.com/Warehouse-USAL/wh-backend/suggestions/internal/auth"
 	"github.com/Warehouse-USAL/wh-backend/suggestions/internal/recommend"
+	"github.com/Warehouse-USAL/wh-backend/suggestions/internal/telemetry"
 )
 
 // Deps are the collaborators of the HTTP layer.
@@ -21,15 +22,23 @@ type Deps struct {
 	Ping          func(ctx context.Context) error
 	ConsumerAlive func() bool
 	Log           *slog.Logger
+	// Telemetry records request and Redis metrics; nil records nothing.
+	Telemetry telemetry.Recorder
 }
 
 const healthTimeout = 2 * time.Second
 
 // NewRouter wires every route.
 func NewRouter(d Deps) *gin.Engine {
+	if d.Telemetry == nil {
+		d.Telemetry = telemetry.Noop()
+	}
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.HandleMethodNotAllowed = true
+	h := &handlers{Deps: d}
+	// Outside the recovery, so a recovered panic is still counted, as a 5xx.
+	r.Use(h.measure)
 	r.Use(gin.CustomRecovery(func(c *gin.Context, _ any) {
 		fail(c, http.StatusInternalServerError, "internal_error", "internal error")
 	}))
@@ -38,7 +47,6 @@ func NewRouter(d Deps) *gin.Engine {
 		fail(c, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
 	})
 
-	h := &handlers{Deps: d}
 	r.GET("/healthz", h.healthz)
 
 	v1 := r.Group("/v1/recommendations", h.authenticate)

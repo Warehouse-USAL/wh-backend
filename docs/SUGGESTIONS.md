@@ -291,6 +291,52 @@ images. Caddy (wh-autodeploys) already routes `/suggestions/*`, prefix stripped,
 | `HOT_DECAY_INTERVAL` | `15m` | |
 | `ORDER_DEDUPE_TTL` | `168h` | How long an applied order id is remembered to ignore redelivered events; positive duration |
 | `KAFKA_COMMIT_INTERVAL` | `1s` | How often consumed offsets are flushed (`0` = one commit per event); an offset is only recorded after the event is in Redis |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | empty (off) in the binary; compose sets `http://otel-collector:4318` | OTLP/HTTP collector base URL; the same variable the bridge reads. Empty exports nothing. See "Observability" |
 
-Not done: OpenTelemetry metrics (the bridge exports them; the RFC does not ask for it), per-zone hot
-items and the warehouse-side restock suggestions (RFC out of scope).
+## Observability
+
+The service pushes OTLP metrics to the same collector as the backend and the bridge
+(`config/otel/collector-config*.yml` -> VictoriaMetrics), only when `OTEL_EXPORTER_OTLP_ENDPOINT` is
+set. The binary is **off by default** (unset, it installs no exporter and behaves exactly as
+before), but both compose files set the variable for the `suggestions` service, defaulting to
+`http://otel-collector:4318`, so a deployment needs nothing in `.env`. Metrics are
+exported every 10 s with the resource `service.name=wh-suggestions`. A collector that is down or
+unreachable only logs at debug level; it never blocks startup, requests or the Kafka loop. Logs stay
+on stdout (they are not shipped to VictoriaLogs).
+
+| Metric | Type | Dimensions | Recorded |
+|---|---|---|---|
+| `suggestions.events` | counter | `outcome` (`ok`, `error`, `dropped`) | one per `order.completed` handled: `ok` applied to Redis, `error` one failed apply attempt (the same event is retried until it succeeds, so it can count several times), `dropped` undecodable and skipped |
+| `suggestions.consumer.lag` | gauge | none | events waiting on the topic for the group, from the Kafka reader's last fetch, sampled every 10 s (nothing is reported before the first fetch) |
+| `suggestions.ingest.duration` | histogram (ms) | `result` (`ok`, `error`) | one apply attempt to Redis: the `applyOnce` Lua script, or the transaction for an event without an order id |
+| `suggestions.http.requests` | counter | `endpoint` (`cart`, `user`, `hot`), `status_class` (`2xx`, `4xx`, `5xx`) | every request to a recommendation route, 401s included; `/healthz` and unknown routes are not counted. `GET` and `POST` cart are both `cart` |
+| `suggestions.http.duration` | histogram (ms) | `endpoint`, `status_class` | same requests, handler time |
+| `suggestions.redis.errors` | counter | `operation` (`ingest`, `query`, `health`) | a Redis failure applying an event, answering a recommendation request (500), or failing the `/healthz` PING |
+| `suggestions.recommendations.empty` | counter | `endpoint` | a 200 whose `recommendations` is empty (a model with nothing to recommend yet) |
+
+Labels are fixed small sets: no user id, SKU or path ever becomes a label. The backend's
+`GET /metrics/catalog` lists all of them (SUPERADMIN only), and the console's Suggestions page
+(`/infra/suggestions`, docs/CONSOLE.md) charts them. Quick check without the console:
+
+```
+docker compose --profile suggestions up -d suggestions
+curl -s 'localhost:8428/api/v1/series?match[]={__name__=~"suggestions_.*"}'   # VictoriaMetrics, dev host
+```
+
+### Redis itself
+
+The service's metrics above are the client's view (`suggestions.redis.errors`). Redis' own state is
+scraped by the collector's `redis` receiver (`suggestions-redis:6379`, INFO every 30 s, no
+password) in both `config/otel/collector-config.yml` and the prod overlay, and shown on the
+console's Infrastructure > Redis page (`/infra/redis`, docs/CONSOLE.md). It needs no setting on the
+service and nothing when the stack runs without the `suggestions` profile except one collector
+scrape warning per interval. Series: `redis_memory_used`, `redis_maxmemory`,
+`redis_clients_connected`, `redis_commands_processed`, `redis_keyspace_hits`,
+`redis_keyspace_misses`, `redis_keys_evicted`, `redis_keys_expired`, `redis_db_keys`,
+`redis_db_expires` (label `db`) and `redis_uptime`:
+
+```
+curl -s 'localhost:8428/api/v1/query?query=redis_db_keys'   # VictoriaMetrics, dev host
+```
+
+Not done: per-zone hot items and the warehouse-side restock suggestions (RFC out of scope).

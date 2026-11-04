@@ -11,6 +11,7 @@ import (
 	"github.com/segmentio/kafka-go"
 
 	"github.com/Warehouse-USAL/wh-backend/suggestions/internal/ingest"
+	"github.com/Warehouse-USAL/wh-backend/suggestions/internal/telemetry"
 )
 
 // Reader is the part of *kafka.Reader the consumer uses (a fake in tests).
@@ -38,6 +39,7 @@ type Consumer struct {
 	apply   ApplyFunc
 	log     *slog.Logger
 	backoff time.Duration
+	rec     telemetry.Recorder
 	now     func() time.Time
 	beat    atomic.Int64 // unix nanos of the last loop turn
 	running atomic.Bool
@@ -45,7 +47,13 @@ type Consumer struct {
 
 // New builds a Consumer.
 func New(r Reader, apply ApplyFunc, log *slog.Logger) *Consumer {
-	return &Consumer{reader: r, apply: apply, log: log, backoff: time.Second, now: time.Now}
+	return &Consumer{reader: r, apply: apply, log: log, backoff: time.Second, rec: telemetry.Noop(), now: time.Now}
+}
+
+// WithRecorder reports each event outcome and apply duration to rec (none by default) and returns c.
+func (c *Consumer) WithRecorder(rec telemetry.Recorder) *Consumer {
+	c.rec = rec
+	return c
 }
 
 // Alive reports whether the loop is running and has turned recently. It is what /healthz asks.
@@ -87,15 +95,23 @@ func (c *Consumer) step(ctx context.Context) {
 	}
 	ev, err := ingest.Decode(msg.Value)
 	if err != nil {
+		c.rec.Event(telemetry.OutcomeDropped)
 		c.log.Warn("skipping undecodable message", "offset", msg.Offset, "partition", msg.Partition, "error", err)
 	} else {
 		for {
-			if err = c.apply(ctx, ev); err == nil {
+			started := c.now()
+			err = c.apply(ctx, ev)
+			if err == nil {
+				c.rec.Ingest(telemetry.OutcomeOK, c.now().Sub(started))
+				c.rec.Event(telemetry.OutcomeOK)
 				break
 			}
 			if ctx.Err() != nil {
 				return // not committed: redelivered after restart
 			}
+			c.rec.Ingest(telemetry.OutcomeError, c.now().Sub(started))
+			c.rec.Event(telemetry.OutcomeError)
+			c.rec.RedisError(telemetry.OpIngest)
 			c.log.Error("applying event, retrying", "orderId", ev.OrderID, "error", err)
 			c.beat.Store(c.now().UnixNano())
 			c.sleep(ctx)

@@ -387,4 +387,32 @@ class ProductControllerTest {
         .andExpect(status().isNotFound())
         .andExpect(jsonPath("$.error.code").value("PRODUCT_NOT_FOUND"));
   }
+
+  @Test
+  @WithMockUser
+  void getProduct_reservedExceedsPhysical_jsonAvailableIsZeroNotNegative() throws Exception {
+    ProductResponse oversold = ProductResponse.from(new com.usal.whbackend.domain.Product(), 0, 3);
+    when(productService.getProduct(anyString(), any())).thenReturn(oversold);
+    mockMvc
+        .perform(get("/products/prod-1"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.product.stock.available").value(0))
+        .andExpect(jsonPath("$.product.stock.reserved").value(3))
+        .andExpect(jsonPath("$.product.stock.physical").value(0));
+  }
+
+  @Test
+  @WithMockUser
+  void getProducts_reservedExceedsPhysical_jsonAvailableIsZeroNotNegative() throws Exception {
+    Pageable pageable = PageRequest.of(0, 10);
+    ProductResponse oversold = ProductResponse.from(new com.usal.whbackend.domain.Product(), 1, 4);
+    when(productService.getProducts(any(), any(), any(), any(Pageable.class)))
+        .thenReturn(new PageImpl<>(List.of(oversold), pageable, 1));
+    mockMvc
+        .perform(get("/products"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.products[0].stock.available").value(0))
+        .andExpect(jsonPath("$.products[0].stock.reserved").value(4))
+        .andExpect(jsonPath("$.products[0].stock.physical").value(1));
+  }
 }

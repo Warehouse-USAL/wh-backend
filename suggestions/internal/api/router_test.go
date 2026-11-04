@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,6 +19,7 @@ import (
 	"github.com/Warehouse-USAL/wh-backend/suggestions/internal/auth"
 	"github.com/Warehouse-USAL/wh-backend/suggestions/internal/ingest"
 	"github.com/Warehouse-USAL/wh-backend/suggestions/internal/recommend"
+	"github.com/Warehouse-USAL/wh-backend/suggestions/internal/telemetry"
 )
 
 const secret = "dev-secret-change-in-prod-min-32-chars"
@@ -246,4 +248,90 @@ func TestPanicIsContained(t *testing.T) {
 	e.router = NewRouter(Deps{Verifier: auth.NewVerifier(secret), Log: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	// Recs is nil: the handler panics, the recovery turns it into the standard 500.
 	wantError(t, e.do("GET", "/v1/recommendations/hot", token(t, "u", "OPERATOR"), ""), 500, "internal_error")
+}
+
+// tally records what the HTTP layer reports.
+type tally struct {
+	telemetry.Recorder
+	mu       sync.Mutex
+	requests []string
+	empty    []string
+	redis    []string
+}
+
+func (r *tally) Request(endpoint, class string, _ time.Duration) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.requests = append(r.requests, endpoint+" "+class)
+}
+
+func (r *tally) EmptyRecommendations(endpoint string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.empty = append(r.empty, endpoint)
+}
+
+func (r *tally) RedisError(op string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.redis = append(r.redis, op)
+}
+
+func TestTelemetryCountsRequestsPerEndpointWithoutIDs(t *testing.T) {
+	e := newEnv(t)
+	rec := &tally{Recorder: telemetry.Noop()}
+	e.router = NewRouter(Deps{
+		Recs:          recommend.New(e.rdb, recommend.Options{}),
+		Verifier:      auth.NewVerifier(secret),
+		Ping:          func(ctx context.Context) error { return e.rdb.Ping(ctx).Err() },
+		ConsumerAlive: func() bool { return true },
+		Log:           slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Telemetry:     rec,
+	})
+	tok := token(t, "u1", "USER")
+	e.do("GET", "/v1/recommendations/cart?skus=A", tok, "")
+	e.do("POST", "/v1/recommendations/cart", tok, `{"skus":["A"]}`)
+	e.do("GET", "/v1/recommendations/user/u1", tok, "")
+	e.do("GET", "/v1/recommendations/user/u2", tok, "")
+	e.do("GET", "/v1/recommendations/hot?limit=0", tok, "")
+	e.do("GET", "/v1/recommendations/hot", "", "")
+	e.do("GET", "/healthz", "", "")
+	e.do("GET", "/nowhere", "", "")
+	want := []string{"cart 2xx", "cart 2xx", "user 2xx", "user 4xx", "hot 4xx", "hot 4xx"}
+	if strings.Join(rec.requests, ",") != strings.Join(want, ",") {
+		t.Errorf("requests = %v, want %v (healthz and unknown routes are not counted)", rec.requests, want)
+	}
+	if len(rec.empty) != 0 {
+		t.Errorf("empty = %v, want none while the model has data", rec.empty)
+	}
+	e.mr.FlushAll()
+	e.do("GET", "/v1/recommendations/hot", tok, "")
+	e.do("GET", "/v1/recommendations/user/u1", tok, "")
+	if strings.Join(rec.empty, ",") != "hot,user" {
+		t.Errorf("empty = %v, want hot then user once the model is empty", rec.empty)
+	}
+}
+
+func TestTelemetryCountsRedisErrors(t *testing.T) {
+	e := newEnv(t)
+	rec := &tally{Recorder: telemetry.Noop()}
+	e.router = NewRouter(Deps{
+		Recs:          recommend.New(e.rdb, recommend.Options{}),
+		Verifier:      auth.NewVerifier(secret),
+		Ping:          func(ctx context.Context) error { return e.rdb.Ping(ctx).Err() },
+		ConsumerAlive: func() bool { return true },
+		Log:           slog.New(slog.NewTextHandler(io.Discard, nil)),
+		Telemetry:     rec,
+	})
+	e.mr.Close()
+	if w := e.do("GET", "/v1/recommendations/hot", token(t, "u1", "USER"), ""); w.Code != http.StatusInternalServerError {
+		t.Fatalf("hot with Redis down = %d", w.Code)
+	}
+	e.do("GET", "/healthz", "", "")
+	if strings.Join(rec.redis, ",") != "query,health" {
+		t.Errorf("redis errors = %v, want query then health", rec.redis)
+	}
+	if len(rec.requests) != 1 || rec.requests[0] != "hot 5xx" {
+		t.Errorf("requests = %v", rec.requests)
+	}
 }

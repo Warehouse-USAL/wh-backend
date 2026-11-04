@@ -17,7 +17,7 @@ func TestLoadDefaults(t *testing.T) {
 	}
 	if cfg.HTTPAddr != ":8080" || cfg.KafkaTopic != "order.completed" || cfg.KafkaGroupID != "wh-suggestions" ||
 		cfg.RedisAddr != "suggestions-redis:6379" || cfg.DecayFactor != 0.97 || cfg.DecayInterval != 15*time.Minute || cfg.DedupeTTL != 7*24*time.Hour || cfg.CommitInterval != time.Second ||
-		len(cfg.KafkaBrokers) != 1 || cfg.KafkaBrokers[0] != "redpanda:9092" {
+		cfg.OTLPEndpoint != "" || len(cfg.KafkaBrokers) != 1 || cfg.KafkaBrokers[0] != "redpanda:9092" {
 		t.Fatalf("unexpected defaults: %+v", cfg)
 	}
 }
@@ -26,12 +26,13 @@ func TestLoadOverrides(t *testing.T) {
 	cfg, err := Load(env(map[string]string{
 		"JWT_SECRET": secret, "KAFKA_BROKERS": "a:1, b:2,", "HOT_DECAY_FACTOR": "0.5",
 		"HOT_DECAY_INTERVAL": "1m", "ORDER_DEDUPE_TTL": "36h", "REDIS_ADDR": "r:1", "REDIS_PASSWORD": "pw", "KAFKA_COMMIT_INTERVAL": "0s",
+		"OTEL_EXPORTER_OTLP_ENDPOINT": " http://otel-collector:4318 ",
 	}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(cfg.KafkaBrokers) != 2 || cfg.KafkaBrokers[1] != "b:2" || cfg.DecayFactor != 0.5 ||
-		cfg.DecayInterval != time.Minute || cfg.DedupeTTL != 36*time.Hour || cfg.CommitInterval != 0 || cfg.RedisAddr != "r:1" || cfg.RedisPassword != "pw" {
+		cfg.DecayInterval != time.Minute || cfg.DedupeTTL != 36*time.Hour || cfg.CommitInterval != 0 || cfg.RedisAddr != "r:1" || cfg.RedisPassword != "pw" || cfg.OTLPEndpoint != "http://otel-collector:4318" {
 		t.Fatalf("unexpected: %+v", cfg)
 	}
 }

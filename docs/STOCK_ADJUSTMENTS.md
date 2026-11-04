@@ -33,6 +33,11 @@ Con el stock físico que queda del producto (suma de sus posiciones activas):
 Ejemplo: 14 unidades, se rompen 6 (quedan 8). El pedido en proceso de 5 se respeta (quedan 3). El
 pendiente más viejo pide 4: no entra, se cancela. El siguiente pide 2: entra, se mantiene.
 
+Como la regla 1 respeta el pedido en proceso aunque falte stock, un producto puede quedar con
+`reserved` mayor que `physical`. La API de productos devuelve entonces `stock.available: 0` (no un
+número negativo) y deja `reserved` y `physical` tal cual, así que el exceso se lee comparándolos. El
+cálculo interno de reposición sigue usando el valor con signo.
+
 Las cancelaciones se publican en el topic `orders` (`status: cancelled`, mismo payload de
 siempre) y por WebSocket **recién después del commit**.
 

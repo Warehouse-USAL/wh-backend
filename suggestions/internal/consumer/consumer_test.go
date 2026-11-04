@@ -12,6 +12,7 @@ import (
 	"github.com/segmentio/kafka-go"
 
 	"github.com/Warehouse-USAL/wh-backend/suggestions/internal/ingest"
+	"github.com/Warehouse-USAL/wh-backend/suggestions/internal/telemetry"
 )
 
 var quiet = slog.New(slog.NewTextHandler(io.Discard, nil))
@@ -189,5 +190,87 @@ func TestAliveGoesStale(t *testing.T) {
 	c.now = func() time.Time { return now.Add(staleAfter + time.Second) }
 	if c.Alive() {
 		t.Error("stale beat should not be alive")
+	}
+}
+
+// countingRecorder tallies what the consumer reports.
+type countingRecorder struct {
+	telemetry.Recorder
+	mu       sync.Mutex
+	events   map[string]int
+	ingests  map[string]int
+	redisErr int
+}
+
+func newCounting() *countingRecorder {
+	return &countingRecorder{Recorder: telemetry.Noop(), events: map[string]int{}, ingests: map[string]int{}}
+}
+
+func (r *countingRecorder) Event(outcome string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.events[outcome]++
+}
+
+func (r *countingRecorder) Ingest(result string, _ time.Duration) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.ingests[result]++
+}
+
+func (r *countingRecorder) RedisError(op string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if op == telemetry.OpIngest {
+		r.redisErr++
+	}
+}
+
+func TestReportsOutcomesOfOkErrorAndDroppedEvents(t *testing.T) {
+	r := &fakeReader{queue: []fetchResult{
+		msg(1, `garbage`),
+		msg(2, `{"orderId":"o","items":[]}`),
+	}}
+	attempts := 0
+	rec := newCounting()
+	c := New(r, func(context.Context, ingest.OrderCompleted) error {
+		attempts++
+		if attempts == 1 {
+			return errors.New("redis down")
+		}
+		return nil
+	}, quiet).WithRecorder(rec)
+	c.backoff = time.Millisecond
+	cancel, done := run(c)
+	waitFor(t, func() bool { return r.commits() == 2 })
+	cancel()
+	<-done
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	if rec.events[telemetry.OutcomeDropped] != 1 || rec.events[telemetry.OutcomeError] != 1 || rec.events[telemetry.OutcomeOK] != 1 {
+		t.Errorf("events = %v, want one dropped, one error attempt and one ok", rec.events)
+	}
+	if rec.ingests[telemetry.OutcomeError] != 1 || rec.ingests[telemetry.OutcomeOK] != 1 || rec.redisErr != 1 {
+		t.Errorf("ingests = %v, redis errors = %d", rec.ingests, rec.redisErr)
+	}
+}
+
+func TestShutdownDuringApplyReportsNothing(t *testing.T) {
+	r := &fakeReader{queue: []fetchResult{msg(1, `{"orderId":"o","items":[]}`)}}
+	rec := newCounting()
+	started := make(chan struct{})
+	c := New(r, func(ctx context.Context, _ ingest.OrderCompleted) error {
+		close(started)
+		<-ctx.Done()
+		return ctx.Err()
+	}, quiet).WithRecorder(rec)
+	cancel, done := run(c)
+	<-started
+	cancel()
+	<-done
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	if len(rec.events) != 0 || rec.redisErr != 0 {
+		t.Errorf("a cancelled apply is not an error: events=%v redis=%d", rec.events, rec.redisErr)
 	}
 }
