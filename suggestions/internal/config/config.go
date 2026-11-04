@@ -32,6 +32,9 @@ type Config struct {
 	// only after the event is in Redis; batching them just avoids one broker round trip per event
 	// when replaying a large backlog. 0 commits synchronously on every message.
 	CommitInterval time.Duration
+	// OTLPEndpoint is the OTLP/HTTP collector base URL (OTEL_EXPORTER_OTLP_ENDPOINT, as the bridge
+	// reads it). Empty, the default, exports no metrics.
+	OTLPEndpoint string
 }
 
 // Load reads the configuration through getenv (os.Getenv in production), applying defaults that
@@ -51,6 +54,7 @@ func Load(getenv func(string) string) (Config, error) {
 		KafkaTopic:    get("KAFKA_TOPIC", "order.completed"),
 		KafkaGroupID:  get("KAFKA_GROUP_ID", "wh-suggestions"),
 		JWTSecret:     getenv("JWT_SECRET"),
+		OTLPEndpoint:  get("OTEL_EXPORTER_OTLP_ENDPOINT", ""),
 	}
 	for b := range strings.SplitSeq(get("KAFKA_BROKERS", "redpanda:9092"), ",") {
 		if b = strings.TrimSpace(b); b != "" {

@@ -17,7 +17,10 @@ function seq(label: string, values: (number | undefined)[], end = T0): Series {
 /** Tag values the backend reports for each grouped dimension (a sample of them). */
 const VALUES: Record<string, string[]> = {
   result: ['ok', 'retry', 'dropped', 'error'],
-  outcome: ['ok', 'slow', 'error'],
+  outcome: ['ok', 'slow', 'error', 'dropped'],
+  status_class: ['2xx', '4xx', '5xx'],
+  operation: ['ingest', 'query', 'health'],
+  endpoint: ['cart'],
   state: ['busy', 'max', 'current', 'in_use', 'available'],
   code: ['200', '304', '401', '403', '502'],
   collection: ['orders', 'users'],
@@ -138,6 +141,7 @@ describe('INFRA_PAGES', () => {
       '/infra/backend': 'backend',
       '/infra/mongodb': 'mongo',
       '/infra/bridge': 'bridge',
+      '/infra/suggestions': 'suggestions',
       '/infra/kafka': 'kafka',
       '/infra/minio': 'minio',
       '/infra/restock-cron': 'cron',
@@ -173,6 +177,56 @@ describe('INFRA_PAGES', () => {
     const rate = find<ChartSpec>(INFRA_PAGES.bridge, 'Error rate', 'Backend to Infra').select?.(answer, ctx)
     expect(rate?.[0].points.map((p) => +p.v.toFixed(1))).toEqual([20, 10])
     expect(find<TileSpec>(INFRA_PAGES.bridge, 'Confirmed').value([seq('retry', [3])], ctx)).toBeUndefined()
+  })
+
+  it('suggestionsPresetReadsOnlyItsOwnLowCardinalityMetrics', () => {
+    const queries = metricQueries(INFRA_PAGES.suggestions)
+    expect([...new Set(queries.map((q) => q.metric))].sort()).toEqual([
+      'suggestions.consumer.lag',
+      'suggestions.events',
+      'suggestions.http.duration',
+      'suggestions.http.requests',
+      'suggestions.ingest.duration',
+      'suggestions.recommendations.empty',
+      'suggestions.redis.errors',
+    ])
+    const endpoints = new Set(queries.flatMap((q) => (q.filters?.endpoint ? [q.filters.endpoint] : [])))
+    expect([...endpoints].sort()).toEqual(['cart', 'hot', 'user'])
+    expect(INFRA_PAGES.suggestions.groups.map((g) => g.title)).toEqual([
+      'Service',
+      'order.completed',
+      'GET, POST /v1/recommendations/cart',
+      'GET /v1/recommendations/user/{userId}',
+      'GET /v1/recommendations/hot',
+      'Redis and responses',
+    ])
+  })
+
+  it('suggestionsServiceTileIsReportingUntilItsSamplesGoStale', () => {
+    const tile = find<TileSpec>(INFRA_PAGES.suggestions, 'Service')
+    expect(tile.value([seq('suggestions.consumer.lag', [0, 2], T0 - 20_000)], ctx)).toMatchObject({ value: 'reporting', tone: 'ok', label: 'Last report 20 s ago' })
+    expect(tile.value([seq('suggestions.consumer.lag', [0], T0 - 90_000)], ctx)).toMatchObject({ value: 'silent', tone: 'warn', label: 'Last report 1 min ago' })
+    // An off service has no samples: no data, never a made-up status.
+    expect(tile.value([], ctx)).toBeUndefined()
+  })
+
+  it('suggestionsEndpointCountsStatusClassesAndOnly5xxFail', () => {
+    const requests = find<ChartSpec>(INFRA_PAGES.suggestions, 'Requests', 'GET /v1/recommendations/hot')
+    expect(requests.query).toEqual([{ metric: 'suggestions.http.requests', agg: 'increase', filters: { endpoint: 'hot' }, groupBy: ['status_class'] }])
+    const answer = [seq('5xx', [1, 1]), seq('2xx', [8, 8]), seq('4xx', [5, 5])]
+    expect(requests.select?.(answer, ctx).map((s) => s.label)).toEqual(['ok', 'rejected', 'failed'])
+    // 4xx is the caller's mistake: 26 of 28 requests were served.
+    expect(find<TileSpec>(INFRA_PAGES.suggestions, 'Served', 'GET /v1/recommendations/hot').value(answer, ctx)).toMatchObject({ value: '92.86%' })
+    expect(find<ChartSpec>(INFRA_PAGES.suggestions, 'Latency', 'GET /v1/recommendations/hot').query.map((q) => q.agg)).toEqual(['p50', 'p95', 'p99'])
+  })
+
+  it('suggestionsEventsSplitAppliedFromFailedAndDropped', () => {
+    const events = find<ChartSpec>(INFRA_PAGES.suggestions, 'Events', 'order.completed')
+    const answer = [seq('error', [1, 1]), seq('ok', [17, 17]), seq('dropped', [1, 1])]
+    expect(events.select?.(answer, ctx).map((s) => s.label)).toEqual(['applied', 'dropped', 'failed'])
+    expect(find<TileSpec>(INFRA_PAGES.suggestions, 'Applied', 'order.completed').value(answer, ctx)).toMatchObject({ value: '89.47%' })
+    expect(find<TileSpec>(INFRA_PAGES.suggestions, 'Redis errors').value([seq('x', [0, 0])], ctx)).toMatchObject({ value: '0', tone: 'ok' })
+    expect(find<TileSpec>(INFRA_PAGES.suggestions, 'Redis errors').value([seq('x', [2, 1])], ctx)).toMatchObject({ value: '3', tone: 'warn' })
   })
 
   it('mongoRequestsChartHasOkSlowAndFailed', () => {

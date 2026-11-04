@@ -13,7 +13,7 @@ import { RANGE_MS } from './useMetric'
  * never drawn as a zero.
  */
 
-export type InfraPage = 'mongo' | 'backend' | 'bridge' | 'kafka' | 'minio' | 'cron' | 'edge' | 'telemetry'
+export type InfraPage = 'mongo' | 'backend' | 'bridge' | 'kafka' | 'minio' | 'cron' | 'edge' | 'telemetry' | 'suggestions'
 
 const { blue, amber, red, gray } = PALETTE
 
@@ -313,6 +313,100 @@ const bridge: PageSpec = {
     },
   ],
   note: 'Retry policy: 2xx acked, 4xx dropped, 408, 429, 5xx and network errors retried with backoff from 1 s to 30 s. Not shown, no series exists: retries in flight (retries are counted as they happen).',
+}
+
+// ---------------------------------------------------------------- Suggestions
+
+const SE = 'suggestions.events'
+const SLAG = 'suggestions.consumer.lag'
+const SREQ = 'suggestions.http.requests'
+const SDUR = 'suggestions.http.duration'
+const SREDIS = 'suggestions.redis.errors'
+const SEMPTY = 'suggestions.recommendations.empty'
+/** The service pushes every 10 s; a minute without a sample means it is down or not exporting. */
+const SUGGESTIONS_STALE_MS = 60_000
+/** An error event is one failed apply attempt (retried until it succeeds); dropped never succeeds. */
+const EVENT_FAILED = ['error', 'dropped']
+const SUGGESTIONS_ENDPOINTS: { endpoint: string; path: string; what: string }[] = [
+  { endpoint: 'cart', path: 'GET, POST /v1/recommendations/cart', what: 'also add, for a cart' },
+  { endpoint: 'user', path: 'GET /v1/recommendations/user/{userId}', what: 'what similar users bought' },
+  { endpoint: 'hot', path: 'GET /v1/recommendations/hot', what: 'trending SKUs' },
+]
+
+/** Status of the service, told by its own samples: it has no row in `GET /console/status`. */
+const reportingTile: TileSpec = {
+  kind: 'tile',
+  title: 'Service',
+  span: 3,
+  query: [m(SLAG, 'last')],
+  value: (series, ctx) => {
+    const t = newest(series)?.t
+    if (t === undefined) return undefined
+    const age = ctx.now - t
+    return { value: age > SUGGESTIONS_STALE_MS ? 'silent' : 'reporting', tone: age > SUGGESTIONS_STALE_MS ? 'warn' : 'ok', label: `Last report ${formatAge(age)} ago` }
+  },
+}
+
+function endpointGroup({ endpoint, path, what }: (typeof SUGGESTIONS_ENDPOINTS)[number]): GroupSpec {
+  const requests = [m(SREQ, 'increase', { endpoint }, ['status_class'])]
+  return {
+    title: path,
+    mono: true,
+    tag: `${what}, endpoint ${endpoint}`,
+    right: 'JWT',
+    tab: endpoint === 'cart' ? 'API' : undefined,
+    widgets: [
+      { kind: 'bars', title: 'Requests', sub: 'by status class', span: 4, query: requests, select: pick(['2xx', 'ok', blue], ['4xx', 'rejected', amber], ['5xx', 'failed', red]) },
+      { kind: 'lines', title: 'Latency', sub: 'p50 / p95 / p99', span: 4, query: quantiles(SDUR, { endpoint }), format: formatMs },
+      errorRate(requests, ['5xx']),
+      { kind: 'tile', title: 'Served', span: 2, query: requests, value: goodTile(['5xx']) },
+    ],
+  }
+}
+
+const suggestions: PageSpec = {
+  crumb: 'Infrastructure',
+  title: 'Suggestions',
+  tabs: ['Overview', 'Kafka', 'API', 'Redis'],
+  chips: ['topic order.completed', 'group wh-suggestions'],
+  groups: [
+    {
+      title: 'Service',
+      tag: 'the suggestions service itself',
+      tab: 'Overview',
+      widgets: [
+        reportingTile,
+        numberTile('Kafka consumer lag, group wh-suggestions', [m(SLAG, 'last')], (s) => lastValue(s), { tone: (v) => (v < 100 ? 'ok' : 'warn') }),
+        numberTile('Redis errors', [m(SREDIS, 'increase')], sumIfAny, { tone: countTone, label: lastRange('Redis errors, all operations') }),
+        numberTile('Empty responses', [m(SEMPTY, 'increase')], sumIfAny, { label: lastRange('Responses without a recommendation') }),
+      ],
+    },
+    {
+      title: 'order.completed',
+      mono: true,
+      tag: 'Kafka consumption into Redis',
+      tab: 'Kafka',
+      widgets: [
+        { kind: 'bars', title: 'Events', sub: 'by outcome; an error is one failed attempt, retried', span: 4, query: [m(SE, 'increase', {}, ['outcome'])], select: pick(['ok', 'applied', blue], ['dropped', 'dropped', gray], ['error', 'failed', red]) },
+        { kind: 'lines', title: 'Consumer lag', sub: 'events waiting', span: 4, query: [m(SLAG, 'avg', {}, [], 'lag')] },
+        errorRate([m(SE, 'increase', {}, ['outcome'])], EVENT_FAILED),
+        { kind: 'tile', title: 'Applied', span: 2, query: [m(SE, 'increase', {}, ['outcome'])], value: goodTile(EVENT_FAILED) },
+        { kind: 'lines', title: 'Ingest time', sub: 'p50 / p95 / p99, one apply attempt to Redis', span: 12, query: quantiles('suggestions.ingest.duration'), format: formatMs },
+      ],
+    },
+    ...SUGGESTIONS_ENDPOINTS.map(endpointGroup),
+    {
+      title: 'Redis and responses',
+      tag: 'failures and answers with nothing to recommend',
+      tab: 'Redis',
+      widgets: [
+        { kind: 'bars', title: 'Redis errors', sub: 'by operation', span: 6, query: [m(SREDIS, 'increase', {}, ['operation'])] },
+        { kind: 'bars', title: 'Empty responses', sub: 'by endpoint, a model that has nothing to recommend yet', span: 6, query: [m(SEMPTY, 'increase', {}, ['endpoint'])] },
+      ],
+    },
+  ],
+  empty: 'Nothing reported yet: the service is opt-in (docker compose --profile suggestions) and exports only when OTEL_EXPORTER_OTLP_ENDPOINT is set (docs/SUGGESTIONS.md, Observability)',
+  note: 'Pushed by the service over OTLP, so an off or unreachable service shows no data rather than a status. Lag is read from the Kafka reader and updates with each fetch. Requests count the recommendation routes only (not /healthz); 4xx are rejected requests, only 5xx count as failures.',
 }
 
 // ---------------------------------------------------------------- Kafka
@@ -792,13 +886,14 @@ const telemetry: PageSpec = {
   note: 'Retention is VictoriaMetrics’ -retentionPeriod=800d in docker-compose.yml, a flag rather than a series. Disk used is the data size against data plus free space on its volume. Range queries and their latency count every caller of VictoriaMetrics, not only the console; the console’s own share is not told apart.',
 }
 
-export const INFRA_PAGES: Record<InfraPage, PageSpec> = { mongo, backend, bridge, kafka, minio, cron, edge, telemetry }
+export const INFRA_PAGES: Record<InfraPage, PageSpec> = { mongo, backend, bridge, suggestions, kafka, minio, cron, edge, telemetry }
 
 /** Sidebar path of each page (`layout/nav.ts`); Logs has its own page. */
 export const INFRA_ROUTES: Record<string, InfraPage> = {
   '/infra/backend': 'backend',
   '/infra/mongodb': 'mongo',
   '/infra/bridge': 'bridge',
+  '/infra/suggestions': 'suggestions',
   '/infra/kafka': 'kafka',
   '/infra/minio': 'minio',
   '/infra/restock-cron': 'cron',

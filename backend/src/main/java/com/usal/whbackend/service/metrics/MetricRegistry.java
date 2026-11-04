@@ -94,6 +94,23 @@ public class MetricRegistry {
               "Bridge processing duration",
               List.of("flow", "result")),
           gauge("bridge.consumer.lag", "Bridge consumer lag", "1", List.of("flow")),
+          counter("suggestions.events", "Suggestions events", List.of("outcome")),
+          gauge("suggestions.consumer.lag", "Suggestions consumer lag", "1", List.of()),
+          histogram(
+              "suggestions.ingest.duration", "Suggestions ingest duration", List.of("result")),
+          counter(
+              "suggestions.http.requests",
+              "Suggestions HTTP requests",
+              List.of("endpoint", "status_class")),
+          histogram(
+              "suggestions.http.duration",
+              "Suggestions HTTP duration",
+              List.of("endpoint", "status_class")),
+          counter("suggestions.redis.errors", "Suggestions Redis errors", List.of("operation")),
+          counter(
+              "suggestions.recommendations.empty",
+              "Suggestions empty recommendations",
+              List.of("endpoint")),
           gauge("job.run", "Cron job run", "1", List.of("job", "result", "field")),
           // Scraped series (docs/CONSOLE.md, "Scraped series"): the targets name them, so each
           // seriesName is the verified stored name rather than derived from the dotted one, and

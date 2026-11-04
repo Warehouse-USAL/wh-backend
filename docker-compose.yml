@@ -74,6 +74,9 @@ services:
       REDIS_ADDR: suggestions-redis:6379
       # Same secret the backend signs its JWTs with.
       JWT_SECRET: ${JWT_SECRET:-dev-secret-change-in-prod-min-32-chars}
+      # Metrics are off unless this is set (docs/SUGGESTIONS.md, "Observability"); uncomment to push
+      # them to the collector, as the bridge does, for the console's Suggestions page.
+      # OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
     ports:
       - "8084:8080"
     depends_on:

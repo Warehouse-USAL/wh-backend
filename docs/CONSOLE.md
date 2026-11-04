@@ -46,6 +46,7 @@ variable is unset; "compose" marks values the compose files set. The backend ima
 | `CONSOLE_COLLECTOR_URL` | backend | `http://otel-collector:13133` | status probe (collector health extension) |
 | `CONSOLE_STREAM_*` | backend | the `console.stream.` table below | e.g. `CONSOLE_STREAM_MAX_STREAMS=50`, `CONSOLE_STREAM_HEARTBEAT=15s` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | bridge | `http://otel-collector:4318` | blank = no export |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | suggestions | blank (off); compose has it commented out | same variable as the bridge; blank = no export. Feeds the Suggestions page (docs/SUGGESTIONS.md, "Observability") |
 | `MINIO_PROMETHEUS_AUTH_TYPE` | minio | `public` | collector scrapes `/minio/v2/metrics/cluster` without a token; anyone reaching port 9000, host-published in prod too, can read these counts and sizes |
 | `RESTOCK_OTLP_URL` | restock-cron | `http://otel-collector:4318/v1/metrics` | `job.run` push; blank = no push |
 | `RESTOCK_SCHEDULE` | restock-cron | `0 6 * * *` | crond expression in **UTC** (the image has no tzdata; do not set `TZ`). The console's "Next run" tile assumes this default |
@@ -589,5 +590,16 @@ case-sensitive (`"malformed"` does not match `Malformed request body`); `i("malf
   Rollout: the collector's MinIO relabel takes effect on the next deploy (the collector is always
   recreated); `minio.errors` before that is stored as `minio_s3_requests_errors_total` and is not
   migrated, so its chart starts empty.
+- **Suggestions series** (OTLP from the opt-in `suggestions` service, histograms in ms; full
+  reference in docs/SUGGESTIONS.md, "Observability"). The Infrastructure > Suggestions page
+  (`/infra/suggestions`) charts Kafka consumption (`suggestions.events` by `outcome`,
+  `suggestions.consumer.lag`, `suggestions.ingest.duration`), latency and status classes per
+  endpoint (`suggestions.http.requests`, `suggestions.http.duration`, endpoints `cart`, `user`,
+  `hot`) and `suggestions.redis.errors` / `suggestions.recommendations.empty`. The service has no
+  row in `GET /console/status` (that list is fixed), so the page's Service tile reads
+  "reporting" while the lag gauge has a sample from the last minute and "silent" after; with no
+  samples (service off, or `OTEL_EXPORTER_OTLP_ENDPOINT` unset) the widgets show the empty state, never a
+  zero.
+
 - **No `kafka.messages{direction="in"}`.** The backend consumes no Kafka topic; it only
   publishes `orders` and `order.completed` (`direction="out"`).
