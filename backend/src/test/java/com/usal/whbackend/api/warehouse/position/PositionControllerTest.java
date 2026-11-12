@@ -389,6 +389,56 @@ class PositionControllerTest {
 
   @Test
   @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void updatePosition_unassignWithStock_returnsTheRelocation() throws Exception {
+    com.usal.whbackend.domain.Reception relocation = new com.usal.whbackend.domain.Reception();
+    relocation.setId("r9");
+    relocation.setType(com.usal.whbackend.domain.ReceptionType.RELOCATION);
+    relocation.setProductId("p1");
+    relocation.setQuantityReceived(100);
+    relocation.setDeliveryUnit(StockSize.CAJA);
+    relocation.setStatus(com.usal.whbackend.domain.ReceptionStatus.PENDING_LOCATION);
+    relocation.setSourcePositionId("pos-001");
+    when(positionService.updatePosition(eq("p1"), any()))
+        .thenReturn(
+            new PositionService.PositionUpdate(position("p1", "l1"), List.of(), relocation));
+
+    mockMvc
+        .perform(
+            patch("/warehouse/positions/p1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"unassign_product\":true}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.id_position").value("p1"))
+        .andExpect(jsonPath("$.cancelled_orders").isEmpty())
+        .andExpect(jsonPath("$.relocation.id").value("r9"))
+        .andExpect(jsonPath("$.relocation.type").value("RELOCATION"))
+        .andExpect(jsonPath("$.relocation.product_id").value("p1"))
+        .andExpect(jsonPath("$.relocation.quantity_received").value(100))
+        .andExpect(jsonPath("$.relocation.delivery_unit").value("CAJA"))
+        .andExpect(jsonPath("$.relocation.status").value("PENDING_LOCATION"))
+        .andExpect(jsonPath("$.relocation.source_position_id").value("pos-001"))
+        .andExpect(
+            jsonPath("$.relocation.restock_order_id").value(org.hamcrest.Matchers.nullValue()))
+        .andExpect(jsonPath("$.relocation.supplier").value(org.hamcrest.Matchers.nullValue()));
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void updatePosition_withoutARelocation_returnsNullForIt() throws Exception {
+    when(positionService.updatePosition(eq("p1"), any()))
+        .thenReturn(new PositionService.PositionUpdate(position("p1", "l1"), List.of()));
+
+    mockMvc
+        .perform(
+            patch("/warehouse/positions/p1")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"current_stock\":0}"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.relocation").value(org.hamcrest.Matchers.nullValue()));
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
   void updatePosition_withoutCancellations_returnsAnEmptyArray() throws Exception {
     when(positionService.updatePosition(eq("p1"), any()))
         .thenReturn(new PositionService.PositionUpdate(position("p1", "l1"), List.of()));

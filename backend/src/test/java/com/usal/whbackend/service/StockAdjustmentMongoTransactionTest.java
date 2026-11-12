@@ -24,6 +24,9 @@ import com.usal.whbackend.domain.OrderItem;
 import com.usal.whbackend.domain.OrderStatus;
 import com.usal.whbackend.domain.Position;
 import com.usal.whbackend.domain.Product;
+import com.usal.whbackend.domain.Reception;
+import com.usal.whbackend.domain.ReceptionStatus;
+import com.usal.whbackend.domain.ReceptionType;
 import com.usal.whbackend.domain.StockAdjustment;
 import com.usal.whbackend.domain.StockAdjustmentType;
 import com.usal.whbackend.repository.LineRepository;
@@ -187,7 +190,8 @@ class StockAdjustmentMongoTransactionTest {
     // Collections must exist before a transaction touches them (Mongo 4.4 cannot create them in
     // one when the first write is a read-then-upsert); production gets them from auto-indexing.
     for (String name :
-        List.of("positions", "orders", "products", "stock_adjustments", "stock_guards")) {
+        List.of(
+            "positions", "orders", "products", "stock_adjustments", "stock_guards", "receptions")) {
       template.getCollection(name).countDocuments();
       if (!template.collectionExists(name)) {
         template.createCollection(name);
@@ -205,7 +209,8 @@ class StockAdjustmentMongoTransactionTest {
   @BeforeEach
   void clean() {
     for (String name :
-        List.of("positions", "orders", "products", "stock_adjustments", "stock_guards")) {
+        List.of(
+            "positions", "orders", "products", "stock_adjustments", "stock_guards", "receptions")) {
       template.getCollection(name).deleteMany(new org.bson.Document());
     }
     reset(KAFKA);
@@ -322,6 +327,51 @@ class StockAdjustmentMongoTransactionTest {
     assertThat(template.findAll(StockAdjustment.class))
         .singleElement()
         .satisfies(a -> assertThat(a.type()).isEqualTo(StockAdjustmentType.UNASSIGNED));
+  }
+
+  @Test
+  void patch_unassignWithStock_commitsThePendingRelocationWithTheStockExit() {
+    seedSpecExample();
+    PositionService positions = context.getBean(PositionService.class);
+    UpdatePositionRequest request =
+        new UpdatePositionRequest(null, null, null, null, null, true, null, null);
+
+    positions.updatePosition("pos-1", request);
+
+    assertThat(stockOf("pos-1")).isZero();
+    assertThat(template.findAll(Reception.class))
+        .singleElement()
+        .satisfies(
+            r -> {
+              assertThat(r.getType()).isEqualTo(ReceptionType.RELOCATION);
+              assertThat(r.getSourcePositionId()).isEqualTo("pos-1");
+              assertThat(r.getProductId()).isEqualTo("prod-1");
+              assertThat(r.getQuantityReceived()).isEqualTo(14);
+              assertThat(r.getStatus()).isEqualTo(ReceptionStatus.PENDING_LOCATION);
+              assertThat(r.getRestockOrderId()).isNull();
+              assertThat(r.getSupplier()).isNull();
+            });
+    assertThat(historyCount()).isEqualTo(1);
+  }
+
+  @Test
+  void patch_unassignWithStock_whenTheHistoryWriteFails_leavesNoRelocationAndKeepsTheStock() {
+    seedSpecExample();
+    doThrow(new IllegalStateException("history down")).when(historySpy).save(any());
+    PositionService positions = context.getBean(PositionService.class);
+    UpdatePositionRequest request =
+        new UpdatePositionRequest(null, null, null, null, null, true, null, null);
+
+    assertThatThrownBy(() -> positions.updatePosition("pos-1", request))
+        .isInstanceOf(IllegalStateException.class);
+
+    // The units must never be both written off and missing from the pending list: either the
+    // whole unassign lands, or none of it does.
+    assertThat(stockOf("pos-1")).isEqualTo(14);
+    assertThat(template.findById("pos-1", Position.class).getProductId()).isEqualTo("prod-1");
+    assertThat(template.findAll(Reception.class)).isEmpty();
+    assertThat(statusOf("pending-4")).isEqualTo(OrderStatus.PENDING);
+    assertThat(historyCount()).isZero();
   }
 
   @Test

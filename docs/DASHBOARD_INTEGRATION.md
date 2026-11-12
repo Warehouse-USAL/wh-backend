@@ -122,7 +122,7 @@ Devuelve `["orders", "products", "vehicles", "positions", "receptions"]` con sus
 ```
 
 `orders` expone 15 campos (incluye `priority`: `low`/`medium`/`high`/`urgent`, opcional en la
-creación, `medium` si no se especifica). `receptions` es nuevo: los eventos de stock ENTRANTE —
+creación, `medium` si no se especifica). `receptions` es nuevo: los eventos de stock ENTRANTE (también expone `type` y `source_position_id`: las filas `RELOCATION` son stock que se movió de posición, no una entrega, así que para sumar entradas excluyanlas con `type ne RELOCATION`) —
 `vehicles` ahora también expone `operation_since`. Consulten el catálogo en vez de copiar una
 lista de esta guía: el catálogo es la fuente de verdad y no se desactualiza.
 

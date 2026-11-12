@@ -2,6 +2,7 @@ package com.usal.whbackend.api.restock.reception;
 
 import com.usal.whbackend.domain.Reception;
 import com.usal.whbackend.domain.ReceptionStatus;
+import com.usal.whbackend.domain.ReceptionType;
 import com.usal.whbackend.domain.StockSize;
 import java.time.Instant;
 import java.util.List;
@@ -16,10 +17,40 @@ public record ReceptionResponse(
     ReceptionStatus status,
     List<AssignmentResponse> assignments,
     String receivedByUserId,
-    Instant createdAt) {
+    Instant createdAt,
+    ReceptionType type,
+    String sourcePositionId) {
 
   public ReceptionResponse {
     assignments = assignments == null ? List.of() : List.copyOf(assignments);
+    type = type == null ? ReceptionType.SUPPLIER : type;
+  }
+
+  /** The shape before relocations existed: a supplier remito. */
+  public ReceptionResponse(
+      String id,
+      String restockOrderId,
+      String productId,
+      int quantityReceived,
+      StockSize deliveryUnit,
+      String supplier,
+      ReceptionStatus status,
+      List<AssignmentResponse> assignments,
+      String receivedByUserId,
+      Instant createdAt) {
+    this(
+        id,
+        restockOrderId,
+        productId,
+        quantityReceived,
+        deliveryUnit,
+        supplier,
+        status,
+        assignments,
+        receivedByUserId,
+        createdAt,
+        ReceptionType.SUPPLIER,
+        null);
   }
 
   public record AssignmentResponse(String positionId, int quantity) {}
@@ -42,6 +73,8 @@ public record ReceptionResponse(
         reception.getStatus(),
         assignments,
         reception.getReceivedByUserId(),
-        reception.getCreatedAt());
+        reception.getCreatedAt(),
+        reception.getType(),
+        reception.getSourcePositionId());
   }
 }
