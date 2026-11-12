@@ -14,6 +14,27 @@ algo falla, no queda ni el stock bajado, ni el historial, ni pedidos cancelados 
 | `PATCH /warehouse/positions/{id}` con `unassign_product: true` y stock > 0 | `UNASSIGNED` |
 | `PATCH` con `is_active: false` / `DELETE /warehouse/positions/{id}` con stock > 0 | `DEACTIVATED` |
 
+### Quitar el producto de una posición con stock: reubicación
+
+Quitar el producto de una posición no hace desaparecer la mercadería: sigue en el depósito y hay que
+ubicarla en otra posición. Por eso, con `unassign_product: true` y stock > 0, en la **misma
+transacción** que el ajuste `UNASSIGNED`:
+
+- la posición queda sin producto y en 0;
+- se crea una recepción `type: RELOCATION`, `PENDING_LOCATION`, con `quantity_received` = el stock
+  que tenía, `delivery_unit` = el `size_stock_to_save` de la posición, `source_position_id` = la
+  posición de origen, y sin `restock_order_id` ni `supplier`;
+- la respuesta del `PATCH` suma `relocation` con esa recepción (`null` si la posición estaba en 0).
+
+Se ubica igual que un remito: `PATCH /restock/receptions/{id}` con `assignments`. Mientras está
+pendiente **no cuenta** en el stock del producto. Si algo falla, no se crea nada: ni el ajuste ni la
+reubicación. Para dar de baja unidades de verdad (rotura, pérdida) se usa
+`POST /warehouse/positions/{id}/stock-adjustments`.
+
+`GET /restock/receptions` acepta `type=SUPPLIER|RELOCATION`. `SUPPLIER` incluye los remitos
+anteriores a este campo (no tienen `type` guardado). En `POST /query/receptions`, para excluir las
+reubicaciones de un total de entradas usar `type ne RELOCATION`, no `type eq SUPPLIER`.
+
 Un aumento por `PATCH` también queda en el historial (`MANUAL_INCREASE`) pero no cancela nada. Una
 baja en una posición inactiva se registra, pero no reconcilia: ese stock ya no contaba como
 disponible. El descuento al completar un pedido (`StockDrainService`) y las recepciones de

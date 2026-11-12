@@ -165,7 +165,7 @@ class ReceptionControllerTest {
   @Test
   @WithMockUser(roles = "ADMIN_WAREHOUSE")
   void getReceptions_returns200WithPagination() throws Exception {
-    when(receptionService.getReceptions(any(), any(), any(), any(), any(), any()))
+    when(receptionService.getReceptions(any(), any(), any(), any(), any(), any(), any()))
         .thenReturn(new PageImpl<>(List.of(reception("rcp-1")), PageRequest.of(0, 10), 1));
 
     mockMvc
@@ -177,9 +177,32 @@ class ReceptionControllerTest {
 
   @Test
   @WithMockUser(roles = "ADMIN_WAREHOUSE")
+  void getReceptions_withTypeFilter_passesItToTheService_andExposesTheNewFields() throws Exception {
+    Reception relocation = reception("rcp-9");
+    relocation.setType(com.usal.whbackend.domain.ReceptionType.RELOCATION);
+    relocation.setSourcePositionId("pos-001");
+    when(receptionService.getReceptions(
+            any(),
+            any(),
+            any(),
+            eq(com.usal.whbackend.domain.ReceptionType.RELOCATION),
+            any(),
+            any(),
+            any()))
+        .thenReturn(new PageImpl<>(List.of(relocation), PageRequest.of(0, 10), 1));
+
+    mockMvc
+        .perform(get("/restock/receptions?type=RELOCATION"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.receptions[0].type").value("RELOCATION"))
+        .andExpect(jsonPath("$.receptions[0].source_position_id").value("pos-001"));
+  }
+
+  @Test
+  @WithMockUser(roles = "ADMIN_WAREHOUSE")
   void getReceptions_withStatusFilter_returns200() throws Exception {
     when(receptionService.getReceptions(
-            any(), any(), eq(ReceptionStatus.PENDING_LOCATION), any(), any(), any()))
+            any(), any(), eq(ReceptionStatus.PENDING_LOCATION), any(), any(), any(), any()))
         .thenReturn(new PageImpl<>(List.of(reception("rcp-1")), PageRequest.of(0, 10), 1));
 
     mockMvc

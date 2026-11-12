@@ -9,6 +9,9 @@ import com.usal.whbackend.api.warehouse.position.UpdatePositionRequest;
 import com.usal.whbackend.domain.Line;
 import com.usal.whbackend.domain.Order;
 import com.usal.whbackend.domain.Position;
+import com.usal.whbackend.domain.Reception;
+import com.usal.whbackend.domain.ReceptionStatus;
+import com.usal.whbackend.domain.ReceptionType;
 import com.usal.whbackend.domain.StockAdjustmentType;
 import com.usal.whbackend.domain.StockSize;
 import com.usal.whbackend.domain.Zone;
@@ -901,6 +904,73 @@ class PositionServiceTest {
         "p1", new UpdatePositionRequest(null, null, null, null, null, true, null, null));
 
     verify(stockAdjustmentService, never()).recordChange(any());
+  }
+
+  @Test
+  void updatePosition_unassignOfAPositionWithStock_leavesThoseUnitsAsAPendingRelocation() {
+    Position position = active(100);
+    position.setSizeStockToSave(null);
+    stubSave(position);
+    when(mongoTemplate.save(any(Reception.class))).thenAnswer(inv -> inv.getArgument(0));
+
+    PositionService.PositionUpdate update =
+        positionService.updatePosition(
+            "p1", new UpdatePositionRequest(null, null, null, null, null, true, null, null));
+
+    ArgumentCaptor<Reception> saved = ArgumentCaptor.forClass(Reception.class);
+    verify(mongoTemplate).save(saved.capture());
+    Reception relocation = saved.getValue();
+    assertEquals(ReceptionType.RELOCATION, relocation.getType());
+    assertEquals("p1", relocation.getSourcePositionId());
+    assertEquals("product-A", relocation.getProductId());
+    assertEquals(100, relocation.getQuantityReceived());
+    assertEquals(ReceptionStatus.PENDING_LOCATION, relocation.getStatus());
+    assertNull(relocation.getRestockOrderId());
+    assertNull(relocation.getSupplier());
+    assertTrue(relocation.getAssignments().isEmpty());
+    assertNotNull(relocation.getCreatedAt());
+    assertSame(relocation, update.relocation());
+    // The position still goes to 0 and the exit is still recorded, as before.
+    assertEquals(0, update.position().getCurrentStock());
+    assertEquals(StockAdjustmentType.UNASSIGNED, recordedChange().type());
+  }
+
+  @Test
+  void updatePosition_relocationCarriesThePositionsSizeAsItsDeliveryUnit() {
+    Position position = active(5);
+    position.setSizeStockToSave(StockSize.CAJA);
+    stubSave(position);
+    when(mongoTemplate.save(any(Reception.class))).thenAnswer(inv -> inv.getArgument(0));
+
+    PositionService.PositionUpdate update =
+        positionService.updatePosition(
+            "p1", new UpdatePositionRequest(null, null, null, null, null, true, null, null));
+
+    assertEquals(StockSize.CAJA, update.relocation().getDeliveryUnit());
+  }
+
+  @Test
+  void updatePosition_unassignOfAnEmptyPosition_createsNoRelocation() {
+    stubSave(active(0));
+
+    PositionService.PositionUpdate update =
+        positionService.updatePosition(
+            "p1", new UpdatePositionRequest(null, null, null, null, null, true, null, null));
+
+    assertNull(update.relocation());
+    verify(mongoTemplate, never()).save(any(Reception.class));
+  }
+
+  @Test
+  void updatePosition_otherStockDrops_createNoRelocation() {
+    stubSave(active(10));
+
+    PositionService.PositionUpdate update =
+        positionService.updatePosition(
+            "p1", new UpdatePositionRequest(null, null, 4, null, null, null, null, null));
+
+    assertNull(update.relocation());
+    verify(mongoTemplate, never()).save(any(Reception.class));
   }
 
   @Test

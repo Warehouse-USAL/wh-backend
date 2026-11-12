@@ -32,6 +32,14 @@ public class Reception {
 
   @Indexed private Instant createdAt;
 
+  /**
+   * Null on documents written before relocations existed; {@link #getType()} reads it as SUPPLIER.
+   */
+  private ReceptionType type;
+
+  /** The position a {@link ReceptionType#RELOCATION} came out of; null for a supplier remito. */
+  private String sourcePositionId;
+
   public Reception() {}
 
   public String getId() {
@@ -119,6 +127,22 @@ public class Reception {
 
   public void setCreatedAt(Instant createdAt) {
     this.createdAt = createdAt;
+  }
+
+  public ReceptionType getType() {
+    return type == null ? ReceptionType.SUPPLIER : type;
+  }
+
+  public void setType(ReceptionType type) {
+    this.type = type;
+  }
+
+  public String getSourcePositionId() {
+    return sourcePositionId;
+  }
+
+  public void setSourcePositionId(String sourcePositionId) {
+    this.sourcePositionId = sourcePositionId;
   }
 
   /** How much of this reception went into one warehouse position. */
