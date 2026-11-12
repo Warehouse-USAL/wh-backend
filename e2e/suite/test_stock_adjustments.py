@@ -247,3 +247,16 @@ def test_cancellation_is_published_only_for_committed_changes(warehouse, operato
     _adjust(warehouse, s.position["id_position"], 1).expect(201)
     kafka.wait_order(o["id"], "cancelled")
     wait_until(lambda: len(kafka.for_order(o["id"], "cancelled")) == 1, desc="exactly one cancelled message")
+
+
+def test_available_never_negative_when_stock_removed_under_an_in_progress_order(warehouse, operator, factory, infra, vehicle_id):
+    """Rule 1: an in-progress order is honoured after its stock is removed, so reserved > physical; stock.available stays 0, never negative"""
+    s = factory.stocked(5)
+    infra_vid, _ = vehicle_id
+    o = factory.order(operator, [(s.id, 3)])
+    infra.status(o["id"], "in_progress", infra_vid).expect(200)
+    _adjust(warehouse, s.position["id_position"], 5, type="DAMAGE", reason="Estante colapsado").expect(201)
+    stock = factory.stock(s.id)
+    assert stock["available"] == 0
+    assert stock["physical"] == 0 and stock["reserved"] == 3 and stock["reserved"] > stock["physical"]
+    assert factory.get_order(o["id"])["status"] == "in_progress"
