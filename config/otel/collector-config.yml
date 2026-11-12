@@ -63,6 +63,61 @@ receivers:
               target_label: __name__
               replacement: minio_s3_requests_errors_by_class_total
 
+  # Redis of the suggestions service (its only store, docs/SUGGESTIONS.md). INFO over the Redis
+  # protocol, no password in any compose file. Opt-in like the service: without
+  # `--profile suggestions` the target is absent and the receiver only logs one scrape error per
+  # interval (hence 30s); the other receivers are unaffected. Series are renamed with dots to
+  # underscores by the exporter (redis_memory_used, ...); docs/CONSOLE.md "Scraped series" lists the
+  # ones kept.
+  redis:
+    endpoint: suggestions-redis:6379
+    collection_interval: 30s
+    metrics:
+      redis.clients.max_input_buffer:
+        enabled: false
+      redis.clients.max_output_buffer:
+        enabled: false
+      redis.cmd.latency:
+        enabled: false
+      redis.maxmemory:
+        enabled: true
+      redis.memory.fragmentation_ratio:
+        enabled: false
+      redis.memory.lua:
+        enabled: false
+      redis.memory.peak:
+        enabled: false
+      redis.memory.rss:
+        enabled: false
+      redis.net.input:
+        enabled: false
+      redis.net.output:
+        enabled: false
+      redis.replication.backlog_first_byte_offset:
+        enabled: false
+      redis.replication.offset:
+        enabled: false
+      redis.slaves.connected:
+        enabled: false
+      redis.cpu.time:
+        enabled: false
+      redis.connections.rejected:
+        enabled: false
+      redis.connections.received:
+        enabled: false
+      redis.commands:
+        enabled: false
+      redis.rdb.changes_since_last_save:
+        enabled: false
+      redis.role:
+        enabled: false
+      redis.clients.blocked:
+        enabled: false
+      redis.latest_fork:
+        enabled: false
+      redis.db.avg_ttl:
+        enabled: false
+
 processors:
   batch:
     timeout: 5s
@@ -97,7 +152,7 @@ service:
       level: detailed
   pipelines:
     metrics:
-      receivers: [otlp, prometheus]
+      receivers: [otlp, prometheus, redis]
       processors: [batch]
       exporters: [prometheusremotewrite]
     logs:

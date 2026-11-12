@@ -1,7 +1,7 @@
 import type { Agg, MetricQuery } from '@/api/metrics'
 import { PALETTE, type Series, type Tone, formatClock, formatCount, formatMs, formatTime, toneFor } from '@/widgets/scale'
 import { RESTOCK_SCHEDULE, RESTOCK_SCHEDULE_OFFSET_MIN, nextDailyRun } from './infra/cron'
-import { formatAge, formatBytes, percent } from './infra/format'
+import { formatAge, formatBytes, formatUptime, percent } from './infra/format'
 import { badShare, countTone, goodTile, lastValue, mapPoints, newest, peak, pick, scale, total } from './infra/series'
 import type { ChartSpec, Ctx, GroupSpec, PageSpec, StatusQuery, StreamRow, TileSpec, TileValue, WidgetSpec } from './infra/spec'
 import { RANGE_MS } from './useMetric'
@@ -13,7 +13,7 @@ import { RANGE_MS } from './useMetric'
  * never drawn as a zero.
  */
 
-export type InfraPage = 'mongo' | 'backend' | 'bridge' | 'kafka' | 'minio' | 'cron' | 'edge' | 'telemetry'
+export type InfraPage = 'mongo' | 'backend' | 'bridge' | 'kafka' | 'minio' | 'cron' | 'edge' | 'telemetry' | 'suggestions' | 'redis'
 
 const { blue, amber, red, gray } = PALETTE
 
@@ -313,6 +313,207 @@ const bridge: PageSpec = {
     },
   ],
   note: 'Retry policy: 2xx acked, 4xx dropped, 408, 429, 5xx and network errors retried with backoff from 1 s to 30 s. Not shown, no series exists: retries in flight (retries are counted as they happen).',
+}
+
+// ---------------------------------------------------------------- Suggestions
+
+const SE = 'suggestions.events'
+const SLAG = 'suggestions.consumer.lag'
+const SREQ = 'suggestions.http.requests'
+const SDUR = 'suggestions.http.duration'
+const SREDIS = 'suggestions.redis.errors'
+const SEMPTY = 'suggestions.recommendations.empty'
+/** The service pushes every 10 s; a minute without a sample means it is down or not exporting. */
+const SUGGESTIONS_STALE_MS = 60_000
+/** An error event is one failed apply attempt (retried until it succeeds); dropped never succeeds. */
+const EVENT_FAILED = ['error', 'dropped']
+const SUGGESTIONS_ENDPOINTS: { endpoint: string; path: string; what: string }[] = [
+  { endpoint: 'cart', path: 'GET, POST /v1/recommendations/cart', what: 'also add, for a cart' },
+  { endpoint: 'user', path: 'GET /v1/recommendations/user/{userId}', what: 'what similar users bought' },
+  { endpoint: 'hot', path: 'GET /v1/recommendations/hot', what: 'trending SKUs' },
+]
+
+/** Status of the service, told by its own samples: it has no row in `GET /console/status`. */
+const reportingTile: TileSpec = {
+  kind: 'tile',
+  title: 'Service',
+  span: 3,
+  query: [m(SLAG, 'last')],
+  value: (series, ctx) => {
+    const t = newest(series)?.t
+    if (t === undefined) return undefined
+    const age = ctx.now - t
+    return { value: age > SUGGESTIONS_STALE_MS ? 'silent' : 'reporting', tone: age > SUGGESTIONS_STALE_MS ? 'warn' : 'ok', label: `Last report ${formatAge(age)} ago` }
+  },
+}
+
+function endpointGroup({ endpoint, path, what }: (typeof SUGGESTIONS_ENDPOINTS)[number]): GroupSpec {
+  const requests = [m(SREQ, 'increase', { endpoint }, ['status_class'])]
+  return {
+    title: path,
+    mono: true,
+    tag: `${what}, endpoint ${endpoint}`,
+    right: 'JWT',
+    tab: endpoint === 'cart' ? 'API' : undefined,
+    widgets: [
+      { kind: 'bars', title: 'Requests', sub: 'by status class', span: 4, query: requests, select: pick(['2xx', 'ok', blue], ['4xx', 'rejected', amber], ['5xx', 'failed', red]) },
+      { kind: 'lines', title: 'Latency', sub: 'p50 / p95 / p99', span: 4, query: quantiles(SDUR, { endpoint }), format: formatMs },
+      errorRate(requests, ['5xx']),
+      { kind: 'tile', title: 'Served', span: 2, query: requests, value: goodTile(['5xx']) },
+    ],
+  }
+}
+
+const suggestions: PageSpec = {
+  crumb: 'Infrastructure',
+  title: 'Suggestions',
+  tabs: ['Overview', 'Kafka', 'API', 'Redis'],
+  chips: ['topic order.completed', 'group wh-suggestions'],
+  groups: [
+    {
+      title: 'Service',
+      tag: 'the suggestions service itself',
+      tab: 'Overview',
+      widgets: [
+        reportingTile,
+        numberTile('Kafka consumer lag, group wh-suggestions', [m(SLAG, 'last')], (s) => lastValue(s), { tone: (v) => (v < 100 ? 'ok' : 'warn') }),
+        numberTile('Redis errors', [m(SREDIS, 'increase')], sumIfAny, { tone: countTone, label: lastRange('Redis errors, all operations') }),
+        numberTile('Empty responses', [m(SEMPTY, 'increase')], sumIfAny, { label: lastRange('Responses without a recommendation') }),
+      ],
+    },
+    {
+      title: 'order.completed',
+      mono: true,
+      tag: 'Kafka consumption into Redis',
+      tab: 'Kafka',
+      widgets: [
+        { kind: 'bars', title: 'Events', sub: 'by outcome; an error is one failed attempt, retried', span: 4, query: [m(SE, 'increase', {}, ['outcome'])], select: pick(['ok', 'applied', blue], ['dropped', 'dropped', gray], ['error', 'failed', red]) },
+        { kind: 'lines', title: 'Consumer lag', sub: 'events waiting', span: 4, query: [m(SLAG, 'avg', {}, [], 'lag')] },
+        errorRate([m(SE, 'increase', {}, ['outcome'])], EVENT_FAILED),
+        { kind: 'tile', title: 'Applied', span: 2, query: [m(SE, 'increase', {}, ['outcome'])], value: goodTile(EVENT_FAILED) },
+        { kind: 'lines', title: 'Ingest time', sub: 'p50 / p95 / p99, one apply attempt to Redis', span: 12, query: quantiles('suggestions.ingest.duration'), format: formatMs },
+      ],
+    },
+    ...SUGGESTIONS_ENDPOINTS.map(endpointGroup),
+    {
+      title: 'Redis and responses',
+      tag: 'failures and answers with nothing to recommend; Redis itself is under Infrastructure > Redis',
+      tab: 'Redis',
+      widgets: [
+        { kind: 'bars', title: 'Redis errors', sub: 'by operation', span: 6, query: [m(SREDIS, 'increase', {}, ['operation'])] },
+        { kind: 'bars', title: 'Empty responses', sub: 'by endpoint, a model that has nothing to recommend yet', span: 6, query: [m(SEMPTY, 'increase', {}, ['endpoint'])] },
+      ],
+    },
+  ],
+  empty: 'No samples in this range: the service has nothing to count here yet, or it is not exporting (compose sets OTEL_EXPORTER_OTLP_ENDPOINT for it; the Service tile says whether it is reporting). See docs/SUGGESTIONS.md, Observability',
+  note: 'Pushed by the service over OTLP, so an off or unreachable service shows no data rather than a status. Lag is read from the Kafka reader and updates with each fetch. Requests count the recommendation routes only (not /healthz); 4xx are rejected requests, only 5xx count as failures.',
+}
+
+// ---------------------------------------------------------------- Redis
+
+const RHITS = 'redis.keyspace.hits'
+const RMISSES = 'redis.keyspace.misses'
+/** Scraped every 30 s by the collector's redis receiver; two missed scrapes mean it is down or gone. */
+const REDIS_STALE_MS = 120_000
+const sumLast = (series: Series[]) => (series.some((s) => s.points.length) ? series.reduce((n, s) => n + (s.points.at(-1)?.v ?? 0), 0) : undefined)
+
+/** Status of Redis, told by its own samples: it has no row in `GET /console/status` (that list is fixed). */
+const redisReportingTile: TileSpec = {
+  kind: 'tile',
+  title: 'Redis',
+  span: 3,
+  query: [m('redis.uptime', 'last')],
+  value: (series, ctx) => {
+    const t = newest(series)?.t
+    if (t === undefined) return undefined
+    const age = ctx.now - t
+    return { value: age > REDIS_STALE_MS ? 'silent' : 'reporting', tone: age > REDIS_STALE_MS ? 'warn' : 'ok', label: `Last scrape ${formatAge(age)} ago` }
+  },
+}
+
+/** Hits over hits plus misses across the range, for a tile; undefined without a single lookup. */
+const hitRatioTile: TileSpec = {
+  kind: 'tile',
+  title: 'Hit ratio',
+  span: 3,
+  query: [m(RHITS, 'increase', {}, [], 'hits'), m(RMISSES, 'increase', {}, [], 'misses')],
+  value: (series, ctx) => {
+    const hits = total(series.filter((s) => s.label === 'hits'))
+    const lookups = hits + total(series.filter((s) => s.label === 'misses'))
+    if (lookups <= 0) return undefined
+    const pct = (hits / lookups) * 100
+    return { value: percent(pct), tone: toneFor(pct), label: `Keyspace hits, last ${ctx.range}` }
+  },
+}
+
+const redis: PageSpec = {
+  crumb: 'Infrastructure',
+  title: 'Redis',
+  tabs: ['Overview', 'Memory', 'Commands', 'Keys'],
+  chips: ['suggestions-redis', 'AOF on'],
+  groups: [
+    {
+      title: 'suggestions-redis',
+      mono: true,
+      tag: 'the only store of the suggestions service, from the collector’s redis receiver',
+      tab: 'Overview',
+      widgets: [
+        redisReportingTile,
+        numberTile('Uptime', [m('redis.uptime', 'last')], (s) => lastValue(s), { format: (v) => formatUptime(v * 1000), label: () => 'Redis uptime' }),
+        numberTile('Memory used', [m('redis.memory.used', 'last')], (s) => lastValue(s), { format: formatBytes, label: () => 'Memory used' }),
+        numberTile('Connected clients', [m('redis.clients.connected', 'last')], (s) => lastValue(s)),
+        numberTile('Keys', [m('redis.db.keys', 'last', {}, ['db'])], sumLast, { label: () => 'Keys, all databases' }),
+        hitRatioTile,
+        numberTile('Evicted keys', [m('redis.keys.evicted', 'increase')], sumIfAny, { tone: countTone, label: lastRange('Keys evicted for memory') }),
+        numberTile('Expired keys', [m('redis.keys.expired', 'increase')], sumIfAny, { label: lastRange('Keys expired by TTL') }),
+      ],
+    },
+    {
+      title: 'memory and clients',
+      mono: true,
+      tag: 'INFO memory and clients',
+      tab: 'Memory',
+      widgets: [
+        { kind: 'lines', title: 'Memory used', sub: 'MB', span: 6, area: true, query: [m('redis.memory.used', 'max', {}, [], 'memory used')], select: scale(1e-6), format: (v) => `${+v.toFixed(1)} MB` },
+        { kind: 'lines', title: 'Connected clients', sub: 'the suggestions service and the collector', span: 6, query: [m('redis.clients.connected', 'max', {}, [], 'clients')] },
+        {
+          kind: 'tile',
+          title: 'Memory limit',
+          span: 3,
+          query: [m('redis.memory.max', 'last')],
+          // maxmemory 0 is Redis for no limit: the service sets none, so say that instead of 0 B.
+          value: (series) => {
+            const v = lastValue(series)
+            return v === undefined ? undefined : { value: v > 0 ? formatBytes(v) : 'none', tone: 'ok', label: 'maxmemory' }
+          },
+        },
+      ],
+    },
+    {
+      title: 'commands',
+      mono: true,
+      tag: 'INFO stats',
+      tab: 'Commands',
+      widgets: [
+        { kind: 'lines', title: 'Operations', sub: 'commands per second', span: 6, query: [m('redis.commands', 'rate', {}, [], 'ops/s')], format: (v) => `${+v.toFixed(1)}/s` },
+        { kind: 'bars', title: 'Keyspace lookups', sub: 'hits and misses', span: 6, query: [m(RHITS, 'increase', {}, [], 'hits'), m(RMISSES, 'increase', {}, [], 'misses')], select: pick(['hits', 'hit', blue], ['misses', 'miss', amber]) },
+      ],
+    },
+    {
+      title: 'keys',
+      mono: true,
+      tag: 'INFO keyspace and stats',
+      tab: 'Keys',
+      widgets: [
+        { kind: 'lines', title: 'Keys', sub: 'by database', span: 6, query: [m('redis.db.keys', 'max', {}, ['db'])] },
+        { kind: 'lines', title: 'Keys with a TTL', sub: 'by database', span: 6, query: [m('redis.db.expires', 'max', {}, ['db'])] },
+        { kind: 'bars', title: 'Expired keys', sub: 'expired by TTL', span: 6, query: [m('redis.keys.expired', 'increase', {}, [], 'expired')] },
+        { kind: 'bars', title: 'Evicted keys', sub: 'removed for memory, 0 without a limit', span: 6, query: [m('redis.keys.evicted', 'increase', {}, [], 'evicted')], select: pick(['evicted', 'evicted', red]) },
+      ],
+    },
+  ],
+  empty: 'Nothing scraped yet: Redis belongs to the opt-in suggestions service (docker compose --profile suggestions) and the collector reads it every 30 s (docs/CONSOLE.md, Scraped series)',
+  note: 'Scraped from Redis INFO by the collector every 30 s, so a stopped Redis shows no data rather than a status. Not shown, no series is scraped: persistence (the AOF is on, see docker-compose.yml, but its state and last-write status are not collected), per-command latency and replication (a single node).',
 }
 
 // ---------------------------------------------------------------- Kafka
@@ -792,13 +993,15 @@ const telemetry: PageSpec = {
   note: 'Retention is VictoriaMetrics’ -retentionPeriod=800d in docker-compose.yml, a flag rather than a series. Disk used is the data size against data plus free space on its volume. Range queries and their latency count every caller of VictoriaMetrics, not only the console; the console’s own share is not told apart.',
 }
 
-export const INFRA_PAGES: Record<InfraPage, PageSpec> = { mongo, backend, bridge, kafka, minio, cron, edge, telemetry }
+export const INFRA_PAGES: Record<InfraPage, PageSpec> = { mongo, backend, bridge, suggestions, redis, kafka, minio, cron, edge, telemetry }
 
 /** Sidebar path of each page (`layout/nav.ts`); Logs has its own page. */
 export const INFRA_ROUTES: Record<string, InfraPage> = {
   '/infra/backend': 'backend',
   '/infra/mongodb': 'mongo',
   '/infra/bridge': 'bridge',
+  '/infra/suggestions': 'suggestions',
+  '/infra/redis': 'redis',
   '/infra/kafka': 'kafka',
   '/infra/minio': 'minio',
   '/infra/restock-cron': 'cron',

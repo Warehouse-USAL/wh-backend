@@ -26,6 +26,29 @@ class ProductResponseTest {
   }
 
   @Test
+  void from_whenReservedExceedsPhysical_availableStaysAtZeroAndReservedIsKept() {
+    Product p = new Product();
+
+    // An in-progress order keeps 3 units reserved after their stock was removed from the shelf.
+    ProductResponse.Stock stock = ProductResponse.from(p, 0, 3).stock();
+
+    assertEquals(0, stock.available());
+    assertEquals(3, stock.reserved());
+    assertEquals(0, stock.physical());
+  }
+
+  @Test
+  void from_whenReservedExceedsAPartOfPhysical_availableStaysAtZero() {
+    Product p = new Product();
+
+    ProductResponse.Stock stock = ProductResponse.from(p, 2, 5).stock();
+
+    assertEquals(0, stock.available());
+    assertEquals(5, stock.reserved());
+    assertEquals(2, stock.physical());
+  }
+
+  @Test
   void from_withoutARestockRun_hasNoRestockRecommendation() {
     assertNull(ProductResponse.from(new Product(), 0, 0).restock());
   }
@@ -44,5 +67,20 @@ class ProductResponseTest {
     assertEquals(318.8, r.targetStock());
     assertEquals(140, r.inventoryPosition());
     assertEquals(at, r.calculatedAt());
+  }
+
+  @Test
+  void from_neverYieldsANegativeAvailable_forAnyPhysicalAndReserved() {
+    Product p = new Product();
+    for (int physical = 0; physical <= 20; physical++) {
+      for (int reserved = 0; reserved <= 20; reserved++) {
+        ProductResponse.Stock stock = ProductResponse.from(p, physical, reserved).stock();
+
+        assertTrue(stock.available() >= 0, "physical=" + physical + " reserved=" + reserved);
+        assertEquals(Math.max(0, physical - reserved), stock.available());
+        assertEquals(physical, stock.physical());
+        assertEquals(reserved, stock.reserved());
+      }
+    }
   }
 }

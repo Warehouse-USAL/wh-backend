@@ -46,6 +46,7 @@ variable is unset; "compose" marks values the compose files set. The backend ima
 | `CONSOLE_COLLECTOR_URL` | backend | `http://otel-collector:13133` | status probe (collector health extension) |
 | `CONSOLE_STREAM_*` | backend | the `console.stream.` table below | e.g. `CONSOLE_STREAM_MAX_STREAMS=50`, `CONSOLE_STREAM_HEARTBEAT=15s` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | bridge | `http://otel-collector:4318` | blank = no export |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | suggestions | blank (off); compose has it commented out | same variable as the bridge; blank = no export. Feeds the Suggestions page (docs/SUGGESTIONS.md, "Observability") |
 | `MINIO_PROMETHEUS_AUTH_TYPE` | minio | `public` | collector scrapes `/minio/v2/metrics/cluster` without a token; anyone reaching port 9000, host-published in prod too, can read these counts and sizes |
 | `RESTOCK_OTLP_URL` | restock-cron | `http://otel-collector:4318/v1/metrics` | `job.run` push; blank = no push |
 | `RESTOCK_SCHEDULE` | restock-cron | `0 6 * * *` | crond expression in **UTC** (the image has no tzdata; do not set `TZ`). The console's "Next run" tile assumes this default |
@@ -53,10 +54,11 @@ variable is unset; "compose" marks values the compose files set. The backend ima
 
 Scrape jobs (`job` label = job name, every 30s): `otel-collector` (`localhost:8888`),
 `victoriametrics` (`victoriametrics:8428`), `minio` (`minio:9000/minio/v2/metrics/cluster`), and
-in prod only `caddy` (`caddy:2019/metrics`, every 60s). A down target only sets `up{job=...}=0`
+in prod only `caddy` (`caddy:2019/metrics`, every 60s). Redis is read by the collector's `redis`
+receiver instead (below). A down target only sets `up{job=...}=0`
 and logs one `Failed to scrape Prometheus endpoint` warning per interval; the other jobs and OTLP
 keep flowing. The `victoriametrics`, `minio` and `otel-collector` jobs keep only the series listed
-under "Scraped series" (`metric_relabel_configs`): VictoriaMetrics retains 800 days, so every
+under "Scraped series" (`metric_relabel_configs`; the `redis` receiver enables only the metrics listed): VictoriaMetrics retains 800 days, so every
 unused series costs disk for that long. Adding a chart means adding its series to the keep-list.
 
 restock-cron pushes `job.run` (OTLP/JSON gauge) after each run, twice: `field=duration_ms` and
@@ -405,7 +407,7 @@ What it asserts (each a row in the summary table; exit 1 on any failure):
 Exact names as stored in VictoriaMetrics (collector `0.115.1`, MinIO `RELEASE.2026-09-22`,
 VictoriaMetrics `v1.111.0`, Caddy `2.10.2`). Counters keep `_total` when the target serves the
 classic text format (MinIO, VictoriaMetrics, Caddy) and lose it when it serves OpenMetrics (the
-collector's own `otelcol_*`). Every series also carries `job` and `instance`.
+collector's own `otelcol_*`). Every series also carries `job` and `instance`, except Redis' below.
 
 **MinIO** (`job="minio"`, every series has `server`)
 
@@ -422,6 +424,25 @@ collector's own `otelcol_*`). Every series also carries `job` and `instance`.
 | Capacity | `minio_cluster_capacity_usable_total_bytes`, `minio_cluster_capacity_usable_free_bytes` | — |
 
 Usage values come from MinIO's background scanner, so they lag uploads by minutes.
+
+**Redis** (the collector's `redis` receiver, `suggestions-redis:6379`)
+
+Read from INFO every 30 s without a password (no compose file sets one). These series carry no `job`
+or `instance`, and the exporter turns the receiver's dots into underscores. Receiver metrics the
+console does not chart are turned off in `collector-config.yml`; persistence (AOF/RDB state) has no
+enabled series. In prod Redis and the collector share `wh-network`, so nothing needs opening.
+
+| Panel | Series | Labels |
+|---|---|---|
+| Memory used | `redis_memory_used` (bytes) | — |
+| Memory limit | `redis_maxmemory` (bytes; `0` = no limit, as compose runs it) | — |
+| Connected clients | `redis_clients_connected` | — |
+| Operations | `redis_commands_processed` (counter, rate = commands per second) | — |
+| Hit ratio, lookups | `redis_keyspace_hits`, `redis_keyspace_misses` (counters) | — |
+| Evicted, expired keys | `redis_keys_evicted`, `redis_keys_expired` (counters) | — |
+| Keys | `redis_db_keys` (appears once a database holds a key) | `db` |
+| Keys with a TTL | `redis_db_expires` (as above) | `db` |
+| Uptime | `redis_uptime` (seconds; also the Redis page's reporting tile) | — |
 
 **Collector** (`job="otel-collector"`, every series has `service_instance_id`, new on each restart)
 
@@ -589,5 +610,29 @@ case-sensitive (`"malformed"` does not match `Malformed request body`); `i("malf
   Rollout: the collector's MinIO relabel takes effect on the next deploy (the collector is always
   recreated); `minio.errors` before that is stored as `minio_s3_requests_errors_total` and is not
   migrated, so its chart starts empty.
+- **Suggestions series** (OTLP from the opt-in `suggestions` service, histograms in ms; full
+  reference in docs/SUGGESTIONS.md, "Observability"). The Infrastructure > Suggestions page
+  (`/infra/suggestions`) charts Kafka consumption (`suggestions.events` by `outcome`,
+  `suggestions.consumer.lag`, `suggestions.ingest.duration`), latency and status classes per
+  endpoint (`suggestions.http.requests`, `suggestions.http.duration`, endpoints `cart`, `user`,
+  `hot`) and `suggestions.redis.errors` / `suggestions.recommendations.empty`. The service has no
+  row in `GET /console/status` (that list is fixed), so the page's Service tile reads
+  "reporting" while the lag gauge has a sample from the last minute and "silent" after; with no
+  samples (service off, or `OTEL_EXPORTER_OTLP_ENDPOINT` unset) the widgets show the empty state, never a
+  zero.
+
+- **Redis series** (scraped by the collector's `redis` receiver from the suggestions service's
+  Redis; see "Scraped series"). The Infrastructure > Redis page (`/infra/redis`, between
+  Suggestions and Kafka) shows memory used and limit, connected clients, operations per second,
+  keyspace hits and misses with the hit ratio, evicted and expired keys, keys and keys with a TTL
+  per database, and uptime. Like Suggestions it has no row in `GET /console/status` (that list is
+  fixed), so its tile reads "reporting" while `redis.uptime` has a sample from the last two
+  minutes and "silent" after; with no samples it shows the empty state, never a zero.
+  Persistence (AOF state) is not collected. The receiver is in the dev and prod collector configs
+  and is opt-in in effect: without `--profile suggestions` in dev there is no `suggestions-redis`
+  and the collector logs one scrape error per 30 s (like Caddy before its step); nothing else is
+  affected. In prod the suggestions services always run. The Suggestions page's "Redis errors"
+  widgets (`suggestions.redis.errors`, the client's view) are unchanged.
+
 - **No `kafka.messages{direction="in"}`.** The backend consumes no Kafka topic; it only
   publishes `orders` and `order.completed` (`direction="out"`).

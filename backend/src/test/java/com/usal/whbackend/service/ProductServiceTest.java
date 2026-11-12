@@ -393,6 +393,44 @@ class ProductServiceTest {
   }
 
   @Test
+  void updateProduct_inactiveProduct_canBeReactivated() {
+    Product p = activeProduct("1");
+    p.setActive(false);
+    when(productRepository.findById("1")).thenReturn(Optional.of(p));
+    when(positionRepository.findByProductIdInAndIsActiveTrue(any())).thenReturn(List.of());
+    mockZeroSingleReservedStock();
+
+    productService.updateProduct(
+        "1",
+        new UpdateProductRequest(
+            null, null, null, null, null, null, null, null, true, null, null, null, null));
+
+    Document update = capturedUpdate();
+    assertEquals(true, update.get("$set", Document.class).get("active"));
+  }
+
+  @Test
+  void updateProduct_inactiveProduct_anyOtherEditStillAnswers404() {
+    Product p = activeProduct("1");
+    p.setActive(false);
+    when(productRepository.findById("1")).thenReturn(Optional.of(p));
+
+    // No is_active at all, and an explicit is_active=false: neither reactivates it.
+    for (Boolean isActive : new Boolean[] {null, Boolean.FALSE}) {
+      ResponseStatusException ex =
+          assertThrows(
+              ResponseStatusException.class,
+              () ->
+                  productService.updateProduct(
+                      "1",
+                      new UpdateProductRequest(
+                          null, null, null, null, null, null, null, null, isActive, null, null,
+                          null, null)));
+      assertEquals("PRODUCT_NOT_FOUND", ex.getReason());
+    }
+  }
+
+  @Test
   void updateProduct_unknownId_throws404() {
     when(productRepository.findById("none")).thenReturn(Optional.empty());
     assertThrows(
@@ -982,5 +1020,78 @@ class ProductServiceTest {
     mockZeroSingleReservedStock();
 
     assertEquals(0, productService.computeReservedStock("1"));
+  }
+
+  // ── reserved > physical: API shows 0, the signed net stays negative ────────
+
+  /** The aggregation result records are private to ProductService; build them reflectively. */
+  private static Object serviceRecord(String simpleName, Object... args) throws Exception {
+    Class<?> type = Class.forName(ProductService.class.getName() + "$" + simpleName);
+    var ctor = type.getDeclaredConstructors()[0];
+    ctor.setAccessible(true);
+    return ctor.newInstance(args);
+  }
+
+  @SuppressWarnings("unchecked")
+  private void mockSingleReservedStock(int total) throws Exception {
+    AggregationResults<Object> results = mock(AggregationResults.class);
+    when(results.getUniqueMappedResult()).thenReturn(serviceRecord("StockSum", total));
+    when(mongoTemplate.aggregate(any(Aggregation.class), anyString(), any(Class.class)))
+        .thenReturn((AggregationResults) results);
+  }
+
+  @SuppressWarnings("unchecked")
+  private void mockBulkReservedStock(String productId, int total) throws Exception {
+    AggregationResults<Object> results = mock(AggregationResults.class);
+    when(results.getMappedResults())
+        .thenReturn(List.of(serviceRecord("ProductStockSum", productId, total)));
+    when(mongoTemplate.aggregate(any(Aggregation.class), anyString(), any(Class.class)))
+        .thenReturn((AggregationResults) results);
+  }
+
+  @Test
+  void getProduct_reservedExceedsPhysical_availableIsZeroNeverNegative() throws Exception {
+    Product p = activeProduct("1");
+    Position pos = new Position();
+    pos.setProductId("1");
+    pos.setCurrentStock(1);
+    when(productRepository.findById("1")).thenReturn(Optional.of(p));
+    when(positionRepository.findByProductIdInAndIsActiveTrue(any())).thenReturn(List.of(pos));
+    mockSingleReservedStock(4);
+
+    ProductResponse.Stock stock = productService.getProduct("1", null).stock();
+
+    assertEquals(0, stock.available());
+    assertEquals(4, stock.reserved());
+    assertEquals(1, stock.physical());
+  }
+
+  @Test
+  void getProducts_reservedExceedsPhysical_availableIsZeroNeverNegative() throws Exception {
+    Pageable pageable = PageRequest.of(0, 10);
+    when(mongoTemplate.count(any(Query.class), eq(Product.class))).thenReturn(1L);
+    when(mongoTemplate.find(any(Query.class), eq(Product.class)))
+        .thenReturn(List.of(activeProduct("1")));
+    when(positionRepository.findByProductIdInAndIsActiveTrue(any())).thenReturn(List.of());
+    mockBulkReservedStock("1", 3);
+
+    ProductResponse.Stock stock =
+        productService.getProducts(null, null, null, pageable).getContent().get(0).stock();
+
+    assertEquals(0, stock.available());
+    assertEquals(3, stock.reserved());
+    assertEquals(0, stock.physical());
+  }
+
+  @Test
+  void netAvailableStock_reservedExceedsPhysical_staysSignedSoRestockMathsIsUnchanged()
+      throws Exception {
+    Position pos = new Position();
+    pos.setProductId("1");
+    pos.setCurrentStock(1);
+    when(positionRepository.findByProductIdInAndIsActiveTrue(any())).thenReturn(List.of(pos));
+    mockBulkReservedStock("1", 4);
+
+    assertEquals(-3, productService.netAvailableStock(List.of("1")).get("1"));
   }
 }

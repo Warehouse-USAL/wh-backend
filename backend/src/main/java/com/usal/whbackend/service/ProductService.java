@@ -87,8 +87,9 @@ public class ProductService {
 
   /**
    * Stock free to cover new orders, per product: on hand in active positions minus what pending and
-   * in-progress orders have reserved. The same figure as {@code stock.available} on the product
-   * API. Every requested id is present; a product with no stock maps to 0.
+   * in-progress orders have reserved. It can be negative when an in-progress order outlives its
+   * stock (the restock maths relies on that); {@code stock.available} on the product API shows the
+   * same figure cut at 0. Every requested id is present; a product with no stock maps to 0.
    */
   public Map<String, Integer> netAvailableStock(List<String> productIds) {
     Map<String, Integer> onHand = bulkAvailableStock(productIds);
@@ -253,7 +254,10 @@ public class ProductService {
             .findById(id)
             .orElseThrow(
                 () -> new ResponseStatusException(HttpStatus.NOT_FOUND, "PRODUCT_NOT_FOUND"));
-    if (!product.isActive()) {
+    // An inactive product is hidden from the catalogue, so a plain edit still answers 404. The one
+    // request that may reach it is the one that switches it back on: without this exception a
+    // deactivated product could never be reactivated through the API.
+    if (!product.isActive() && !Boolean.TRUE.equals(request.isActive())) {
       throw new ResponseStatusException(HttpStatus.NOT_FOUND, "PRODUCT_NOT_FOUND");
     }
     if (request.name() != null) product.setName(request.name());

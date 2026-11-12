@@ -6,11 +6,13 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/Warehouse-USAL/wh-backend/suggestions/internal/auth"
 	"github.com/Warehouse-USAL/wh-backend/suggestions/internal/recommend"
+	"github.com/Warehouse-USAL/wh-backend/suggestions/internal/telemetry"
 )
 
 const (
@@ -42,13 +44,40 @@ type response struct {
 func (h *handlers) respond(c *gin.Context, recs []recommend.Recommendation, err error) {
 	if err != nil {
 		h.Log.Error("reading recommendations", "path", c.FullPath(), "error", err)
+		h.Telemetry.RedisError(telemetry.OpQuery)
 		fail(c, http.StatusInternalServerError, "internal_error", "could not compute recommendations")
 		return
+	}
+	if len(recs) == 0 {
+		h.Telemetry.EmptyRecommendations(endpointOf(c))
 	}
 	if recs == nil {
 		recs = []recommend.Recommendation{}
 	}
 	c.JSON(http.StatusOK, response{Recommendations: recs})
+}
+
+// endpointOf names the recommendation route of the request (cart, user or hot), or "" for any other:
+// it is a metric label, so it must stay a small fixed set (no user id, no raw path).
+func endpointOf(c *gin.Context) string {
+	switch c.FullPath() {
+	case "/v1/recommendations/cart":
+		return "cart"
+	case "/v1/recommendations/user/:userId":
+		return "user"
+	case "/v1/recommendations/hot":
+		return "hot"
+	}
+	return ""
+}
+
+// measure records the count and latency of every recommendation request, by endpoint and status class.
+func (h *handlers) measure(c *gin.Context) {
+	start := time.Now()
+	c.Next()
+	if endpoint := endpointOf(c); endpoint != "" {
+		h.Telemetry.Request(endpoint, strconv.Itoa(c.Writer.Status()/100)+"xx", time.Since(start))
+	}
 }
 
 // authenticate requires a valid bearer token and stores its claims.
@@ -180,6 +209,9 @@ func (h *handlers) healthz(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), healthTimeout)
 	defer cancel()
 	redisOK, consumerOK := h.Ping(ctx) == nil, h.ConsumerAlive()
+	if !redisOK {
+		h.Telemetry.RedisError(telemetry.OpHealth)
+	}
 	status := http.StatusOK
 	if !redisOK || !consumerOK {
 		status = http.StatusServiceUnavailable
