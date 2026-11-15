@@ -146,6 +146,11 @@ public class EntityRegistry {
                   FieldDescriptor.of("deliveryUnit", FieldType.ENUM),
                   FieldDescriptor.of("supplier", FieldType.STRING),
                   FieldDescriptor.of("status", FieldType.ENUM),
+                  // RELOCATION rows are stock moved between positions, not stock that arrived.
+                  // Rows written before the field existed have no type, so exclude relocations
+                  // with `type ne RELOCATION` rather than selecting `type eq SUPPLIER`.
+                  FieldDescriptor.of("type", FieldType.ENUM),
+                  FieldDescriptor.of("sourcePositionId", FieldType.STRING),
                   FieldDescriptor.of("createdAt", FieldType.INSTANT)),
               "createdAt"),
           new EntityDescriptor(

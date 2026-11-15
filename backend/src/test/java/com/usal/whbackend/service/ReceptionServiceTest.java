@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Optional;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -449,6 +450,44 @@ class ReceptionServiceTest {
             null, null, ReceptionStatus.PENDING_LOCATION, null, null, PageRequest.of(0, 10));
 
     assertEquals(1, page.getTotalElements());
+  }
+
+  private Query queryFilteredBy(com.usal.whbackend.domain.ReceptionType type) {
+    when(mongoTemplate.count(any(Query.class), eq(Reception.class))).thenReturn(0L);
+    when(mongoTemplate.find(any(Query.class), eq(Reception.class))).thenReturn(List.of());
+
+    receptionService.getReceptions(null, null, null, type, null, null, PageRequest.of(0, 10));
+
+    ArgumentCaptor<Query> query = ArgumentCaptor.forClass(Query.class);
+    verify(mongoTemplate).count(query.capture(), eq(Reception.class));
+    return query.getValue();
+  }
+
+  @Test
+  void getReceptions_typeRelocation_matchesOnlyRelocations() {
+    assertEquals(
+        "RELOCATION",
+        String.valueOf(
+            queryFilteredBy(com.usal.whbackend.domain.ReceptionType.RELOCATION)
+                .getQueryObject()
+                .get("type")));
+  }
+
+  @Test
+  void getReceptions_typeSupplier_alsoMatchesReceptionsStoredWithoutAType() {
+    // Documents written before relocations existed have no `type`; `type != RELOCATION` is what
+    // still matches them, where `type == SUPPLIER` would silently drop every old remito.
+    Object filter =
+        queryFilteredBy(com.usal.whbackend.domain.ReceptionType.SUPPLIER)
+            .getQueryObject()
+            .get("type");
+    assertEquals(
+        new org.bson.Document("$ne", com.usal.whbackend.domain.ReceptionType.RELOCATION), filter);
+  }
+
+  @Test
+  void getReceptions_withoutTypeFilter_doesNotConstrainType() {
+    assertFalse(queryFilteredBy(null).getQueryObject().containsKey("type"));
   }
 
   @Test

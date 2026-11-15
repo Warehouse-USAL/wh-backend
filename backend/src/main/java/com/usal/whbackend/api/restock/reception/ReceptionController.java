@@ -4,6 +4,7 @@ import com.usal.whbackend.api.Pagination;
 import com.usal.whbackend.api.Roles;
 import com.usal.whbackend.domain.Reception;
 import com.usal.whbackend.domain.ReceptionStatus;
+import com.usal.whbackend.domain.ReceptionType;
 import com.usal.whbackend.domain.UserRole;
 import com.usal.whbackend.service.ReceptionService;
 import com.usal.whbackend.service.UserService;
@@ -89,6 +90,12 @@ public class ReceptionController {
       @RequestParam(required = false) String productId,
       @RequestParam(required = false) String restockOrderId,
       @RequestParam(required = false) ReceptionStatus status,
+      @Parameter(
+              description =
+                  "SUPPLIER for deliveries from a supplier (including those registered before"
+                      + " relocations existed), RELOCATION for stock taken out of a position")
+          @RequestParam(required = false)
+          ReceptionType type,
       @Parameter(description = "ISO-8601 start date (inclusive)") @RequestParam(required = false)
           String from,
       @Parameter(description = "ISO-8601 end date (inclusive)") @RequestParam(required = false)
@@ -97,7 +104,7 @@ public class ReceptionController {
       @RequestParam(defaultValue = "10") int size) {
     Pageable pageable = PageRequest.of(Math.max(page, 0), Math.max(Math.min(size, 50), 1));
     Page<Reception> result =
-        receptionService.getReceptions(productId, restockOrderId, status, from, to, pageable);
+        receptionService.getReceptions(productId, restockOrderId, status, type, from, to, pageable);
     return ResponseEntity.ok(
         Map.of(
             "receptions", result.getContent().stream().map(ReceptionResponse::from).toList(),

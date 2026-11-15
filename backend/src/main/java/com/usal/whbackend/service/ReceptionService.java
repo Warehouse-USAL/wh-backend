@@ -4,6 +4,7 @@ import com.usal.whbackend.api.restock.reception.CreateReceptionRequest;
 import com.usal.whbackend.domain.Product;
 import com.usal.whbackend.domain.Reception;
 import com.usal.whbackend.domain.ReceptionStatus;
+import com.usal.whbackend.domain.ReceptionType;
 import com.usal.whbackend.domain.RestockOrder;
 import com.usal.whbackend.repository.ProductRepository;
 import com.usal.whbackend.repository.ReceptionRepository;
@@ -201,6 +202,17 @@ public class ReceptionService {
       String from,
       String to,
       Pageable pageable) {
+    return getReceptions(productId, restockOrderId, status, null, from, to, pageable);
+  }
+
+  public Page<Reception> getReceptions(
+      String productId,
+      String restockOrderId,
+      ReceptionStatus status,
+      ReceptionType type,
+      String from,
+      String to,
+      Pageable pageable) {
     Instant fromInstant = parseInstant(from);
     Instant toInstant = parseInstant(to);
 
@@ -213,6 +225,13 @@ public class ReceptionService {
     }
     if (status != null) {
       query.addCriteria(Criteria.where("status").is(status));
+    }
+    if (type == ReceptionType.RELOCATION) {
+      query.addCriteria(Criteria.where("type").is(ReceptionType.RELOCATION));
+    } else if (type == ReceptionType.SUPPLIER) {
+      // Receptions written before relocations existed carry no type at all, so "not a relocation"
+      // is the only test that still matches them.
+      query.addCriteria(Criteria.where("type").ne(ReceptionType.RELOCATION));
     }
     if (fromInstant != null || toInstant != null) {
       Criteria createdAt = Criteria.where("createdAt");

@@ -90,8 +90,7 @@ class MetricRegistryTest {
           Map.entry("suggestions.events", new Expected(MetricType.COUNTER, List.of("outcome"))),
           Map.entry("suggestions.consumer.lag", new Expected(MetricType.GAUGE, List.of())),
           Map.entry(
-              "suggestions.ingest.duration",
-              new Expected(MetricType.HISTOGRAM, List.of("result"))),
+              "suggestions.ingest.duration", new Expected(MetricType.HISTOGRAM, List.of("result"))),
           Map.entry(
               "suggestions.http.requests",
               new Expected(MetricType.COUNTER, List.of("endpoint", "status_class"))),

@@ -6,6 +6,7 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -66,6 +67,61 @@ class UserControllerMeTest {
     u.setCreatedAt(Instant.parse("2026-01-01T00:00:00Z"));
     u.setAddress(address);
     return u;
+  }
+
+  @Test
+  @WithMockUser(username = "USR-001") // no admin role: proves /me is not routed to GET /{id}
+  void getMe_returnsTheCallersOwnProfile_withAddressAndSupplier() throws Exception {
+    Address address = new Address();
+    address.setStreet("Av. Siempre Viva 742");
+    address.setDepartment("B");
+    address.setFloor("3");
+    address.setPostalCode("1425");
+    User provider = user(address);
+    provider.setRole(UserRole.PROVIDER);
+    provider.setSupplier("Distribuidora del Sur S.A.");
+    when(userService.getUser("USR-001")).thenReturn(provider);
+
+    mockMvc
+        .perform(get("/users/me"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.id").value("USR-001"))
+        .andExpect(jsonPath("$.email").value("me@test.com"))
+        .andExpect(jsonPath("$.role").value("PROVIDER"))
+        .andExpect(jsonPath("$.active").value(true))
+        .andExpect(jsonPath("$.address.street").value("Av. Siempre Viva 742"))
+        .andExpect(jsonPath("$.address.postal_code").value("1425"))
+        .andExpect(jsonPath("$.supplier").value("Distribuidora del Sur S.A."))
+        .andExpect(jsonPath("$.password_hash").doesNotExist())
+        .andExpect(jsonPath("$.passwordHash").doesNotExist());
+  }
+
+  @Test
+  @WithMockUser(username = "USR-001")
+  void getMe_withoutAddressOrSupplier_returnsNullForBoth() throws Exception {
+    when(userService.getUser("USR-001")).thenReturn(user(null));
+
+    mockMvc
+        .perform(get("/users/me"))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.address").value(org.hamcrest.Matchers.nullValue()))
+        .andExpect(jsonPath("$.supplier").value(org.hamcrest.Matchers.nullValue()));
+  }
+
+  @Test
+  @WithMockUser(username = "USR-001")
+  void getMe_whenTheTokensUserNoLongerExists_returns404() throws Exception {
+    when(userService.getUser("USR-001")).thenThrow(new UserNotFoundException("USR-001"));
+
+    mockMvc
+        .perform(get("/users/me"))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.error.code").value("USER_NOT_FOUND"));
+  }
+
+  @Test
+  void getMe_withoutAToken_isRejected() throws Exception {
+    mockMvc.perform(get("/users/me")).andExpect(status().isUnauthorized());
   }
 
   @Test

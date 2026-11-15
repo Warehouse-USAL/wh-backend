@@ -7,6 +7,9 @@ import com.usal.whbackend.domain.Line;
 import com.usal.whbackend.domain.Order;
 import com.usal.whbackend.domain.Position;
 import com.usal.whbackend.domain.Product;
+import com.usal.whbackend.domain.Reception;
+import com.usal.whbackend.domain.ReceptionStatus;
+import com.usal.whbackend.domain.ReceptionType;
 import com.usal.whbackend.domain.StockAdjustmentType;
 import com.usal.whbackend.domain.StockSize;
 import com.usal.whbackend.domain.Zone;
@@ -60,11 +63,20 @@ public class PositionService {
     this.stockAdjustmentService = stockAdjustmentService;
   }
 
-  /** A saved position and the orders cancelled because the change left too little stock. */
-  public record PositionUpdate(Position position, List<Order> cancelledOrders) {
+  /**
+   * A saved position, the orders cancelled because the change left too little stock and, when the
+   * product was taken out of a position that held stock, the pending relocation of those units
+   * (null otherwise).
+   */
+  public record PositionUpdate(
+      Position position, List<Order> cancelledOrders, Reception relocation) {
 
     public PositionUpdate {
       cancelledOrders = List.copyOf(cancelledOrders);
+    }
+
+    public PositionUpdate(Position position, List<Order> cancelledOrders) {
+      this(position, cancelledOrders, null);
     }
   }
 
@@ -149,7 +161,9 @@ public class PositionService {
   /**
    * Applies a partial update. Any change that lowers the stock orders can rely on — a smaller
    * {@code currentStock}, unassigning the product or deactivating the position — is recorded in the
-   * adjustment history and re-checks the product's orders, all in this transaction.
+   * adjustment history and re-checks the product's orders, all in this transaction. Unassigning a
+   * position that held stock also leaves those units as a pending {@link ReceptionType#RELOCATION}:
+   * they are still in the warehouse, so they must be placed again rather than written off.
    */
   @Transactional
   public PositionUpdate updatePosition(String id, UpdatePositionRequest request) {
@@ -248,9 +262,31 @@ public class PositionService {
     } else if (availableDropped) {
       change = deactivation(id, originalProductId, originalStock, request.reason());
     }
+    Reception relocation =
+        unassigned && originalStock > 0 && originalProductId != null
+            ? relocationOf(saved, originalProductId, originalStock)
+            : null;
     List<Order> cancelled =
         change == null ? List.of() : stockAdjustmentService.recordChange(change).cancelledOrders();
-    return new PositionUpdate(saved, cancelled);
+    return new PositionUpdate(saved, cancelled, relocation);
+  }
+
+  /**
+   * Records the units taken out of {@code source} as a reception waiting to be placed. Like a
+   * PENDING_LOCATION remito it adds nothing to the product's stock until positions are assigned.
+   * Saved inside the caller's transaction, so it exists only if the unassign itself commits.
+   */
+  private Reception relocationOf(Position source, String productId, int quantity) {
+    Reception relocation = new Reception();
+    relocation.setType(ReceptionType.RELOCATION);
+    relocation.setSourcePositionId(source.getId());
+    relocation.setProductId(productId);
+    relocation.setQuantityReceived(quantity);
+    relocation.setDeliveryUnit(source.getSizeStockToSave());
+    relocation.setAssignments(List.of());
+    relocation.setStatus(ReceptionStatus.PENDING_LOCATION);
+    relocation.setCreatedAt(Instant.now());
+    return mongoTemplate.save(relocation);
   }
 
   /** What the position contributes to its product's available stock. */
