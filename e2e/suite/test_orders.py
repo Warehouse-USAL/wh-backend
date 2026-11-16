@@ -142,12 +142,13 @@ def test_orders_topic_message_has_ordered_stops_from_qr_codes(operator, factory,
     o = factory.order(operator, [(pb["id"], 2), (pa["id"], 3)])
     msg = kafka.wait_order(o["id"], "pending")["value"]
     assert set(msg) == {"order_id", "status", "stops", "destination", "published_at"}, msg
-    assert msg["stops"] == [qr_a, qr_b] and msg["destination"] == "E2E-AREA" and msg["status"] == "pending"
+    # a vehicle picks one unit per stop: 3 units of A, then 2 of B
+    assert msg["stops"] == [qr_a] * 3 + [qr_b] * 2 and msg["destination"] == "E2E-AREA" and msg["status"] == "pending"
     datetime.fromisoformat(msg["published_at"].replace("Z", "+00:00"))
 
 
-def test_stops_are_deduplicated_and_ordered_by_line_then_position_name(operator, factory, kafka):
-    """Two positions of one product in one zone: stops are in line-number then position-name order, one per position"""
+def test_stops_repeat_per_unit_back_to_back_and_are_ordered_by_line_then_position_name(operator, factory, kafka):
+    """Three positions of one product in one zone: stops are in line-number then position-name order, each position repeated back to back once per unit taken from it"""
     prod = factory.product()
     z = factory.zone()
     l2, l1 = factory.line(z["id_zone"], number=2), factory.line(z["id_zone"], number=1)
@@ -157,7 +158,7 @@ def test_stops_are_deduplicated_and_ordered_by_line_then_position_name(operator,
     factory.position(l1["id_line"], name="PA", product_id=prod["id"], stock=5, qr=q["l1pa"])
     o = factory.order(operator, [(prod["id"], 15)])  # needs all three
     stops = kafka.wait_order(o["id"], "pending")["value"]["stops"]
-    assert stops == [q["l1pa"], q["l1pb"], q["l2pa"]]
+    assert stops == [q["l1pa"]] * 5 + [q["l1pb"]] * 5 + [q["l2pa"]] * 5
 
 
 def test_order_without_any_qr_still_created_with_empty_stops(operator, factory, kafka):

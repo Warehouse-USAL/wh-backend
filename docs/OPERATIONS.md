@@ -53,9 +53,11 @@ If compose or config changed between releases, also check the checkout out at th
 
 ## Orders and QR codes
 
-An order's `stops` are the `qr_code` texts of the positions the stock will be taken from, once
-each, in warehouse traversal order (zone code, line number, position name): `StopResolver`. The
-backend publishes them to Infra (through the bridge) with the order.
+An order's `stops` are the `qr_code` texts of the positions the stock will be taken from, in
+warehouse traversal order (zone code, line number, position name): `StopResolver`. A vehicle
+dispatches one unit per stop, so a position appears once per unit taken from it, back to back
+(`["WH2|PA2","WH2|PA2","WH2|PM1"]` for 2 units from PA2 and 1 from PM1). The backend publishes
+them to Infra (through the bridge) with the order.
 
 **An order with empty `stops` is cancelled immediately by Infra.** `POST /orders` still returns
 success, because the backend cannot know; the order simply comes back cancelled. A position that

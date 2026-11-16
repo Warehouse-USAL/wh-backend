@@ -6,7 +6,9 @@ import com.usal.whbackend.domain.Position;
 import com.usal.whbackend.domain.Zone;
 import com.usal.whbackend.repository.LineRepository;
 import com.usal.whbackend.repository.ZoneRepository;
+import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -18,8 +20,9 @@ import org.springframework.stereotype.Service;
 
 /**
  * Turns an order's items into the ordered list of places a vehicle has to visit: the QR text of
- * every position the stock drain will take from, once per position, in warehouse traversal order
- * (zone code, then line number, then position name).
+ * every position the stock drain will take from, in warehouse traversal order (zone code, then line
+ * number, then position name). A vehicle dispatches one unit per stop, so a position is repeated,
+ * back to back, once for each unit taken from it.
  */
 @Service
 public class StopResolver {
@@ -47,8 +50,10 @@ public class StopResolver {
    */
   public List<String> resolve(List<OrderItem> items) {
     Map<String, Position> distinct = new LinkedHashMap<>();
-    for (Position position : stockDrainPort.positionsToConsume(items)) {
-      distinct.putIfAbsent(position.getId(), position);
+    Map<String, Integer> units = new HashMap<>();
+    for (StockDrainPort.Pick pick : stockDrainPort.picksToConsume(items)) {
+      distinct.putIfAbsent(pick.position().getId(), pick.position());
+      units.merge(pick.position().getId(), pick.quantity(), Integer::sum);
     }
     if (distinct.isEmpty()) {
       return List.of();
@@ -70,11 +75,17 @@ public class StopResolver {
             .thenComparingInt(p -> lineNumber(lines, p))
             .thenComparing(Position::getPositionName, NULLS_LAST);
 
-    return distinct.values().stream()
+    List<String> stops = new ArrayList<>();
+    distinct.values().stream()
         .sorted(traversal)
         .filter(StopResolver::hasQrCode)
-        .map(Position::getQrCode)
-        .toList();
+        .forEach(
+            position -> {
+              for (int i = 0; i < units.get(position.getId()); i++) {
+                stops.add(position.getQrCode());
+              }
+            });
+    return List.copyOf(stops);
   }
 
   private static boolean hasQrCode(Position position) {

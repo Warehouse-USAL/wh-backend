@@ -228,6 +228,19 @@ class StockDrainServiceTest {
   }
 
   @Test
+  void picksToConsume_saysHowManyUnitsComeFromEachPosition() {
+    Position oldest = position("pos-1", 5, 0);
+    Position newer = position("pos-2", 10, 10);
+    when(positionRepository
+            .findByProductIdAndIsActiveTrueAndCurrentStockGreaterThanOrderByCreatedAtAsc(
+                "prod-1", 0))
+        .thenReturn(List.of(oldest, newer));
+
+    assertThat(service.picksToConsume(List.of(item("prod-1", 8))))
+        .containsExactly(new StockDrainPort.Pick(oldest, 5), new StockDrainPort.Pick(newer, 3));
+  }
+
+  @Test
   void positionsToConsume_doesNotTouchStockOrSaveAnything() {
     Position only = position("p1", 5, 0);
     when(positionRepository

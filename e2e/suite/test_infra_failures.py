@@ -43,7 +43,7 @@ def test_cancel_of_an_order_on_the_road_is_immediate_and_the_vehicle_frees_itsel
     """In-progress cancel: the order is cancelled and stock released at once; Infra reports no order status; the vehicle is busy while driving back and idle after"""
     control(step_delay="4s")
     s = factory.stocked(5, positions=2)
-    o = factory.order(operator, [(s.id, 7)])  # spans both positions: two stops
+    o = factory.order(operator, [(s.id, 7)])  # spans both positions: seven stops (one per unit)
     _in_progress(factory, o["id"])
     _wait_vehicle(warehouse, "busy")
     assert operator.post(f"/orders/{o['id']}/cancel", json={"reason": "e2e"}).expect(200).body

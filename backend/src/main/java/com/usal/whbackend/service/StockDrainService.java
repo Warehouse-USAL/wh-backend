@@ -62,13 +62,13 @@ public class StockDrainService implements StockDrainPort {
   }
 
   @Override
-  public List<Position> positionsToConsume(List<OrderItem> items) {
+  public List<Pick> picksToConsume(List<OrderItem> items) {
     if (items == null) return List.of();
-    List<Position> consumed = new ArrayList<>();
+    List<Pick> picks = new ArrayList<>();
     for (OrderItem item : items) {
-      allocate(item).forEach(a -> consumed.add(a.position()));
+      allocate(item).forEach(a -> picks.add(new Pick(a.position(), a.quantity())));
     }
-    return consumed;
+    return picks;
   }
 
   /** How much of {@code item} each position (oldest first) gives up; the single FIFO rule. */
