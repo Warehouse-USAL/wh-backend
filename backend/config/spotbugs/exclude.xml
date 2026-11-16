@@ -61,4 +61,11 @@
         <Bug pattern="EI_EXPOSE_REP2"/>
         <Class name="com.usal.whbackend.config.JwtAuthFilter"/>
     </Match>
+    <!-- Pick carries the live Position document the drain is about to read, exactly like the
+         Position-carrying results elsewhere (PositionService.PositionUpdate): a transient value that
+         is read right away, never stored, so a defensive copy of a Mongo document serves no purpose. -->
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+        <Class name="~com\.usal\.whbackend\.service\.StockDrainPort\$Pick"/>
+    </Match>
 </FindBugsFilter>
