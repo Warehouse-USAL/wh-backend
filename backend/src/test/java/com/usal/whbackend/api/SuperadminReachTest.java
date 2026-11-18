@@ -202,6 +202,7 @@ class SuperadminReachTest {
     // it must stay reachable for every caller, SUPERADMIN included.
     {"GET", "/api/v1/files/images/a.jpg", null},
     {"POST", "/users/me/change-password", "{\"current_password\":\"a\",\"new_password\":\"b\"}"},
+    {"GET", "/users/me", null},
     {"PATCH", "/users/me", JSON},
     {"GET", "/query/catalog", null},
     {"POST", "/query/orders", JSON},

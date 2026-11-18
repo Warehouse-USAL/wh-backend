@@ -125,6 +125,20 @@ public class UserController {
     return ResponseEntity.ok(Map.of("message", "Contraseña actualizada correctamente."));
   }
 
+  @Operation(
+      summary = "Get own profile",
+      description =
+          "The logged-in user's own profile, including address and — for a PROVIDER — its"
+              + " supplier. Open to every authenticated role, unlike GET /users/{id}.")
+  @ApiResponse(responseCode = "200", description = "Own profile")
+  @ApiResponse(responseCode = "401", description = "Unauthorized")
+  @ApiResponse(responseCode = "404", description = "USER_NOT_FOUND — the token's user is gone")
+  @GetMapping("/me")
+  public ResponseEntity<UserResponse> getMe(
+      org.springframework.security.core.Authentication authentication) {
+    return ResponseEntity.ok(toResponse(userService.getUser(authentication.getName())));
+  }
+
   @Operation(summary = "Update own profile (name and/or address)")
   @ApiResponse(responseCode = "200", description = "Profile updated")
   @ApiResponse(responseCode = "401", description = "Unauthorized")

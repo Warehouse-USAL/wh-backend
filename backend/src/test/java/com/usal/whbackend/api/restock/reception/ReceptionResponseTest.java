@@ -65,4 +65,28 @@ class ReceptionResponseTest {
     assertEquals(30, r.assignments().get(0).quantity());
     assertEquals(ReceptionStatus.COMPLETED, r.status());
   }
+
+  @Test
+  void from_aReceptionWithoutAStoredType_isASupplierRemito() {
+    Reception reception = new Reception();
+    reception.setId("rcp-1");
+
+    ReceptionResponse r = ReceptionResponse.from(reception);
+
+    assertEquals(com.usal.whbackend.domain.ReceptionType.SUPPLIER, r.type());
+    assertNull(r.sourcePositionId());
+  }
+
+  @Test
+  void from_aRelocation_carriesItsTypeAndSourcePosition() {
+    Reception reception = new Reception();
+    reception.setId("rcp-2");
+    reception.setType(com.usal.whbackend.domain.ReceptionType.RELOCATION);
+    reception.setSourcePositionId("pos-001");
+
+    ReceptionResponse r = ReceptionResponse.from(reception);
+
+    assertEquals(com.usal.whbackend.domain.ReceptionType.RELOCATION, r.type());
+    assertEquals("pos-001", r.sourcePositionId());
+  }
 }

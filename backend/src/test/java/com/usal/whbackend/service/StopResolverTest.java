@@ -10,6 +10,8 @@ import com.usal.whbackend.domain.Position;
 import com.usal.whbackend.domain.Zone;
 import com.usal.whbackend.repository.LineRepository;
 import com.usal.whbackend.repository.ZoneRepository;
+import com.usal.whbackend.service.StockDrainPort.Pick;
+import java.util.Arrays;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -60,13 +62,17 @@ class StopResolverTest {
     return p;
   }
 
+  private static List<Pick> picks(Position... positions) {
+    return Arrays.stream(positions).map(p -> new Pick(p, 1)).toList();
+  }
+
   private static final List<OrderItem> ITEMS = List.of(new OrderItem("prod-1", "SKU-1", 1));
 
   @Test
   void resolve_ordersStopsByZoneThenLineThenPositionName() {
-    when(stockDrainPort.positionsToConsume(ITEMS))
+    when(stockDrainPort.picksToConsume(ITEMS))
         .thenReturn(
-            List.of(
+            picks(
                 position("p1", "z-B", "l-B-1", "P01", "QR-B1-P01"),
                 position("p2", "z-A", "l-A-2", "P01", "QR-A2-P01"),
                 position("p3", "z-A", "l-A-1", "P02", "QR-A1-P02"),
@@ -77,18 +83,41 @@ class StopResolverTest {
   }
 
   @Test
-  void resolve_visitsEachPositionOnce() {
-    Position shared = position("p1", "z-A", "l-A-1", "P01", "QR-A1-P01");
-    when(stockDrainPort.positionsToConsume(ITEMS)).thenReturn(List.of(shared, shared));
+  void resolve_repeatsAPositionOncePerUnitTakenFromIt_backToBack() {
+    Position pa2 = position("p1", "z-A", "l-A-1", "PA2", "WH2|PA2");
+    Position pm1 = position("p2", "z-A", "l-A-1", "PM1", "WH2|PM1");
+    when(stockDrainPort.picksToConsume(ITEMS))
+        .thenReturn(List.of(new Pick(pm1, 1), new Pick(pa2, 2)));
 
-    assertThat(resolver.resolve(ITEMS)).containsExactly("QR-A1-P01");
+    assertThat(resolver.resolve(ITEMS)).containsExactly("WH2|PA2", "WH2|PA2", "WH2|PM1");
+  }
+
+  @Test
+  void resolve_addsUpTheUnitsOfAPositionPickedForSeveralItems() {
+    Position shared = position("p1", "z-A", "l-A-1", "P01", "QR-A1-P01");
+    Position other = position("p2", "z-A", "l-A-1", "P02", "QR-A1-P02");
+    when(stockDrainPort.picksToConsume(ITEMS))
+        .thenReturn(List.of(new Pick(shared, 1), new Pick(other, 1), new Pick(shared, 2)));
+
+    assertThat(resolver.resolve(ITEMS))
+        .containsExactly("QR-A1-P01", "QR-A1-P01", "QR-A1-P01", "QR-A1-P02");
+  }
+
+  @Test
+  void resolve_keepsRepeatsOfDifferentPositionsInTraversalOrder() {
+    Position a = position("p1", "z-A", "l-A-1", "P01", "QR-A1-P01");
+    Position b = position("p2", "z-B", "l-B-1", "P01", "QR-B1-P01");
+    when(stockDrainPort.picksToConsume(ITEMS)).thenReturn(List.of(new Pick(b, 2), new Pick(a, 2)));
+
+    assertThat(resolver.resolve(ITEMS))
+        .containsExactly("QR-A1-P01", "QR-A1-P01", "QR-B1-P01", "QR-B1-P01");
   }
 
   @Test
   void resolve_leavesOutPositionsWithoutQrCode() {
-    when(stockDrainPort.positionsToConsume(ITEMS))
+    when(stockDrainPort.picksToConsume(ITEMS))
         .thenReturn(
-            List.of(
+            picks(
                 position("p1", "z-A", "l-A-1", "P01", null),
                 position("p2", "z-A", "l-A-1", "P02", " "),
                 position("p3", "z-A", "l-A-1", "P03", "QR-A1-P03")));
@@ -98,16 +127,16 @@ class StopResolverTest {
 
   @Test
   void resolve_withNothingToConsume_returnsNoStops() {
-    when(stockDrainPort.positionsToConsume(ITEMS)).thenReturn(List.of());
+    when(stockDrainPort.picksToConsume(ITEMS)).thenReturn(List.of());
 
     assertThat(resolver.resolve(ITEMS)).isEmpty();
   }
 
   @Test
   void resolve_withUnknownZoneAndLine_stillReturnsTheStopsLast() {
-    when(stockDrainPort.positionsToConsume(ITEMS))
+    when(stockDrainPort.picksToConsume(ITEMS))
         .thenReturn(
-            List.of(
+            picks(
                 position("p1", "z-gone", "l-gone", "P01", "QR-ORPHAN"),
                 position("p2", "z-A", "l-A-1", "P01", "QR-A1-P01")));
 

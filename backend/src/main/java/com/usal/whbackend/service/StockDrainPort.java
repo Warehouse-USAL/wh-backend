@@ -8,9 +8,21 @@ import java.util.List;
 public interface StockDrainPort {
   void drain(List<OrderItem> items);
 
+  /** Units {@link #drain} would take from one position for one order item. */
+  record Pick(Position position, int quantity) {}
+
   /**
-   * The positions {@link #drain} would take stock from for these items, without touching them. Same
-   * FIFO selection as the drain, so a vehicle is sent where the stock will actually be consumed.
+   * What {@link #drain} would take from each position for these items, without touching anything.
+   * Same FIFO selection as the drain, so a vehicle is sent where the stock will actually be
+   * consumed, and for as many units as it has to pick there.
    */
-  List<Position> positionsToConsume(List<OrderItem> items);
+  List<Pick> picksToConsume(List<OrderItem> items);
+
+  /**
+   * The positions {@link #drain} would take stock from for these items, one entry per item and
+   * position, in the order {@link #picksToConsume} gives them.
+   */
+  default List<Position> positionsToConsume(List<OrderItem> items) {
+    return picksToConsume(items).stream().map(Pick::position).toList();
+  }
 }
