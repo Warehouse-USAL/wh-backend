@@ -12,6 +12,7 @@ import com.usal.whbackend.domain.ProductCategory;
 import com.usal.whbackend.domain.User;
 import com.usal.whbackend.domain.UserRole;
 import com.usal.whbackend.domain.Vehicle;
+import com.usal.whbackend.domain.VehicleIds;
 import com.usal.whbackend.domain.VehicleStatus;
 import com.usal.whbackend.domain.Zone;
 import com.usal.whbackend.service.metrics.restock.RestockParams;
@@ -34,6 +35,9 @@ import java.util.function.UnaryOperator;
  *
  * <p>The warehouse is the real one (see {@link WarehouseLayout}): one zone, one line, six
  * positions, each holding one product; the other catalogue products are registered without stock.
+ *
+ * <p>With {@link SeedProfile#DEMO} the catalogue, positions and rovers come from {@link ShelfData}
+ * instead: three products, all stocked.
  *
  * <p>Stock is produced causally: initial inbound stock is placed into positions, then COMPLETED
  * orders draw it down FIFO (oldest position first, mirroring {@code StockDrainService}) — without
@@ -83,6 +87,7 @@ public final class DemoDataset {
   private final UnaryOperator<String> passwordHasher;
   private final Instant now;
   private final String qrPrefix;
+  private final SeedProfile profile;
   // The catalogue, warehouse and accounts predate the order history that references them.
   private final Instant catalogueEpoch;
 
@@ -95,12 +100,23 @@ public final class DemoDataset {
     this(passwordHasher, Instant.now(), qrPrefix);
   }
 
+  /** As above, for one of the seed profiles; the other constructors mean {@code FULL}. */
+  public DemoDataset(UnaryOperator<String> passwordHasher, String qrPrefix, SeedProfile profile) {
+    this(passwordHasher, Instant.now(), qrPrefix, profile);
+  }
+
   /** Anchors the whole dataset at {@code now}; tests use it to build the seed on any date. */
   DemoDataset(UnaryOperator<String> passwordHasher, Instant now) {
     this(passwordHasher, now, DEFAULT_QR_PREFIX);
   }
 
   DemoDataset(UnaryOperator<String> passwordHasher, Instant now, String qrPrefix) {
+    this(passwordHasher, now, qrPrefix, SeedProfile.FULL);
+  }
+
+  DemoDataset(
+      UnaryOperator<String> passwordHasher, Instant now, String qrPrefix, SeedProfile profile) {
+    this.profile = profile;
     this.passwordHasher = passwordHasher;
     this.now = now;
     this.qrPrefix = qrPrefixOrDefault(qrPrefix);
@@ -117,7 +133,9 @@ public final class DemoDataset {
     buildWarehouse(products, zones, lines, positions);
     List<Vehicle> vehicles = buildVehicles();
     List<Product> stocked = stockedProducts(products);
-    List<Order> nearTerm = buildOrders(users, stocked, vehicles);
+    boolean demo = profile == SeedProfile.DEMO;
+    // The demo profile leaves nothing open, so it has no hand-made recent orders.
+    List<Order> nearTerm = demo ? List.of() : buildOrders(users, stocked, vehicles);
     DemoHistory.Result history =
         new DemoHistory(
                 now,
@@ -126,7 +144,15 @@ public final class DemoDataset {
                 positions,
                 vehicles,
                 (n, status, items, vehicle, created, reason) ->
-                    orderWithItems(n, status, users, items, vehicle, created, reason))
+                    orderWithItems(
+                        n,
+                        status,
+                        demo ? ShelfData.accountsAllowedToBuy(users, items) : users,
+                        items,
+                        vehicle,
+                        created,
+                        reason),
+                demo ? ShelfData.SHAPE : DemoHistory.Shape.FULL)
             .simulate(nearTerm, nearTerm.size());
     return new DemoData(
         users,
@@ -191,7 +217,7 @@ public final class DemoDataset {
    * One catalogue entry. Dimensions are the retail box in cm and the weight is the boxed product in
    * kg; the price is in whole pesos (the model stores cents).
    */
-  private record Item(
+  record Item(
       String sku,
       String name,
       String description,
@@ -589,21 +615,26 @@ public final class DemoDataset {
 
   private List<Product> buildProducts() {
     List<Product> products = new ArrayList<>();
-    for (Item item : CATALOGUE) {
+    for (Item item : profile == SeedProfile.DEMO ? ShelfData.CATALOGUE : CATALOGUE) {
       products.add(product(products.size(), item));
     }
     return products;
   }
 
+  private ProductCategory category(String sku) {
+    if (profile == SeedProfile.DEMO) {
+      return ShelfData.CATEGORIES.get(sku);
+    }
+    return sku.startsWith("TEC") ? ProductCategory.TECNOLOGIA : ProductCategory.OTROS;
+  }
+
   private Product product(int globalIdx, Item item) {
     Product p = new Product();
-    String prefix = item.sku().substring(0, 3);
     p.setId("p-" + item.sku());
     p.setSku(item.sku());
     p.setName(item.name());
     p.setDescription(item.description());
-    p.setCategory(
-        (prefix.equals("TEC") ? ProductCategory.TECNOLOGIA : ProductCategory.OTROS).name());
+    p.setCategory(category(item.sku()).name());
     p.setActive(true);
     p.setCreatedAt(catalogueEpoch.plus(5L * 24 + globalIdx, ChronoUnit.HOURS));
 
@@ -647,7 +678,14 @@ public final class DemoDataset {
   private List<Product> stockedProducts(List<Product> products) {
     Map<String, Product> bySku = new HashMap<>();
     products.forEach(p -> bySku.put(p.getSku(), p));
-    return WarehouseLayout.SLOTS.stream().map(slot -> bySku.get(slot.sku())).toList();
+    return slots().stream()
+        .filter(slot -> slot.sku() != null)
+        .map(slot -> bySku.get(slot.sku()))
+        .toList();
+  }
+
+  private List<WarehouseLayout.Slot> slots() {
+    return profile == SeedProfile.DEMO ? ShelfData.SLOTS : WarehouseLayout.SLOTS;
   }
 
   private void buildWarehouse(
@@ -656,8 +694,8 @@ public final class DemoDataset {
     products.forEach(p -> bySku.put(p.getSku(), p));
     zones.add(WarehouseLayout.zone(catalogueEpoch));
     lines.add(WarehouseLayout.line(catalogueEpoch.plus(1, ChronoUnit.HOURS)));
-    for (int i = 0; i < WarehouseLayout.SLOTS.size(); i++) {
-      WarehouseLayout.Slot slot = WarehouseLayout.SLOTS.get(i);
+    for (int i = 0; i < slots().size(); i++) {
+      WarehouseLayout.Slot slot = slots().get(i);
       Product product = slot.sku() == null ? null : bySku.get(slot.sku());
       positions.add(
           WarehouseLayout.position(
@@ -669,6 +707,15 @@ public final class DemoDataset {
 
   private List<Vehicle> buildVehicles() {
     List<Vehicle> vehicles = new ArrayList<>();
+    if (profile == SeedProfile.DEMO) {
+      // The real rovers: offline until their live telemetry arrives.
+      for (String code : ShelfData.INFRA_VEHICLES) {
+        vehicles.add(
+            vehicle(
+                VehicleIds.fromInfra(code), code, VehicleStatus.OFFLINE, 0.0, 0.0, 0, 720, null));
+      }
+      return vehicles;
+    }
     vehicles.add(vehicle("veh-agv-01", "AGV-01", VehicleStatus.IDLE, 12.5, 4.0, 96, 3, 45L));
     vehicles.add(vehicle("veh-agv-02", "AGV-02", VehicleStatus.IDLE, 30.0, 8.0, 88, 5, 120L));
     vehicles.add(vehicle("veh-agv-03", "AGV-03", VehicleStatus.BUSY, 18.0, 15.0, 64, 1, 10L));

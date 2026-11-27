@@ -1,5 +1,7 @@
 # Demo catalogue: image sources and licences
 
+The first table is the `full` seed profile; the `demo` profile's three products are at the end.
+
 `DemoDataset` seeds 20 technology products. Each one points at a photo on Wikimedia Commons through
 `https://commons.wikimedia.org/wiki/Special:FilePath/<file>?width=800`, which redirects to a resized
 copy on `upload.wikimedia.org` (public, stable, no hotlink protection). `Product.images` stores URLs,
@@ -35,3 +37,13 @@ each file's Commons page (`https://commons.wikimedia.org/wiki/File:<file>`).
 Prices are indicative ARS figures; dimensions and weight are the boxed product. The catalogue only
 uses the existing `ProductCategory` values: gadgets and devices are `TECNOLOGIA`, cables and small
 accessories are `OTROS`.
+
+## `demo` seed profile (`ShelfData`)
+
+| SKU | Commons file | Licence | Author |
+|---|---|---|---|
+| CIN-001 | Granola bars.jpg | CC0 | LironOmri12 |
+| CUR-001 | Plåster - Adhesive bandage - 2025.jpg | CC BY 4.0 | Jonn Leffmann |
+| GOT-001 | Super Glue (8560816706).jpg | CC BY 2.0 | HomeSpot HQ |
+
+These are illustrative photos, not the brands on the shelf.

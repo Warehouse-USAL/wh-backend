@@ -11,6 +11,7 @@ import com.usal.whbackend.repository.UserRepository;
 import com.usal.whbackend.repository.VehicleRepository;
 import com.usal.whbackend.repository.ZoneRepository;
 import java.util.List;
+import java.util.Locale;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -26,7 +27,7 @@ import org.springframework.stereotype.Component;
  * <p>Runs after {@link DataInitializer} (the SUPERADMIN plus the warehouse structure: one zone, one
  * line, six empty positions) and only when {@code SEED_DEMO=true}. Off by default, so it can never
  * fire on a real deployment unless explicitly enabled. Idempotent: if any products already exist it
- * no-ops, so restarts are safe.
+ * no-ops, so restarts are safe. {@code SEED_PROFILE} picks which dataset ({@link SeedProfile}).
  *
  * <p>The dataset is built in memory by the pure {@link DemoDataset} and persisted via the plain
  * Mongo repositories (not the Kafka-publishing {@code OrderRepository}), so seeding fires no
@@ -54,6 +55,7 @@ public class DemoDataSeeder implements ApplicationRunner {
   private final DemoOrderEventPublisher demoOrderEventPublisher;
   private final boolean seedDemo;
   private final String qrPrefix;
+  private final String seedProfile;
 
   public DemoDataSeeder(
       UserRepository userRepository,
@@ -69,7 +71,8 @@ public class DemoDataSeeder implements ApplicationRunner {
       DemoTelemetrySeeder demoTelemetrySeeder,
       DemoOrderEventPublisher demoOrderEventPublisher,
       @Value("${SEED_DEMO:false}") boolean seedDemo,
-      @Value("${WH_QR_PREFIX:" + DemoDataset.DEFAULT_QR_PREFIX + "}") String qrPrefix) {
+      @Value("${WH_QR_PREFIX:" + DemoDataset.DEFAULT_QR_PREFIX + "}") String qrPrefix,
+      @Value("${SEED_PROFILE:}") String seedProfile) {
     this.userRepository = userRepository;
     this.productRepository = productRepository;
     this.zoneRepository = zoneRepository;
@@ -84,6 +87,7 @@ public class DemoDataSeeder implements ApplicationRunner {
     this.demoOrderEventPublisher = demoOrderEventPublisher;
     this.seedDemo = seedDemo;
     this.qrPrefix = qrPrefix;
+    this.seedProfile = seedProfile;
   }
 
   @Override
@@ -91,6 +95,8 @@ public class DemoDataSeeder implements ApplicationRunner {
     if (!seedDemo) {
       return;
     }
+    // Before any guard: a typo must fail the boot, not silently seed (or skip) something else.
+    SeedProfile profile = SeedProfile.parse(seedProfile);
     if (productRepository.count() > 0) {
       log.info("Demo data already present (products exist) — skipping demo seed.");
       return;
@@ -113,7 +119,8 @@ public class DemoDataSeeder implements ApplicationRunner {
     }
 
     long startedNanos = System.nanoTime();
-    DemoData data = new DemoDataset(passwordEncoder::encode, qrPrefix).build();
+    log.info("Seed profile: {}", profile.name().toLowerCase(Locale.ROOT));
+    DemoData data = new DemoDataset(passwordEncoder::encode, qrPrefix, profile).build();
 
     // Persist in dependency order. Ids are already wired in the dataset, so no back-patching; the
     // zone, line and positions replace the bootstrap's (same ids) rather than adding to them.

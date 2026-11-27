@@ -51,6 +51,35 @@ make deploy
 If compose or config changed between releases, also check the checkout out at the matching tag
 (`git reset --hard <tag>`) before `make deploy`; the Makefile and the overlay come from it.
 
+## Switching a seeded server to another seed profile
+
+A one-time manual step: the seed only runs on an empty database, and the Deploy workflow never
+edits `.env` or removes data. It **destroys** everything in MongoDB (products, orders, positions
+added by hand, **user accounts created by hand**), the suggestions model, the telemetry and the
+Kafka events, so agree on it first.
+
+```sh
+cd /opt/wh/wh-backend   # checked out at a release that has the seed profiles
+# 1. In .env: SEED_DEMO=true, SEED_PROFILE=demo, and WH_IMAGE_TAG removed or set to that release.
+# 2. Back up MongoDB, and check the file is not empty before going on.
+docker exec wh-backend-mongodb-1 sh -c 'mongodump --archive --gzip -u "$MONGO_INITDB_ROOT_USERNAME" \
+  -p "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin' > ~/wh-backup-$(date +%F).gz
+ls -lh ~/wh-backup-*.gz
+# 3. Stop everything and drop the four data volumes.
+docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile infra down
+docker volume rm wh-backend_mongo_data wh-backend_suggestions_redis_data \
+  wh-backend_victoriametrics_data wh-backend_redpanda_data
+# 4. Stores first (the seed needs the replica set and the metrics store), then the release.
+#    Not `make up-prod`: it starts the image already on the machine and would seed the old dataset.
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --wait mongodb redpanda minio victoriametrics
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up mongo-init
+make deploy
+```
+
+Then check the backend log for `Seed profile: demo`, `Seeded demo data: ... 3 products` and
+`Published N order.completed events`. Seed close to the day you need it: the history ends at seed
+time, and the suggestions "hot" list only covers about the last 38 hours.
+
 ## Orders and QR codes
 
 An order's `stops` are the `qr_code` texts of the positions the stock will be taken from, in
@@ -70,7 +99,8 @@ The warehouse has ONE zone (`A`) with ONE line (`1`) and SIX positions: `PA1`, `
 `WH2|PA1` ... `WH2|PA3` and `WH2|PM1` ... `WH2|PM3`: the prefix `WH_QR_PREFIX` (default `WH2|`)
 followed by the position name. The backend creates exactly this on the first boot of an empty
 database (`DataInitializer`, six empty positions), with or without `SEED_DEMO`; the demo seed then
-fills the same six positions with products and stock instead of adding more. So **a freshly seeded
+fills the same six positions with products and stock instead of adding more (which products depends
+on `SEED_PROFILE`, see `docs/demo-credentials.md`). So **a freshly seeded
 server already carries the codes Infra knows and nothing needs reassigning**. The texts printed in
 the real warehouse and known by Infra remain the source of truth: if they ever differ (another
 prefix, a renamed position), set `WH_QR_PREFIX` before the first boot or reassign as below. Seeding
