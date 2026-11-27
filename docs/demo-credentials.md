@@ -19,6 +19,31 @@ SEED_DEMO=true make up-dev
 To re-seed, reset the database first (`make down` and delete `data/`, or drop the Mongo database)
 and boot again with the flag set.
 
+## Profiles
+
+`SEED_PROFILE` chooses the dataset; it is read only when `SEED_DEMO=true`. Blank means `full`, and
+any other value than `full` or `demo` stops the boot. The accounts and their password are the same.
+
+- **`full`** (default): the 20-product catalogue described below.
+- **`demo`**: only what is physically in the university warehouse, with two years of history
+  (~57,000 orders):
+
+  | Position | SKU | Product | Stock today | Minimum |
+  |---|---|---|---|---|
+  | PA1 | CIN-001 | Barra de cereal | 4 | 1 |
+  | PA2 | CUR-001 | Curitas | 9 | 1 |
+  | PA3 | GOT-001 | La Gotita | 5 | 1 |
+
+  PM1-PM3 are empty. No customer order is left pending or in progress. The vehicles are the three
+  real rovers (`VHC-000`, `VHC-005`, `VHC-007`; `VHC-007` is the one with simulated failures).
+  Restock view: Curitas is covered by a purchase in transit, the other two need restocking.
+  Recommendations: with Curitas in the cart, La Gotita comes first, then Barra de cereal.
+  `operator1`, `operator2` and `operator3` buy only part of the catalogue, so
+  `/v1/recommendations/user/:id` has something to suggest to them.
+
+The stock figures are the physical count of 2026-11-18 (`ShelfData`). If the shelves differ on the
+day you seed, correct them through the API.
+
 ## What gets seeded
 
 | Collection | Count | Notes |

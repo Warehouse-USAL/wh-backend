@@ -57,6 +57,10 @@ public final class DemoTelemetryDataset {
 
   private static final int FAULT_LENGTH_TICKS = 2; // 60 minutes
 
+  // Positions in the fleet list; a fleet shorter than that fails on its last rover instead.
+  private static final int PARKED_ROVER = 4;
+  private static final int FAILING_ROVER = 5;
+
   private final Instant now;
   private final String stateSeries;
   private final String batterySeries;
@@ -223,9 +227,10 @@ public final class DemoTelemetryDataset {
    * source, so the same demo replays identically.
    */
   private String stateAt(int index, long timestampMs, int tick) {
-    // One rover is parked for the whole week, matching its seeded status. Without a permanently
-    // offline rover, "rovers activos" would be a flat line at the fleet size.
-    if (index == 4) {
+    // With more than four rovers, the fifth is parked for the whole period, matching its seeded
+    // status: without one, "rovers activos" would be a flat line at the fleet size. A smaller
+    // fleet is the real one (the demo seed profile), where none is permanently out of service.
+    if (index == PARKED_ROVER && vehicleIds.size() > PARKED_ROVER) {
       return "OFFLINE";
     }
     // One rover fails on a cycle, so mean time between failures and the Pareto have something
@@ -234,7 +239,8 @@ public final class DemoTelemetryDataset {
     // only path
     // that carries a real fault category (see categoryFor). A permanently-parked vehicle never
     // changes state, so it never emits a transition and can't be confused with a fault episode.
-    if (index == 5 && tick % FAULT_PERIOD_TICKS < FAULT_LENGTH_TICKS) {
+    if (index == Math.min(FAILING_ROVER, vehicleIds.size() - 1)
+        && tick % FAULT_PERIOD_TICKS < FAULT_LENGTH_TICKS) {
       return "OFFLINE";
     }
 

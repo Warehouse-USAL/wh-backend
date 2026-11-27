@@ -165,11 +165,17 @@ MongoDB and Redpanda data is persisted to `data/` at the project root (bind-moun
 
 ## Demo data
 
-To populate a **fresh** database with a complete, interconnected demo dataset — users across every role, a product catalog, a stocked warehouse, vehicles, and **two years** of seasonal order, restock and fleet history (~57k orders) — set `SEED_DEMO=true` before the first boot:
+To populate a **fresh** database with a complete, interconnected demo dataset — users across every role, a product catalog, a stocked warehouse, vehicles, and **two years** of seasonal order, restock and fleet history — set `SEED_DEMO=true` before the first boot:
 
 ```bash
-SEED_DEMO=true make up-dev
+SEED_DEMO=true make up-dev                      # SEED_PROFILE=full (default)
+SEED_DEMO=true SEED_PROFILE=demo make up-dev    # the three products on the real shelves
 ```
+
+| `SEED_PROFILE` | Products | Rovers | Orders | Today's stock |
+|---|---|---|---|---|
+| `full` | 20 (6 stocked) | 6 simulated | ~25,000 | shaped to show every restock case |
+| `demo` | 3 (CIN-001, CUR-001, GOT-001) | the 3 real ones (`VHC-000/005/007`) | ~57,000 | the physical count: 4 / 9 / 5 |
 
 It runs once on startup and is **idempotent**: if products already exist it does nothing, so it is safe across restarts and off by default (it can never fire on an existing database unless you opt in). To re-seed, reset the database first (`make down` and delete `data/`, or drop the Mongo database) and boot again.
 

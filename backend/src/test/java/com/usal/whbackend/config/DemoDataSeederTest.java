@@ -1,6 +1,7 @@
 package com.usal.whbackend.config;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -54,6 +55,10 @@ class DemoDataSeederTest {
   @Mock DemoOrderEventPublisher demoOrderEventPublisher;
 
   private DemoDataSeeder seeder(boolean seedDemo) {
+    return seeder(seedDemo, "");
+  }
+
+  private DemoDataSeeder seeder(boolean seedDemo, String seedProfile) {
     return new DemoDataSeeder(
         userRepository,
         productRepository,
@@ -68,7 +73,24 @@ class DemoDataSeederTest {
         demoTelemetrySeeder,
         demoOrderEventPublisher,
         seedDemo,
-        DemoDataset.DEFAULT_QR_PREFIX);
+        DemoDataset.DEFAULT_QR_PREFIX,
+        seedProfile);
+  }
+
+  @Test
+  void run_whenFlagDisabled_ignoresAnUnknownProfile() {
+    seeder(false, "dmeo").run(null);
+
+    verifyNoInteractions(productRepository, userRepository);
+  }
+
+  @Test
+  void run_whenEnabledWithAnUnknownProfile_failsBeforeTouchingTheDatabase() {
+    assertThatThrownBy(() -> seeder(true, "dmeo").run(null))
+        .isInstanceOf(IllegalStateException.class)
+        .hasMessageContaining("SEED_PROFILE");
+
+    verifyNoInteractions(productRepository, userRepository, orderMongoRepository);
   }
 
   @Test

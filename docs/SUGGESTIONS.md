@@ -77,9 +77,17 @@ fixed `processed:` prefix, like the other key builders in `store/keys.go`.
 ## Preload from the demo seed
 
 The demo seeder (`SEED_DEMO=true`, a fresh database only) inserts about 25 000 orders straight into
-MongoDB, which announces nothing. Right after the inserts `DemoOrderEventPublisher` publishes one
-`order.completed` for every seeded COMPLETED order (22 745 of them), so the model holds exactly
-the orders MongoDB holds:
+MongoDB (about 57 000 with `SEED_PROFILE=demo`), which announces nothing. Right after the inserts
+`DemoOrderEventPublisher` publishes one `order.completed` for every seeded COMPLETED order (about
+22 800, or 54 000 with `demo`), so the model holds exactly the orders MongoDB holds.
+
+With `demo` there are only three SKUs, so a cart gets at most two suggestions and the orders are
+drawn from fixed baskets that keep their ranking stable: with `CUR-001` in the cart, `GOT-001` first
+and `CIN-001` second. Per-user suggestions exclude what the user already bought, so `operator1`,
+`operator2` and `operator3` buy only part of the catalogue; the other accounts bought all three and
+get nothing from `/v1/recommendations/user/:id`.
+
+How the events are sent:
 
 - the payload is `OrderCompletedMessage.from(order)` serialized with the application's ObjectMapper
   and sent through the same `KafkaTemplate` as a real completion (same orderId, userId, items with
