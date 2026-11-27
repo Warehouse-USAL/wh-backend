@@ -35,6 +35,9 @@ class DemoProfileHistoryTest {
   private static final String EVENING = "2026-11-27T21:00:00Z";
   private static final String FIRST_OF_MONTH_AT_ONE = "2027-03-01T04:00:00Z";
   private static final String AFTER_BLACK_FRIDAY = "2026-11-28T15:00:00Z";
+  // Seeding at these moments, a Hot Sale day ran out of all three products at once.
+  private static final String HOT_SALE_EMPTIED_EVERY_SHELF = "2027-08-03T15:00:00Z";
+  private static final String HOT_SALE_EMPTIED_THEM_AGAIN = "2027-07-15T02:00:00Z";
 
   private static final String CIN = "p-CIN-001";
   private static final String CUR = "p-CUR-001";
@@ -61,7 +64,14 @@ class DemoProfileHistoryTest {
   }
 
   @ParameterizedTest
-  @ValueSource(strings = {EVENING, FIRST_OF_MONTH_AT_ONE, AFTER_BLACK_FRIDAY})
+  @ValueSource(
+      strings = {
+        EVENING,
+        FIRST_OF_MONTH_AT_ONE,
+        AFTER_BLACK_FRIDAY,
+        HOT_SALE_EMPTIED_EVERY_SHELF,
+        HOT_SALE_EMPTIED_THEM_AGAIN
+      })
   void everyDayOfTheTwoYearsHasCompletedAndCancelledOrders(String now) {
     Map<LocalDate, Set<OrderStatus>> byDay =
         at(now).getOrders().stream()
@@ -220,6 +230,23 @@ class DemoProfileHistoryTest {
   }
 
   /** The suggestions service's cart score over the orders it will be fed. */
+  /** The team will receive this purchase on the real server, so it has to fit on the shelf. */
+  @ParameterizedTest
+  @ValueSource(strings = {EVENING, FIRST_OF_MONTH_AT_ONE, AFTER_BLACK_FRIDAY})
+  void whatIsOnTheWayFitsOnTheShelfItIsMeantFor(String now) {
+    DemoData data = at(now);
+
+    var onOrder = RestockInputs.onOrderByProduct(data.getRestockOrders(), data.getReceptions());
+
+    assertThat(data.getPositions())
+        .filteredOn(p -> p.getProductId() != null)
+        .allSatisfy(
+            p ->
+                assertThat(p.getCurrentStock() + onOrder.getOrDefault(p.getProductId(), 0))
+                    .as(p.getPositionName())
+                    .isLessThanOrEqualTo(p.getMaximumCapacity()));
+  }
+
   @ParameterizedTest
   @ValueSource(strings = {EVENING, FIRST_OF_MONTH_AT_ONE, AFTER_BLACK_FRIDAY})
   void withPlastersInTheCartGlueIsSuggestedFirstAndCerealBarSecond(String now) {

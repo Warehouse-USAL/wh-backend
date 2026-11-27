@@ -112,6 +112,7 @@ final class DemoHistory {
   // Products whose positions hold at least this many units sell at full popularity.
   private static final double FULL_DEMAND_CAPACITY = 400.0;
   private static final String STOCKOUT = "Stock insuficiente";
+  private static final int SPIKE_NOTICE_DAYS = 10;
   // With fixed shelves nothing is left open, so an order placed shortly before the seed has
   // already shipped: picked up after five minutes and delivered after twenty.
   private static final java.time.Duration RECENT_PICKUP = java.time.Duration.ofMinutes(5);
@@ -568,16 +569,29 @@ final class DemoHistory {
   // ── The buyer ────────────────────────────────────────────────────────────────
 
   private void review(int d) {
+    boolean stockUp = shape.fixedShelves() && spikeComing(d);
     for (int i = shape.firstSellable(); i < products.size(); i++) {
       RestockResult r = formula(i, d, onOrder(i));
-      if (!r.shouldRestock()) {
+      if (!r.shouldRestock() && !stockUp) {
         continue;
       }
-      int qty = Math.min(r.suggestedQuantity(), capacity[i] - stock[i] - onOrder(i));
+      int free = capacity[i] - stock[i] - onOrder(i);
+      int qty = stockUp ? free : Math.min(r.suggestedQuantity(), free);
       if (qty >= MIN_PURCHASE) {
         purchase(i, qty, at(d, 18, 0), d);
       }
     }
+  }
+
+  /**
+   * Whether Hot Sale, Black Friday or the like starts within {@link #SPIKE_NOTICE_DAYS} of day
+   * {@code d}. With only three products, a buyer who waits for demand to rise runs out of all of
+   * them at once, leaving days with nothing sold.
+   */
+  private boolean spikeComing(int d) {
+    LocalDate today = dateOf(d);
+    return java.util.stream.IntStream.rangeClosed(1, SPIKE_NOTICE_DAYS)
+        .anyMatch(k -> spike(today.plusDays(k)) > 1);
   }
 
   /**
@@ -735,7 +749,8 @@ final class DemoHistory {
     for (int i = 0; i < products.size(); i++) {
       if (products.get(i).getSku().equals(shape.coveredSku())) {
         RestockResult r = endFormula(i, demand(), 0);
-        int qty = (int) Math.ceil(r.targetStock()) - available(i);
+        // Capped by the free space: someone has to be able to receive it on the real shelf.
+        int qty = Math.min((int) Math.ceil(r.targetStock()) - available(i), capacity[i] - stock[i]);
         if (qty > 0) {
           purchase(i, qty, now.minus(1, ChronoUnit.DAYS), 0);
         }
