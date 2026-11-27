@@ -16,6 +16,9 @@ services:
       # demo dataset on first boot (idempotent; off by default). The prod overlay
       # inherits this var. See docs/demo-credentials.md.
       SEED_DEMO: ${SEED_DEMO:-false}
+      # Which dataset SEED_DEMO writes: full (20-product catalogue) or demo (the three products on
+      # the warehouse shelves). Ignored when SEED_DEMO is off.
+      SEED_PROFILE: ${SEED_PROFILE:-full}
       # Text prefix of the QR code seeded on every position (WH2|PA1..PA3, WH2|PM1..PM3); read on that first boot
       # only. Must match the codes printed in the warehouse (docs/OPERATIONS.md).
       WH_QR_PREFIX: ${WH_QR_PREFIX:-WH2|}

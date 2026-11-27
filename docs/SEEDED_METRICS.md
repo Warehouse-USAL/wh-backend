@@ -5,6 +5,10 @@ business metric the backend can serve. This page lists them, where each comes fr
 tested. Backend-infrastructure series (JVM, HTTP, Kafka, Mongo, MinIO, collector, VictoriaMetrics,
 edge) are **not** business metrics and are not seeded: they only exist from the moment the stack runs.
 
+Counts and timings on this page are for the default `SEED_PROFILE=full`. `SEED_PROFILE=demo` (three
+products, the three real rovers, about 57 000 orders; see `demo-credentials.md`) has the same daily
+coverage, checked by `DemoProfileHistoryTest` and `DemoTelemetryDatasetTest`.
+
 ## Where the data comes from
 
 | Source | Seeded by | Resolution | Stored in |

@@ -51,6 +51,34 @@ make deploy
 If compose or config changed between releases, also check the checkout out at the matching tag
 (`git reset --hard <tag>`) before `make deploy`; the Makefile and the overlay come from it.
 
+## Switching a seeded server to another seed profile
+
+The seed only runs on an empty database, so changing `SEED_PROFILE` on a running server does
+nothing. Switching **destroys** the data: products, warehouse zones and positions added by hand,
+orders, and the collected telemetry. Agree on it first.
+
+```sh
+cd /opt/wh/wh-backend
+# 1. Back up MongoDB (restore with `mongorestore --archive --gzip`).
+docker exec wh-backend-mongodb-1 sh -c 'mongodump --archive --gzip -u "$MONGO_INITDB_ROOT_USERNAME" \
+  -p "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin' > ~/wh-backup-$(date +%F).gz
+# 2. In .env: SEED_DEMO=true, SEED_PROFILE=demo, and WH_IMAGE_TAG set to a release that has the
+#    profile (the auto-deploy never edits WH_IMAGE_TAG).
+# 3. Stop the stack and drop the three stores that hold history. All three: leave the metrics store
+#    and the telemetry seed is skipped; leave suggestions Redis and it keeps the old products.
+docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile infra down
+docker volume ls | grep wh-backend       # check the names before removing
+docker volume rm wh-backend_mongo_data wh-backend_suggestions_redis_data wh-backend_victoriametrics_data
+# 4. Start the stores first, so the seed finds the metrics store up, then everything else.
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d mongodb mongo-init redpanda minio victoriametrics
+make up-prod && make deploy
+```
+
+Check the backend log for `Seed profile: demo`, `Seeded demo data: ... 3 products`,
+`Published N order.completed events` and no `Demo telemetry` warning. Seed close to the day you
+need it: the history ends at seed time, and the suggestions "hot" list only covers about the last
+38 hours.
+
 ## Orders and QR codes
 
 An order's `stops` are the `qr_code` texts of the positions the stock will be taken from, in
@@ -70,7 +98,8 @@ The warehouse has ONE zone (`A`) with ONE line (`1`) and SIX positions: `PA1`, `
 `WH2|PA1` ... `WH2|PA3` and `WH2|PM1` ... `WH2|PM3`: the prefix `WH_QR_PREFIX` (default `WH2|`)
 followed by the position name. The backend creates exactly this on the first boot of an empty
 database (`DataInitializer`, six empty positions), with or without `SEED_DEMO`; the demo seed then
-fills the same six positions with products and stock instead of adding more. So **a freshly seeded
+fills the same six positions with products and stock instead of adding more (which products depends
+on `SEED_PROFILE`, see `docs/demo-credentials.md`). So **a freshly seeded
 server already carries the codes Infra knows and nothing needs reassigning**. The texts printed in
 the real warehouse and known by Infra remain the source of truth: if they ever differ (another
 prefix, a renamed position), set `WH_QR_PREFIX` before the first boot or reassign as below. Seeding

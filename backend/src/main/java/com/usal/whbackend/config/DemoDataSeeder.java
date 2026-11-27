@@ -11,6 +11,7 @@ import com.usal.whbackend.repository.UserRepository;
 import com.usal.whbackend.repository.VehicleRepository;
 import com.usal.whbackend.repository.ZoneRepository;
 import java.util.List;
+import java.util.Locale;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -118,7 +119,7 @@ public class DemoDataSeeder implements ApplicationRunner {
     }
 
     long startedNanos = System.nanoTime();
-    log.info("Seeding the {} demo profile.", profile);
+    log.info("Seed profile: {}", profile.name().toLowerCase(Locale.ROOT));
     DemoData data = new DemoDataset(passwordEncoder::encode, qrPrefix, profile).build();
 
     // Persist in dependency order. Ids are already wired in the dataset, so no back-patching; the

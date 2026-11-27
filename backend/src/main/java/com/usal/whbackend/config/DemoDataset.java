@@ -36,6 +36,9 @@ import java.util.function.UnaryOperator;
  * <p>The warehouse is the real one (see {@link WarehouseLayout}): one zone, one line, six
  * positions, each holding one product; the other catalogue products are registered without stock.
  *
+ * <p>With {@link SeedProfile#DEMO} the catalogue, positions and rovers come from {@link ShelfData}
+ * instead: three products, all stocked.
+ *
  * <p>Stock is produced causally: initial inbound stock is placed into positions, then COMPLETED
  * orders draw it down FIFO (oldest position first, mirroring {@code StockDrainService}) — without
  * publishing any events. PENDING/IN_PROGRESS orders are left to be counted as reserved by the app.

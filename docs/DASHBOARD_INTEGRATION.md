@@ -601,25 +601,37 @@ rovers y dejen el resto del dashboard vivo.
 ## 8. Datos de demo
 
 Levantando el stack con `SEED_DEMO=true` sobre una base vacía obtienen **2 años de historia**
-simulada día por día (detalle en `docs/RFC_Metricas_Calculadas.md` §7):
+simulada día por día (detalle en `docs/RFC_Metricas_Calculadas.md` §7). `SEED_PROFILE` elige cuál:
 
-- 13 usuarios, 24 productos, 35 posiciones, 6 rovers
-- **≈ 57.000 órdenes** (entre 20 y 300 por día) con horario laboral, ciclo semanal (domingo ~35%
-  de un día hábil), estacionalidad anual por categoría (pico en noviembre y diciembre, valle en
-  enero y febrero), picos de Hot Sale, Black Friday, Cyber Monday y Navidad, promociones por
-  producto y ≈ 15% de crecimiento interanual. Incluye las 4 prioridades y cancelaciones (del
-  cliente y por falta de stock).
-- **≈ 2.000 pedidos de reposición y ≈ 2.300 recepciones** que siguen a la demanda (un comprador
-  simulado repone cada día hábil con la misma fórmula del cron). El stock cierra:
-  físico = recepciones ubicadas − ítems despachados.
-- Estado final con los tres casos del análisis de reposición (a reponer, cubierto por lo que viene
-  en camino, sano). La primera corrida de `restock-cron` los deja en `product.restock`.
-- **2 años de historial de flota** cada 30 minutos.
+| | `full` (por defecto) | `demo` (el depósito real) |
+|---|---|---|
+| Productos | 20 (6 con posición) | 3: `CIN-001`, `CUR-001`, `GOT-001` |
+| Posiciones | 6 | 6 (PA1–PA3 ocupadas, PM1–PM3 vacías) |
+| Rovers | 6 simulados | los 3 reales (`VHC-000`, `VHC-005`, `VHC-007`) |
+| Órdenes | ≈ 25.000 | ≈ 57.000 |
+| Líneas de orden | ≈ 50.000 | ≈ 87.000 |
+| Pedidos de reposición / recepciones | ≈ 1.000 / 1.100 | ≈ 300 / 330 |
+| Stock de hoy | armado para mostrar los tres casos de reposición | el conteo físico: 4 / 9 / 5, mínimo 1 |
+| Órdenes abiertas al sembrar | sí (`PENDING`, `IN_PROGRESS`) | ninguna |
 
-Ese último punto importa: el almacén de métricas no tiene backfill, así que sin la semilla los
-gráficos de rovers arrancarían vacíos. Con ella tienen datos para graficar desde el minuto cero,
-incluyendo un rover parado todo el año y otro que falla periódicamente con categorías de falla
-variadas, para que "rovers activos", MTBF/MTTR y el Pareto por categoría muestren algo real.
+Los dos tienen 13 usuarios, 1 zona, 1 línea, horario laboral, ciclo semanal (domingo ~35% de un día
+hábil), estacionalidad mensual (pico en noviembre y diciembre, valle en enero y febrero), picos de
+Hot Sale, Black Friday, Cyber Monday y Navidad, ≈ 15% de crecimiento interanual, las 4 prioridades,
+cancelaciones (del cliente y por falta de stock) y recepciones que siguen a la demanda. El stock
+cierra: físico = recepciones ubicadas − ítems despachados. **2 años de historial de flota** cada 30
+minutos: el almacén de métricas no tiene backfill, así que sin la semilla los gráficos de rovers
+arrancarían vacíos.
+
+Diferencias que conviene saber al leer los gráficos:
+
+- **`full`** suma estacionalidad por categoría y promociones por producto. La primera corrida de
+  `restock-cron` deja los tres casos (a reponer, cubierto por lo que viene en camino, sano). Un rover
+  está parado todo el año y otro falla periódicamente con categorías variadas.
+- **`demo`** reparte la demanda entre los tres productos con proporciones fijas (así las
+  sugerencias entre ellos tienen un orden estable). Con tan poco stock en estantería ninguno está
+  "sano": `CUR-001` figura cubierto por una compra en camino y los otros dos a reponer. Ningún rover
+  está parado todo el año; `VHC-007` es el que falla. Los `vehicle_id` son los UUID que ya reportan
+  los rovers reales, y hasta que llegue telemetría en vivo figuran `OFFLINE`.
 
 Todas las cuentas usan `Demo1234!`.
 
