@@ -79,7 +79,7 @@ fixed `processed:` prefix, like the other key builders in `store/keys.go`.
 The demo seeder (`SEED_DEMO=true`, a fresh database only) inserts about 25 000 orders straight into
 MongoDB (about 57 000 with `SEED_PROFILE=demo`), which announces nothing. Right after the inserts
 `DemoOrderEventPublisher` publishes one `order.completed` for every seeded COMPLETED order (about
-22 800, or 53 700 with `demo`), so the model holds exactly the orders MongoDB holds.
+22 800, or 54 000 with `demo`), so the model holds exactly the orders MongoDB holds.
 
 With `demo` there are only three SKUs, so a cart gets at most two suggestions and the orders are
 drawn from fixed baskets that keep their ranking stable: with `CUR-001` in the cart, `GOT-001` first

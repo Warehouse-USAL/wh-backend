@@ -610,7 +610,7 @@ simulada día por día (detalle en `docs/RFC_Metricas_Calculadas.md` §7). `SEED
 | Rovers | 6 simulados | los 3 reales (`VHC-000`, `VHC-005`, `VHC-007`) |
 | Órdenes | ≈ 25.000 | ≈ 57.000 |
 | Líneas de orden | ≈ 50.000 | ≈ 87.000 |
-| Pedidos de reposición / recepciones | ≈ 1.000 / 1.100 | ≈ 300 / 330 |
+| Pedidos de reposición / recepciones | ≈ 1.000 / 1.100 | ≈ 420 / 460 |
 | Stock de hoy | armado para mostrar los tres casos de reposición | el conteo físico: 4 / 9 / 5, mínimo 1 |
 | Órdenes abiertas al sembrar | sí (`PENDING`, `IN_PROGRESS`) | ninguna |
 
@@ -629,8 +629,9 @@ Diferencias que conviene saber al leer los gráficos:
   está parado todo el año y otro falla periódicamente con categorías variadas.
 - **`demo`** reparte la demanda entre los tres productos con proporciones fijas (así las
   sugerencias entre ellos tienen un orden estable). Con tan poco stock en estantería ninguno está
-  "sano": `CUR-001` figura cubierto por una compra en camino y los otros dos a reponer. Ningún rover
-  está parado todo el año; `VHC-007` es el que falla. Los `vehicle_id` son los UUID que ya reportan
+  "sano": `CUR-001` figura cubierto por una compra en camino y los otros dos a reponer. Antes de Hot Sale,
+  Black Friday y Navidad el comprador llena las estanterías, así que ahí las recepciones suben. Ningún
+  rover está parado todo el año; `VHC-007` es el que falla. Los `vehicle_id` son los UUID que ya reportan
   los rovers reales, y hasta que llegue telemetría en vivo figuran `OFFLINE`.
 
 Todas las cuentas usan `Demo1234!`.
