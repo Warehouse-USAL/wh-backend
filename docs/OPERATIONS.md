@@ -53,31 +53,32 @@ If compose or config changed between releases, also check the checkout out at th
 
 ## Switching a seeded server to another seed profile
 
-The seed only runs on an empty database, so changing `SEED_PROFILE` on a running server does
-nothing. Switching **destroys** the data: products, warehouse zones and positions added by hand,
-orders, and the collected telemetry. Agree on it first.
+A one-time manual step: the seed only runs on an empty database, and the Deploy workflow never
+edits `.env` or removes data. It **destroys** everything in MongoDB (products, orders, positions
+added by hand, **user accounts created by hand**), the suggestions model, the telemetry and the
+Kafka events, so agree on it first.
 
 ```sh
-cd /opt/wh/wh-backend
-# 1. Back up MongoDB (restore with `mongorestore --archive --gzip`).
+cd /opt/wh/wh-backend   # checked out at a release that has the seed profiles
+# 1. In .env: SEED_DEMO=true, SEED_PROFILE=demo, and WH_IMAGE_TAG removed or set to that release.
+# 2. Back up MongoDB, and check the file is not empty before going on.
 docker exec wh-backend-mongodb-1 sh -c 'mongodump --archive --gzip -u "$MONGO_INITDB_ROOT_USERNAME" \
   -p "$MONGO_INITDB_ROOT_PASSWORD" --authenticationDatabase admin' > ~/wh-backup-$(date +%F).gz
-# 2. In .env: SEED_DEMO=true, SEED_PROFILE=demo, and WH_IMAGE_TAG set to a release that has the
-#    profile (the auto-deploy never edits WH_IMAGE_TAG).
-# 3. Stop the stack and drop the three stores that hold history. All three: leave the metrics store
-#    and the telemetry seed is skipped; leave suggestions Redis and it keeps the old products.
+ls -lh ~/wh-backup-*.gz
+# 3. Stop everything and drop the four data volumes.
 docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile infra down
-docker volume ls | grep wh-backend       # check the names before removing
-docker volume rm wh-backend_mongo_data wh-backend_suggestions_redis_data wh-backend_victoriametrics_data
-# 4. Start the stores first, so the seed finds the metrics store up, then everything else.
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d mongodb mongo-init redpanda minio victoriametrics
-make up-prod && make deploy
+docker volume rm wh-backend_mongo_data wh-backend_suggestions_redis_data \
+  wh-backend_victoriametrics_data wh-backend_redpanda_data
+# 4. Stores first (the seed needs the replica set and the metrics store), then the release.
+#    Not `make up-prod`: it starts the image already on the machine and would seed the old dataset.
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --wait mongodb redpanda minio victoriametrics
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up mongo-init
+make deploy
 ```
 
-Check the backend log for `Seed profile: demo`, `Seeded demo data: ... 3 products`,
-`Published N order.completed events` and no `Demo telemetry` warning. Seed close to the day you
-need it: the history ends at seed time, and the suggestions "hot" list only covers about the last
-38 hours.
+Then check the backend log for `Seed profile: demo`, `Seeded demo data: ... 3 products` and
+`Published N order.completed events`. Seed close to the day you need it: the history ends at seed
+time, and the suggestions "hot" list only covers about the last 38 hours.
 
 ## Orders and QR codes
 

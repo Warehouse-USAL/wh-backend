@@ -8,6 +8,8 @@ import com.usal.whbackend.domain.OrderStatus;
 import com.usal.whbackend.domain.Position;
 import com.usal.whbackend.domain.Reception;
 import com.usal.whbackend.domain.RestockOrder;
+import com.usal.whbackend.service.metrics.conversion.Granularity;
+import com.usal.whbackend.service.metrics.conversion.SuggestionConversion;
 import com.usal.whbackend.service.metrics.restock.RestockFormula;
 import com.usal.whbackend.service.metrics.restock.RestockInputs;
 import com.usal.whbackend.service.metrics.restock.RestockResult;
@@ -330,5 +332,49 @@ class DemoProfileHistoryTest {
         .extracting(Order::getAssignedVehicleId)
         .filteredOn(id -> id != null)
         .containsOnly(data.getVehicles().stream().map(v -> v.getId()).toArray(String[]::new));
+  }
+
+  /** What the full profile guarantees the dashboard, checked for this one too. */
+  @ParameterizedTest
+  @ValueSource(
+      strings = {
+        EVENING,
+        FIRST_OF_MONTH_AT_ONE,
+        AFTER_BLACK_FRIDAY,
+        HOT_SALE_EMPTIED_EVERY_SHELF,
+        HOT_SALE_EMPTIED_THEM_AGAIN
+      })
+  void everyDayHasTimedCompletedOrdersAndAnAdoptionRateThatGrows(String now) {
+    DemoData data = at(now);
+    LocalDate today = day(Instant.parse(now));
+
+    assertThat(completed(data))
+        .allSatisfy(
+            o -> {
+              assertThat(o.getStartedAt()).isNotNull();
+              assertThat(o.getCompletedAt()).isNotNull();
+              assertThat(o.getAssignedVehicleId()).isNotNull();
+            });
+
+    var days =
+        SuggestionConversion.compute(
+            data.getOrders(),
+            null,
+            DemoHistory.ZONE,
+            Granularity.DAY,
+            today.minusDays(730),
+            today.minusDays(1));
+    assertThat(days).hasSize(730);
+    assertThat(days)
+        .allSatisfy(d -> assertThat(d.linesFromRecommendation()).as(d.bucket()).isPositive());
+    double early =
+        days.subList(0, 180).stream().mapToDouble(d -> d.lineConversionRate()).average().orElse(0);
+    double late =
+        days.subList(550, 730).stream()
+            .mapToDouble(d -> d.lineConversionRate())
+            .average()
+            .orElse(0);
+    assertThat(early).isBetween(0.02, 0.15);
+    assertThat(late).isBetween(0.15, 0.45).isGreaterThan(early * 2);
   }
 }
