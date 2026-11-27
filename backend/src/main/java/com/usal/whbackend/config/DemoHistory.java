@@ -47,6 +47,10 @@ import java.util.Set;
  * <p>The end state is then shaped so the restock metric shows every case with the demo params —
  * restock now, covered by stock in transit, healthy — through ordinary ledger events (a large
  * customer order, a fresh purchase order, a top-up delivery), never by editing stock directly.
+ *
+ * <p>A {@link Shape} with a target stock (the {@code demo} seed profile) ends differently: every
+ * order is already closed, and the shelves hold exactly the given units, reached by trimming the
+ * most recent deliveries (see {@code shapeShelves}).
  */
 final class DemoHistory {
 
@@ -68,8 +72,34 @@ final class DemoHistory {
 
   record Result(List<Order> orders, List<RestockOrder> restockOrders, List<Reception> receptions) {}
 
+  /** Products bought together in one order, and how often relative to the other baskets. */
+  record Basket(List<String> skus, int weight) {}
+
+  /**
+   * What differs between seed profiles. {@link #FULL} is the original behaviour, random call for
+   * random call.
+   *
+   * @param ordersPerDay orders of a day before the weekly, seasonal, spike and growth factors
+   * @param firstSellable index of the first product that sells and is restocked
+   * @param baskets fixed baskets orders are drawn from; empty means weighted picking
+   * @param targetStock sku to units on the shelf at seed time; empty means the shaped restock cases
+   * @param coveredSku with a target stock, the product left covered by a purchase in transit
+   */
+  record Shape(
+      int ordersPerDay,
+      int firstSellable,
+      List<Basket> baskets,
+      Map<String, Integer> targetStock,
+      String coveredSku) {
+
+    static final Shape FULL = new Shape(30, 1, List.of(), Map.of(), null);
+
+    boolean fixedShelves() {
+      return !targetStock.isEmpty();
+    }
+  }
+
   private static final long SEED = 20_261_004L;
-  private static final int BASE_ORDERS_PER_DAY = 30;
   // Share of order lines taken from a suggestion at the start and at the end of the history.
   private static final double FIRST_ADOPTION = 0.04;
   private static final double LAST_ADOPTION = 0.26;
@@ -82,6 +112,10 @@ final class DemoHistory {
   // Products whose positions hold at least this many units sell at full popularity.
   private static final double FULL_DEMAND_CAPACITY = 400.0;
   private static final String STOCKOUT = "Stock insuficiente";
+  // With fixed shelves nothing is left open, so an order placed shortly before the seed has
+  // already shipped: picked up after five minutes and delivered after twenty.
+  private static final java.time.Duration RECENT_PICKUP = java.time.Duration.ofMinutes(5);
+  private static final java.time.Duration RECENT_CYCLE = java.time.Duration.ofMinutes(20);
   // The longest created → completed span DemoDataset gives a completed order (up to 4h to start,
   // up to 6h to deliver): an order more recent than this cannot have completed yet.
   private static final java.time.Duration MAX_CYCLE = java.time.Duration.ofHours(10);
@@ -109,6 +143,7 @@ final class DemoHistory {
   private final Map<String, List<Position>> positionsByProduct;
   private final List<Vehicle> vehicles;
   private final OrderMaker maker;
+  private final Shape shape;
   private final Random random = new Random(SEED);
 
   private final int[] stock;
@@ -127,6 +162,8 @@ final class DemoHistory {
   private final Map<Integer, List<Delivery>> deliveriesByDay = new HashMap<>();
   private final Map<String, Integer> receptionsPerProduct = new HashMap<>();
   private int orderNumber;
+  private int restockNumber;
+  private int receptionNumber;
 
   /** A purchase order still expecting units. */
   private static final class OpenOrder {
@@ -151,7 +188,9 @@ final class DemoHistory {
       List<Product> products,
       List<Position> positions,
       List<Vehicle> vehicles,
-      OrderMaker maker) {
+      OrderMaker maker,
+      Shape shape) {
+    this.shape = shape;
     this.now = now;
     this.today = LocalDate.ofInstant(now, ZONE);
     this.policy = policy;
@@ -213,7 +252,11 @@ final class DemoHistory {
       }
     }
     processOrders(0, nearTermByDay.getOrDefault(0, List.of()));
-    shapeEndState();
+    if (shape.fixedShelves()) {
+      shapeShelves();
+    } else {
+      shapeEndState();
+    }
     markRecommendedLines();
     return new Result(orders, restockOrders, receptions);
   }
@@ -291,7 +334,9 @@ final class DemoHistory {
 
   private void openingStock() {
     for (int i = 0; i < products.size(); i++) {
-      int qty = i == 0 ? NEVER_ORDERED_STOCK : Math.min(OPENING_STOCK, capacity[i]);
+      // Shelves sell fast from day one, before any purchase can arrive: they start full.
+      int opening = shape.fixedShelves() ? capacity[i] : Math.min(OPENING_STOCK, capacity[i]);
+      int qty = i < shape.firstSellable() ? NEVER_ORDERED_STOCK : opening;
       receive(i, null, qty, at(HISTORY_DAYS + 1, 7, 0));
     }
   }
@@ -308,7 +353,7 @@ final class DemoHistory {
     int count = receptionsPerProduct.merge(p.getId(), 1, Integer::sum);
     Position host = hosts.get(count % hosts.size());
     Reception r = new Reception();
-    r.setId(String.format("rec-%05d", receptions.size() + 1));
+    r.setId(String.format("rec-%05d", ++receptionNumber));
     r.setRestockOrderId(from == null ? null : from.order.getId());
     r.setProductId(p.getId());
     r.setQuantityReceived(qty);
@@ -331,14 +376,18 @@ final class DemoHistory {
   private void processOrders(int d, List<Order> fixed) {
     List<Intent> day = new ArrayList<>();
     // Today only up to now: nothing is seeded in the future.
-    intents(d).stream().filter(i -> i.created().isBefore(now)).forEach(day::add);
+    Instant latest = shape.fixedShelves() ? now.minus(RECENT_CYCLE) : now;
+    intents(d).stream().filter(i -> i.created().isBefore(latest)).forEach(day::add);
     fixed.forEach(o -> day.add(new Intent(o.getCreatedAt(), o.getItems(), o)));
     day.sort(Comparator.comparing(Intent::created));
-    for (Intent intent : day) {
+    for (int k = 0; k < day.size(); k++) {
+      Intent intent = day.get(k);
       if (intent.fixed() != null) {
         applyFixed(intent.fixed(), d);
       } else {
-        decide(intent, d);
+        // Without stockouts to rely on, a quiet day could end with no cancellation at all and
+        // leave a gap in the cancellation chart, so one of each day's orders is always cancelled.
+        decide(intent, d, shape.fixedShelves() && k == day.size() / 2);
       }
     }
   }
@@ -347,7 +396,7 @@ final class DemoHistory {
     LocalDate date = dateOf(d);
     double growth = 1 + YEARLY_GROWTH * (HISTORY_DAYS - d) / 365.0;
     double expected =
-        BASE_ORDERS_PER_DAY
+        shape.ordersPerDay()
             * WEEKLY[date.getDayOfWeek().getValue() - 1]
             * MONTHLY[date.getMonthValue() - 1]
             * growth
@@ -357,7 +406,7 @@ final class DemoHistory {
 
     double[] weights = new double[products.size()];
     double total = 0;
-    for (int i = 1; i < products.size(); i++) {
+    for (int i = shape.firstSellable(); i < products.size(); i++) {
       Product p = products.get(i);
       weights[i] =
           popularity[i]
@@ -369,7 +418,8 @@ final class DemoHistory {
     List<Intent> result = new ArrayList<>(count);
     for (int k = 0; k < count; k++) {
       Instant created = at(d, FIRST_HOUR + weightedHour(HOUR_WEIGHTS.length), random.nextInt(60));
-      result.add(new Intent(created, items(weights, total), null));
+      List<OrderItem> items = shape.baskets().isEmpty() ? items(weights, total) : basketItems();
+      result.add(new Intent(created, items, null));
     }
     return result;
   }
@@ -411,9 +461,28 @@ final class DemoHistory {
     return items;
   }
 
-  private void decide(Intent intent, int d) {
+  private List<OrderItem> basketItems() {
+    int pick = random.nextInt(shape.baskets().stream().mapToInt(Basket::weight).sum());
+    Basket basket = shape.baskets().get(0);
+    for (Basket candidate : shape.baskets()) {
+      basket = candidate;
+      pick -= candidate.weight();
+      if (pick < 0) {
+        break;
+      }
+    }
+    List<OrderItem> items = new ArrayList<>(basket.skus().size());
+    for (String sku : basket.skus()) {
+      Product p = products.stream().filter(c -> c.getSku().equals(sku)).findFirst().orElseThrow();
+      int qty = Math.min(1 + random.nextInt(2), p.getMaxQuantityPerOrder());
+      items.add(new OrderItem(p.getId(), p.getSku(), qty));
+    }
+    return items;
+  }
+
+  private void decide(Intent intent, int d, boolean cancel) {
     int n = ++orderNumber;
-    if (random.nextDouble() < CUSTOMER_CANCEL_RATE) {
+    if (random.nextDouble() < CUSTOMER_CANCEL_RATE || cancel) {
       orders.add(
           maker.make(
               n,
@@ -432,7 +501,8 @@ final class DemoHistory {
           maker.make(n, OrderStatus.CANCELLED, intent.items(), null, intent.created(), STOCKOUT));
       return;
     }
-    if (intent.created().plus(MAX_CYCLE).isAfter(now)) {
+    boolean tooRecent = intent.created().plus(MAX_CYCLE).isAfter(now);
+    if (tooRecent && !shape.fixedShelves()) {
       // Too recent to have shipped by now: still waiting, holding its units.
       for (OrderItem item : intent.items()) {
         int idx = indexById.get(item.getProductId());
@@ -447,14 +517,19 @@ final class DemoHistory {
       stock[idx] -= item.getQuantity();
       units[idx][d] += item.getQuantity();
     }
-    orders.add(
+    Order order =
         maker.make(
             n,
             OrderStatus.COMPLETED,
             intent.items(),
             vehicles.get(n % vehicles.size()),
             intent.created(),
-            null));
+            null);
+    if (tooRecent) {
+      order.setStartedAt(intent.created().plus(RECENT_PICKUP));
+      order.setCompletedAt(intent.created().plus(RECENT_CYCLE));
+    }
+    orders.add(order);
   }
 
   private void applyFixed(Order o, int d) {
@@ -493,7 +568,7 @@ final class DemoHistory {
   // ── The buyer ────────────────────────────────────────────────────────────────
 
   private void review(int d) {
-    for (int i = 1; i < products.size(); i++) {
+    for (int i = shape.firstSellable(); i < products.size(); i++) {
       RestockResult r = formula(i, d, onOrder(i));
       if (!r.shouldRestock()) {
         continue;
@@ -539,7 +614,7 @@ final class DemoHistory {
   private OpenOrder purchase(int i, int qty, Instant when, int d) {
     Product p = products.get(i);
     RestockOrder ro = new RestockOrder();
-    ro.setId(String.format("ro-%05d", restockOrders.size() + 1));
+    ro.setId(String.format("ro-%05d", ++restockNumber));
     ro.setProductId(p.getId());
     ro.setQuantityRequested(qty);
     ro.setSupplier(SUPPLIERS[(i + restockOrders.size()) % SUPPLIERS.length]);
@@ -630,14 +705,129 @@ final class DemoHistory {
 
   // ── End state ────────────────────────────────────────────────────────────────
 
-  private void shapeEndState() {
-    // Whatever is still in transit lands this morning, so only the orders placed below are open.
+  /** Whatever is still in transit lands now, so only purchases placed afterwards are open. */
+  private void receiveEverythingInTransit() {
     for (OpenOrder o : open) {
       if (o.remaining > 0) {
         receive(o.productIdx, o, o.remaining, now.minus(1, ChronoUnit.HOURS));
       }
     }
     open.clear();
+  }
+
+  /**
+   * Leaves each product with exactly {@link Shape#targetStock} units. Nothing is edited out of the
+   * ledger's reach: a surplus is taken off the most recent deliveries (and their purchase orders),
+   * a shortfall arrives as one more delivery, and the covered product gets a purchase in transit.
+   * No order changes, so the order charts have no artificial spike or hole.
+   */
+  private void shapeShelves() {
+    receiveEverythingInTransit();
+    for (int i = 0; i < products.size(); i++) {
+      int target = shape.targetStock().get(products.get(i).getSku());
+      // First leave a fifth of every delivery, so recent ones shrink rather than vanish.
+      trimDeliveries(i, target, 5);
+      trimDeliveries(i, target, 0);
+      if (stock[i] < target) {
+        receive(i, null, target - stock[i], now.minus(1, ChronoUnit.HOURS));
+      }
+    }
+    for (int i = 0; i < products.size(); i++) {
+      if (products.get(i).getSku().equals(shape.coveredSku())) {
+        RestockResult r = endFormula(i, demand(), 0);
+        int qty = (int) Math.ceil(r.targetStock()) - available(i);
+        if (qty > 0) {
+          purchase(i, qty, now.minus(1, ChronoUnit.DAYS), 0);
+        }
+      }
+    }
+    placeStock();
+  }
+
+  /** A change of stock: a delivery ({@code reception} set) or a shipped order line. */
+  private record Move(Instant when, int units, Reception reception) {}
+
+  /**
+   * Removes up to {@code stock - target} units from product {@code i}'s deliveries, newest first,
+   * never taking more than the lowest stock level reached from that delivery on — so the shelf is
+   * never negative at any past moment. Each delivery keeps at least {@code 1/keepFraction} of its
+   * units; {@code 0} lets it be removed altogether.
+   */
+  private void trimDeliveries(int i, int target, int keepFraction) {
+    int surplus = stock[i] - target;
+    if (surplus <= 0) {
+      return;
+    }
+    List<Move> moves = movesOf(products.get(i).getId());
+    int[] level = new int[moves.size()];
+    int running = 0;
+    for (int k = 0; k < moves.size(); k++) {
+      running += moves.get(k).units();
+      level[k] = running;
+    }
+    int lowest = Integer.MAX_VALUE;
+    for (int k = moves.size() - 1; k >= 0 && surplus > 0; k--) {
+      lowest = Math.min(lowest, level[k]);
+      Reception reception = moves.get(k).reception();
+      if (reception == null) {
+        continue;
+      }
+      int quantity = reception.getQuantityReceived();
+      int keep = keepFraction == 0 ? 0 : Math.max(1, quantity / keepFraction);
+      int cut = Math.min(Math.min(quantity - keep, surplus), lowest);
+      if (cut <= 0) {
+        continue;
+      }
+      shrink(reception, cut);
+      stock[i] -= cut;
+      surplus -= cut;
+      lowest -= cut;
+    }
+  }
+
+  private List<Move> movesOf(String productId) {
+    List<Move> moves = new ArrayList<>();
+    for (Reception r : receptions) {
+      if (r.getProductId().equals(productId)) {
+        moves.add(new Move(r.getCreatedAt(), r.getQuantityReceived(), r));
+      }
+    }
+    for (Order o : orders) {
+      if (o.getStatus() != OrderStatus.COMPLETED) {
+        continue;
+      }
+      for (OrderItem item : o.getItems()) {
+        if (item.getProductId().equals(productId)) {
+          moves.add(new Move(o.getCreatedAt(), -item.getQuantity(), null));
+        }
+      }
+    }
+    moves.sort(Comparator.comparing(Move::when));
+    return moves;
+  }
+
+  private void shrink(Reception reception, int cut) {
+    int left = reception.getQuantityReceived() - cut;
+    String orderId = reception.getRestockOrderId();
+    if (orderId != null) {
+      RestockOrder order =
+          restockOrders.stream().filter(ro -> ro.getId().equals(orderId)).findFirst().orElseThrow();
+      order.setQuantityRequested(order.getQuantityRequested() - cut);
+      if (order.getQuantityRequested() == 0) {
+        restockOrders.remove(order);
+      }
+    }
+    if (left == 0) {
+      receptions.remove(reception);
+      return;
+    }
+    reception.setQuantityReceived(left);
+    reception.setAssignments(
+        List.of(new Reception.Assignment(reception.getAssignments().get(0).getPositionId(), left)));
+  }
+
+  private void shapeEndState() {
+    receiveEverythingInTransit();
 
     // Open orders hold their units: a product whose reservations outgrew its stock got an urgent
     // delivery this morning, so available stock is never negative.

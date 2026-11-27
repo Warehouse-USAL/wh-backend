@@ -129,12 +129,10 @@ public final class DemoDataset {
     List<Position> positions = new ArrayList<>();
     buildWarehouse(products, zones, lines, positions);
     List<Vehicle> vehicles = buildVehicles();
-    if (profile == SeedProfile.DEMO) {
-      return new DemoData(
-          users, products, zones, lines, positions, vehicles, List.of(), List.of(), List.of());
-    }
     List<Product> stocked = stockedProducts(products);
-    List<Order> nearTerm = buildOrders(users, stocked, vehicles);
+    boolean demo = profile == SeedProfile.DEMO;
+    // The demo profile leaves nothing open, so it has no hand-made recent orders.
+    List<Order> nearTerm = demo ? List.of() : buildOrders(users, stocked, vehicles);
     DemoHistory.Result history =
         new DemoHistory(
                 now,
@@ -143,7 +141,15 @@ public final class DemoDataset {
                 positions,
                 vehicles,
                 (n, status, items, vehicle, created, reason) ->
-                    orderWithItems(n, status, users, items, vehicle, created, reason))
+                    orderWithItems(
+                        n,
+                        status,
+                        demo ? ShelfData.accountsAllowedToBuy(users, items) : users,
+                        items,
+                        vehicle,
+                        created,
+                        reason),
+                demo ? ShelfData.SHAPE : DemoHistory.Shape.FULL)
             .simulate(nearTerm, nearTerm.size());
     return new DemoData(
         users,

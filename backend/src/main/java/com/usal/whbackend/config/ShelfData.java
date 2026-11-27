@@ -1,9 +1,12 @@
 package com.usal.whbackend.config;
 
+import com.usal.whbackend.domain.OrderItem;
 import com.usal.whbackend.domain.ProductCategory;
 import com.usal.whbackend.domain.StockSize;
+import com.usal.whbackend.domain.User;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * What only the {@code demo} seed profile knows: the three products physically on the shelves of
@@ -76,6 +79,51 @@ final class ShelfData {
 
   /** Infra's codes of the three rovers on site; the backend ids derive from them. */
   static final List<String> INFRA_VEHICLES = List.of("VHC-000", "VHC-005", "VHC-007");
+
+  /**
+   * About 57,000 orders in two years. The basket weights make glue the best companion of plasters,
+   * cereal bar the second, and glue with cereal bar the rarest pair (the suggestions service ranks
+   * by {@code cooccur / sqrt(count * count)}).
+   */
+  static final DemoHistory.Shape SHAPE =
+      new DemoHistory.Shape(
+          68,
+          0,
+          List.of(
+              basket(18, PLASTERS),
+              basket(14, GLUE),
+              basket(22, CEREAL_BAR),
+              basket(24, PLASTERS, GLUE),
+              basket(12, PLASTERS, CEREAL_BAR),
+              basket(4, GLUE, CEREAL_BAR),
+              basket(6, PLASTERS, GLUE, CEREAL_BAR)),
+          // The physical count on the shelves (2026-11-18).
+          Map.of(CEREAL_BAR, 4, PLASTERS, 9, GLUE, 5),
+          PLASTERS);
+
+  /**
+   * Accounts that only ever buy part of the catalogue. Per-user recommendations exclude what the
+   * user already bought, so with three products someone has to be missing one.
+   */
+  private static final Map<String, Set<String>> RESTRICTED_ACCOUNTS =
+      Map.of(
+          "u-operator-1", Set.of(PLASTERS, GLUE),
+          "u-operator-2", Set.of(PLASTERS, CEREAL_BAR),
+          "u-operator-3", Set.of(GLUE));
+
+  static List<User> accountsAllowedToBuy(List<User> users, List<OrderItem> items) {
+    return users.stream()
+        .filter(
+            u -> {
+              Set<String> allowed = RESTRICTED_ACCOUNTS.get(u.getId());
+              return allowed == null || items.stream().allMatch(i -> allowed.contains(i.getSku()));
+            })
+        .toList();
+  }
+
+  private static DemoHistory.Basket basket(int weight, String... skus) {
+    return new DemoHistory.Basket(List.of(skus), weight);
+  }
 
   private ShelfData() {}
 }
