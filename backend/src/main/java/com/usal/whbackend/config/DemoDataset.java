@@ -83,6 +83,7 @@ public final class DemoDataset {
   private final UnaryOperator<String> passwordHasher;
   private final Instant now;
   private final String qrPrefix;
+  private final SeedProfile profile;
   // The catalogue, warehouse and accounts predate the order history that references them.
   private final Instant catalogueEpoch;
 
@@ -95,12 +96,23 @@ public final class DemoDataset {
     this(passwordHasher, Instant.now(), qrPrefix);
   }
 
+  /** As above, for one of the seed profiles; the other constructors mean {@code FULL}. */
+  public DemoDataset(UnaryOperator<String> passwordHasher, String qrPrefix, SeedProfile profile) {
+    this(passwordHasher, Instant.now(), qrPrefix, profile);
+  }
+
   /** Anchors the whole dataset at {@code now}; tests use it to build the seed on any date. */
   DemoDataset(UnaryOperator<String> passwordHasher, Instant now) {
     this(passwordHasher, now, DEFAULT_QR_PREFIX);
   }
 
   DemoDataset(UnaryOperator<String> passwordHasher, Instant now, String qrPrefix) {
+    this(passwordHasher, now, qrPrefix, SeedProfile.FULL);
+  }
+
+  DemoDataset(
+      UnaryOperator<String> passwordHasher, Instant now, String qrPrefix, SeedProfile profile) {
+    this.profile = profile;
     this.passwordHasher = passwordHasher;
     this.now = now;
     this.qrPrefix = qrPrefixOrDefault(qrPrefix);
