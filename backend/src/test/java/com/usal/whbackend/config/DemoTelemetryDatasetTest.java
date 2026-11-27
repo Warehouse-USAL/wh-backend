@@ -245,4 +245,51 @@ class DemoTelemetryDatasetTest {
       assertThat(days.size()).isGreaterThanOrEqualTo(730);
     }
   }
+
+  /** The demo seed profile has only the three real rovers. */
+  @Test
+  void aThreeRoverFleetStillHasFailuresAndNoRoverParkedForTwoYears() {
+    List<SeriesData> all =
+        new DemoTelemetryDataset(
+                NOW,
+                "wh_vehicle_state",
+                "wh_vehicle_battery",
+                "wh_vehicle_transitions",
+                List.of("v-1", "v-2", "v-3"),
+                STATES,
+                FAULT_CATEGORIES)
+            .build();
+
+    for (String vehicle : List.of("v-1", "v-2", "v-3")) {
+      assertThat(named(all, "wh_vehicle_state"))
+          .filteredOn(
+              s ->
+                  vehicle.equals(s.labels().get("vehicle_id"))
+                      && "BUSY".equals(s.labels().get("state")))
+          .singleElement()
+          .satisfies(s -> assertThat(s.values()).contains(1.0));
+    }
+
+    List<SeriesData> faults =
+        named(all, "wh_vehicle_transitions").stream()
+            .filter(s -> "OFFLINE".equals(s.labels().get("to")))
+            .toList();
+    assertThat(faults)
+        .isNotEmpty()
+        .allSatisfy(s -> assertThat(s.labels().get("vehicle_id")).isEqualTo("v-3"));
+    assertThat(faults).extracting(s -> s.labels().get("category")).containsAll(FAULT_CATEGORIES);
+    long days =
+        faults.stream()
+            .flatMap(
+                s ->
+                    java.util.stream.IntStream.range(1, s.values().size())
+                        .filter(i -> s.values().get(i) > s.values().get(i - 1))
+                        .mapToObj(
+                            i ->
+                                Instant.ofEpochMilli(s.timestampsMs().get(i))
+                                    .truncatedTo(java.time.temporal.ChronoUnit.DAYS)))
+            .distinct()
+            .count();
+    assertThat(days).isGreaterThanOrEqualTo(DemoTelemetryDataset.DAYS - 1);
+  }
 }
